@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Mindfries — Internal Admin Portal
+   Reuses the landing page "Bright Platform" design system:
+   light gray canvas, white rounded panels, heavy tight sans,
+   violet primary + coral secondary, mono uppercase eyebrows.
+   Adapted for dashboard density (sidebar, tables, status pills).
+   ============================================================ */
+
+@theme inline {
+  --color-bg: #e8e8ee;
+  --color-surface: #ffffff;
+  --color-surface-2: #f3f3f7;
+  --color-ink: #16171b;
+  --color-dim: #6b7280;
+  --color-faint: #a1a1ab;
+  --color-hair: rgba(20, 22, 30, 0.08);
+  --color-hair-bright: rgba(20, 22, 30, 0.16);
+  --color-accent: #7c3aed;
+  --color-accent-2: #f4502f;
+  --color-accent-soft: rgba(124, 58, 237, 0.09);
+  --color-on-accent: #ffffff;
+  --color-success: #15a34a;
+  --color-warning: #d97706;
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root { color-scheme: light; }
+* { border-color: var(--color-hair); }
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+}
+::selection { background: var(--color-accent); color: var(--color-on-accent); }
+
+/* Signature white rounded panel floating on the gray canvas */
+.panel {
+  background: var(--color-surface);
+  border-radius: 1.5rem;
+  box-shadow:
+    0 1px 2px rgba(20, 22, 30, 0.04),
+    0 24px 60px -20px rgba(20, 22, 30, 0.14);
+}
+
+/* Soft rounded content card */
+.hair-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-hair);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px rgba(20, 22, 30, 0.03), 0 12px 30px -14px rgba(20, 22, 30, 0.12);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+}
+.hair-card:hover {
+  border-color: var(--color-hair-bright);
+  box-shadow: 0 2px 6px rgba(20, 22, 30, 0.05), 0 22px 46px -16px rgba(20, 22, 30, 0.18);
+}
+
+/* Section index label — mono, uppercase, tracked */
+.eyebrow {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+.mono { font-family: var(--font-mono), ui-monospace, monospace; font-feature-settings: "tnum" 1; }
+
+/* Soft ambient violet/coral wash (login, empty states) */
+.ambient {
+  background:
+    radial-gradient(50rem 34rem at 50% -12%, rgba(124, 58, 237, 0.12), transparent 60%),
+    radial-gradient(38rem 30rem at 88% 8%, rgba(244, 80, 47, 0.07), transparent 55%);
+}
+
+/* Floating rounded-square app-icon tile with a color gradient */
+.tile {
+  border-radius: 1.15rem;
+  background: linear-gradient(150deg, var(--g1), var(--g2));
+  box-shadow: 0 10px 22px -8px var(--g2), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.tile-violet { --g1: #9b6bff; --g2: #7c3aed; }
+.tile-coral  { --g1: #ff7a5c; --g2: #f4502f; }
+
+.pulse-dot { animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot { animation: none !important; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
