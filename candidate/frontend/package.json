@@ -4,15 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/copy-monaco.js && node scripts/copy-file-icons.js && node scripts/copy-pyodide.js && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node scripts/copy-monaco.js && node scripts/copy-file-icons.js && node scripts/copy-pyodide.js"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "axios": "^1.20.0",
     "clsx": "^2.1.1",
+    "devicon": "^2.17.0",
     "lucide-react": "^1.34.0",
     "next": "16.3.3",
+    "pyodide": "^314.0.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "^3.6.0"
