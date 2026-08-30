@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/*
+ * Tailwind's automatic source detection wasn't picking up class names that
+ * live in plain .ts files (e.g. src/lib/ide/palette.ts) — only .tsx — so
+ * every `bg-[#...]` / `text-[#...]` token defined there silently never made
+ * it into the build. Spelling out the .ts glob explicitly closes that gap.
+ */
+@source "../lib/**/*.ts";
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -19,8 +27,18 @@
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+ * Wrapped in Tailwind's own `base` layer (rather than left as an unlayered
+ * rule) so it doesn't win the cascade over every Tailwind utility class
+ * regardless of specificity — that's how CSS cascade layers work, and an
+ * unlayered `body { color }` here was silently overriding every
+ * `text-[...]` utility in the app (only invisible in light mode by
+ * coincidence, since --foreground's light value happened to match).
+ */
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: Arial, Helvetica, sans-serif;
+  }
 }
