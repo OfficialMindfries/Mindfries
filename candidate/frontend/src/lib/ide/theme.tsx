@@ -49,7 +49,7 @@ export function IdeThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const bg = theme === "dark" ? "#1e1e1e" : "#ffffff";
+    const bg = theme === "dark" ? "#1A3D63" : "#F6FAFD";
     document.body.style.backgroundColor = bg;
     document.documentElement.style.backgroundColor = bg;
   }, [theme]);

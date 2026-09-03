@@ -61,7 +61,7 @@ export function EditorPanel({
               key={path}
               className={clsx(
                 "group flex shrink-0 cursor-pointer items-center gap-2 border-r px-3 text-sm",
-                isActive && "rounded-t-[4px]",
+                isActive && "rounded-t-lg",
                 palette.border,
                 isActive ? palette.tabActiveBg : palette.tabInactiveBg,
                 isActive ? palette.text : palette.textMuted
