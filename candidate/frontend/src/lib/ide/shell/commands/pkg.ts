@@ -262,8 +262,9 @@ export function npx(ctx: CommandContext): CommandResult {
  * place this differs from a real install.
  */
 function writePackageIntoTree(ctx: CommandContext, pkg: InstalledPackage): string | null {
-  // Scoped names ("@scope/pkg") need their parent directory created first.
-  const segments = [NODE_MODULES, ...pkg.name.split("/")];
+  // Relative to the directory you ran install in, like real npm — running
+  // it inside my-app must put node_modules there, not at the workspace root.
+  const segments = [...ctx.session.cwd, NODE_MODULES, ...pkg.name.split("/")];
   for (let i = 1; i <= segments.length; i++) {
     const dir = segments.slice(0, i).join("/");
     if (!nodeAt(ctx.vfs, segments.slice(0, i))) {
@@ -284,11 +285,11 @@ function writePackageIntoTree(ctx: CommandContext, pkg: InstalledPackage): strin
 
 /** Removes `node_modules/<name>`, and the scope directory if it's now empty. */
 function removePackageFromTree(ctx: CommandContext, name: string): void {
-  const segments = [NODE_MODULES, ...name.split("/")];
+  const segments = [...ctx.session.cwd, NODE_MODULES, ...name.split("/")];
   if (nodeAt(ctx.vfs, segments)) ctx.vfs.remove(segments.join("/"), true);
 
   if (name.startsWith("@")) {
-    const scope = segments.slice(0, 2);
+    const scope = segments.slice(0, ctx.session.cwd.length + 2);
     const node = nodeAt(ctx.vfs, scope);
     if (node && node !== "root" && node.type === "folder" && node.children.length === 0) {
       ctx.vfs.remove(scope.join("/"), true);
@@ -357,11 +358,49 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
   if (subcommand !== "install" && subcommand !== "i" && subcommand !== "add") {
     return fail(`npm: unknown command "${subcommand}"`, 127);
   }
-  if (packages.length === 0) return fail("npm install: missing package name");
+  // Bare `npm install` installs what package.json asks for, like the real thing.
+  let specs = packages;
+  if (specs.length === 0) {
+    const root = segmentsToPath(ctx.session.cwd);
+    const manifestPath = root ? `${root}/package.json` : "package.json";
+    const raw = readFile(ctx.vfs, manifestPath.split("/"));
+    if (raw === null) {
+      return fail(
+        `npm install: no package.json in ${root || "the workspace root"}\n` +
+          `Name a package to install one directly: npm install <pkg>`,
+        254
+      );
+    }
+
+    let parsed: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    try {
+      parsed = JSON.parse(raw) as typeof parsed;
+    } catch {
+      return fail(`npm install: ${manifestPath} is not valid JSON`);
+    }
+
+    specs = Object.keys(parsed.dependencies ?? {});
+    const devDeps = Object.keys(parsed.devDependencies ?? {});
+
+    if (specs.length === 0 && devDeps.length === 0) {
+      return ok("up to date — package.json lists no dependencies\n");
+    }
+    if (ctx.isTerminalSink && devDeps.length > 0) {
+      // These are build tools (vite, plugins, linters). They'd resolve from
+      // the registry but do nothing without a Node process to run them, so
+      // say that rather than installing something inert.
+      ctx.io.write(
+        `skipping ${devDeps.length} devDependencies (${devDeps.join(", ")}) — build tooling needs a Node process\r\n`
+      );
+    }
+    if (specs.length === 0) {
+      return ok("nothing to install — package.json only lists devDependencies\n");
+    }
+  }
 
   let stdout = "";
   let stderr = "";
-  for (const spec of packages) {
+  for (const spec of specs) {
     if (ctx.isTerminalSink) ctx.io.write(`resolving ${spec} from the npm registry...\r\n`);
 
     const { package: resolved, error } = await resolvePackage(spec);
@@ -385,7 +424,9 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
   saveManifest(manifest);
   if (stdout) {
     stdout +=
-      `\nadded to ${NODE_MODULES}/ — import by name from a .js/.ts file and run it with node, e.g.\n` +
+      `\nadded to ${
+        ctx.session.cwd.length > 0 ? `${segmentsToPath(ctx.session.cwd)}/${NODE_MODULES}` : NODE_MODULES
+      }/ — import by name from a .js/.ts file and run it with node, e.g.\n` +
       `  echo 'import x from "${Object.keys(manifest)[0] ?? "pkg"}"; console.log(x);' > app.js && node app.js\n`;
   }
   return { stdout, stderr, code: stderr ? 1 : 0 };
