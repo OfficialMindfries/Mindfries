@@ -402,6 +402,36 @@ Same gap as Phases 19–20: the terminal input automation drops keystrokes, so
 split. It's layout-only JSX (a flex row plus the existing resizable hook)
 that compiles, lints and builds; every piece it renders was verified earlier.
 
+## Phase 22 — Bare `npm install`, camera panel, sidebar footer
+
+- [x] **`npm install` with no arguments** reads the project's real
+      `package.json` and installs its `dependencies`. `devDependencies` are
+      skipped with a line saying why — they're build tooling (vite, plugins,
+      linters) that resolves fine but does nothing without a Node process, so
+      installing them would be inert weight
+- [x] **Fixed: `node_modules` ignored the current directory.** Installs always
+      wrote to the workspace root, so running `npm install` inside `my-app`
+      put nothing in `my-app` — which is exactly the "I didn't see
+      node_modules in the dir" report. It's now relative to the shell's cwd,
+      like real npm
+- [x] **Camera panel** in the terminal's right area, toggled from the video
+      icon beside the kill button. The camera is only requested when Start is
+      pressed — never on mount, never automatically after a reload — and the
+      stream is released on stop and on unmount, so the capture light doesn't
+      stay on. Permission denied / no camera / camera busy are reported
+      distinctly instead of showing a blank rectangle. Nothing is recorded or
+      transmitted; the stream is attached to a local `<video>` only
+- [x] **Explorer footer**: an AI help button and the signed-in candidate
+      (Rishi). AI help currently opens a note explaining it needs an API key
+      and a backend route — a button that looked wired up but silently did
+      nothing seemed worse than one that says what's missing
+
+### Verified
+7/7: bare install with no package.json explains itself; it reads
+dependencies from package.json; it skips devDependencies and says why;
+`node_modules` is created inside the project; no stray one at the workspace
+root; the packages are inside it; each gets a real `package.json`.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

@@ -9,6 +9,7 @@ import {
   FilePlus,
   FolderPlus,
   Pencil,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -135,6 +136,46 @@ export function FileExplorer({
             onCancel={() => setDraft(null)}
           />
         )}
+      </div>
+
+      <SidebarFooter theme={theme} />
+    </div>
+  );
+}
+
+/** AI help and the signed-in candidate, pinned to the bottom of the Explorer. */
+function SidebarFooter({ theme }: { theme: IdeTheme }) {
+  const palette = idePalette(theme);
+  const [showAiNote, setShowAiNote] = useState(false);
+
+  return (
+    <div className={clsx("shrink-0 border-t", palette.border)}>
+      {showAiNote && (
+        // Saying what it would need is more use than a button that looks
+        // wired up and silently does nothing.
+        <p className={clsx("px-3 py-2 text-[11px] leading-snug", palette.textMuted)}>
+          AI help isn&apos;t connected to a model yet — it needs an API key and a backend route
+          before it can answer anything.
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setShowAiNote((open) => !open)}
+        className={clsx("flex w-full items-center gap-2 px-3 py-2 text-xs", palette.hover, palette.text)}
+      >
+        <Sparkles size={14} className={palette.accent} />
+        AI help
+      </button>
+
+      <div className={clsx("flex items-center gap-2 border-t px-3 py-2", palette.border)}>
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#4A7FA7] text-[11px] font-semibold text-[#F6FAFD]">
+          R
+        </span>
+        <span className="min-w-0">
+          <span className={clsx("block truncate text-xs", palette.text)}>Rishi</span>
+          <span className={clsx("block truncate text-[10px]", palette.textMuted)}>Candidate</span>
+        </span>
       </div>
     </div>
   );
