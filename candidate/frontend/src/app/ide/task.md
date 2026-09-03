@@ -448,6 +448,38 @@ root; the packages are inside it; each gets a real `package.json`.
 Live in the browser: the button opens the panel, a typed question renders as
 a user bubble, and the assistant bubble returns the not-connected reply.
 
+## Phase 24 — Camera-proctored session
+
+The camera is now required for the whole session, with no off switch.
+
+- [x] `useProctorCamera` owns the stream above the panel that shows it, so
+      the feed survives layout changes and can't be detached by re-rendering
+- [x] `ProctorGate` blocks the entire workspace until the stream is live, and
+      **re-blocks** if it ever stops
+- [x] `CameraPanel` has no start/stop/close control and is always mounted,
+      with a steady "recording" indicator
+- [x] Distinct handling for blocked permission, no camera, and camera in use
+      by another app — each with the actual fix, not a generic failure
+
+### Two deliberate limits
+1. **Browser revocation can't be prevented, and isn't fought.** Permission can
+   always be withdrawn from site settings or the tab's camera control. When
+   that happens the track fires `ended`, and the IDE locks rather than
+   pretending it's still monitoring. Detecting via `ended` beats polling
+   permissions: it also covers unplugging and OS suspend.
+2. **The candidate is told before the prompt, not after.** The gate states
+   the session is proctored and that video stays on screen throughout.
+   Turning the camera on silently would have been the wrong build.
+
+### Verified
+Live in the browser: the gate blocks the workspace on load, the camera panel
+is permanently mounted with no off control, and a blocked permission shows
+the right message with a working retry while the workspace stays locked.
+
+**Not verified here:** the live path and mid-session revocation — the Browser
+pane blocks camera access outright, so no stream can be obtained in this
+environment. Both need a manual check with a real camera.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

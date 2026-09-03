@@ -10,6 +10,7 @@ import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
 import { PackageCleanupGuard } from "./PackageCleanupGuard";
 import { ChatPanel } from "./ChatPanel";
+import { ProctorGate } from "./ProctorGate";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -20,6 +21,7 @@ import { emptyNotebookJson } from "@/lib/ide/notebook";
 import { loadPersistedWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
 import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview/build-preview";
 import { useResizable } from "@/lib/ide/use-resizable";
+import { useProctorCamera } from "@/lib/ide/proctor-camera";
 
 export function IdeShell() {
   const { theme, toggleTheme } = useIdeTheme();
@@ -90,6 +92,9 @@ export function IdeShell() {
   const terminal = useResizable({ initial: 220, min: 100, max: 520, axis: "vertical", invert: true });
   const chatPane = useResizable({ initial: 320, min: 240, max: 560, axis: "horizontal", invert: true });
   const [chatOpen, setChatOpen] = useState(false);
+  // The session is camera-proctored: the gate below blocks the workspace
+  // until this is live, and re-blocks if the stream ever stops.
+  const camera = useProctorCamera();
 
 
   const openFile = (path: string) => {
@@ -423,6 +428,7 @@ export function IdeShell() {
               theme={theme}
               vfs={vfs}
               preview={previewController}
+              cameraStream={camera.stream}
               previewState={preview}
               onClosePreview={() => {
                 releaseBuild(previewBuildRef.current);
@@ -464,6 +470,7 @@ export function IdeShell() {
       </div>
 
       <PackageCleanupGuard theme={theme} vfs={vfs} />
+      <ProctorGate theme={theme} camera={camera} />
     </div>
   );
 }
