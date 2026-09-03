@@ -351,6 +351,35 @@ through the real UI. The build pipeline, the watcher and React-in-the-iframe
 are each verified; the layout is ordinary resizable-panel markup that
 compiles and lints.
 
+## Phase 20 — `npm run dev` runs like a real dev server
+
+It printed "ready" and handed the prompt straight back, which no dev server
+does. It now holds the terminal until interrupted.
+
+- [x] **Long-running foreground commands.** `CommandContext` gained a
+      `signal: AbortSignal`; `dev` waits on it instead of returning, so the
+      terminal stays occupied the way a real process would. (Need another
+      shell meanwhile? Open a second terminal tab — they're independent.)
+- [x] **Ctrl+C actually interrupts.** It's now checked *before* the `busy`
+      guard in `vfs-shell.ts` — previously the guard swallowed it, so a
+      running command couldn't be stopped at all. It aborts the controller;
+      the command then unsubscribes, stops the watcher and returns.
+- [x] **Rebuilds stream into the terminal** (`rebuilt in 42ms`, or the error
+      when a build fails) via `PreviewController.onRebuild`, replacing the
+      single `onPreview` callback with a small controller the shell can talk
+      to properly
+- [x] Stopping leaves the panel up with the last good build, marked
+      **stopped** rather than **live** — killing a dev server doesn't erase
+      the page you already had
+- [x] Redirected or piped (`npm run dev > log.txt`) it stays one-shot, since
+      there's nobody to press Ctrl+C — it would otherwise hang forever
+
+### Verified
+10/10: the dev server doesn't resolve on its own, announces watching, says
+how to stop, registers a log subscriber, streams rebuild lines, ends on
+Ctrl+C, reports stopping, tells the IDE to stop watching, unsubscribes, and
+stays one-shot when redirected.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

@@ -14,20 +14,40 @@ import { parseFlags } from "./fs";
 export async function startPreview(ctx: CommandContext, root: string): Promise<CommandResult> {
   if (ctx.isTerminalSink) ctx.io.write(`building ${root || "workspace"}...\r\n`);
 
+  let build;
   try {
-    const build = await buildPreview(ctx.vfs, root);
-    ctx.io.openPreview({ html: build.html, title: root || "workspace", root, objectUrls: build.objectUrls });
-
-    const lines = [
-      `ready — preview open for ${root || "the workspace"} (entry: ${build.entry})`,
-      `watching for changes; edits rebuild it automatically.`,
-    ];
-    for (const warning of build.warnings) lines.push(`warning: ${warning}`);
-    return ok(`${lines.join("\n")}\n`);
+    build = await buildPreview(ctx.vfs, root);
   } catch (err) {
     if (err instanceof PreviewError) return fail(`dev: ${err.message}`);
     return fail(`dev: ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  ctx.io.preview.open({ html: build.html, title: root || "workspace", root, objectUrls: build.objectUrls });
+
+  ctx.io.write(`\r\n  ready — preview open for ${root || "the workspace"}\r\n`);
+  ctx.io.write(`  entry: ${build.entry}\r\n`);
+  for (const warning of build.warnings) ctx.io.write(`  warning: ${warning}\r\n`);
+  ctx.io.write(`\r\n  watching for file changes... (press Ctrl+C to stop)\r\n`);
+
+  // A dev server doesn't hand the prompt back — it holds the terminal,
+  // logging rebuilds, until interrupted. Piped or redirected (`dev > log`),
+  // there's nobody to press Ctrl+C, so it stays one-shot instead of hanging.
+  if (!ctx.isTerminalSink) return ok();
+
+  const unsubscribe = ctx.io.preview.onRebuild((line) => ctx.io.write(`  ${line}\r\n`));
+
+  await new Promise<void>((resolve) => {
+    if (ctx.signal.aborted) {
+      resolve();
+      return;
+    }
+    ctx.signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+
+  unsubscribe();
+  ctx.io.preview.stop();
+  // Ctrl+C already echoed "^C"; this reports what it stopped.
+  return ok("\nstopped watching. the preview stays open but won't update.\n");
 }
 
 /** `dev [dir]` — build and preview, defaulting to the current directory. */

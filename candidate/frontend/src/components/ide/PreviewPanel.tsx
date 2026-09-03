@@ -23,11 +23,14 @@ export function PreviewPanel({
   theme,
   html,
   title,
+  watching,
   onClose,
 }: {
   theme: IdeTheme;
   html: string;
   title: string;
+  /** False once the dev server is stopped — the last build stays, frozen. */
+  watching: boolean;
   onClose: () => void;
 }) {
   const palette = idePalette(theme);
@@ -45,11 +48,14 @@ export function PreviewPanel({
           Preview — <span className={palette.text}>{title}</span>
         </span>
         <span className="flex items-center gap-1">
-          {/* The workspace watcher rebuilds on every edit, so this reports
-              state rather than offering a manual refresh. */}
-          <span className={clsx("flex items-center gap-1 pr-1", palette.textMuted)} title="Rebuilds on every edit">
+          {/* Reports state rather than offering a refresh: while the dev
+              server runs it rebuilds itself on every edit. */}
+          <span
+            className={clsx("flex items-center gap-1 pr-1", watching ? palette.accent : palette.textMuted)}
+            title={watching ? "Rebuilds on every edit" : "Dev server stopped — no longer updating"}
+          >
             <RotateCw size={11} />
-            live
+            {watching ? "live" : "stopped"}
           </span>
           <button
             type="button"

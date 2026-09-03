@@ -260,28 +260,59 @@ export function IdeShell() {
   // The live preview: `root` is the project being watched, so edits can
   // rebuild it. Kept separate from `html` so the rebuild effect can depend
   // on the root without re-running on its own output.
-  const [preview, setPreview] = useState<{ html: string; title: string; root: string } | null>(null);
+  const [preview, setPreview] = useState<
+    { html: string; title: string; root: string; watching: boolean } | null
+  >(null);
   const previewBuildRef = useRef<PreviewBuild | null>(null);
 
-  // Keep the preview live: any edit to the workspace rebuilds the watched
-  // project, debounced so a burst of typing produces one rebuild. Depends on
-  // the ROOT (not the built html), so writing the result can't retrigger it.
-  const previewRoot = preview?.root ?? null;
+  // Subscribers are the running dev server: it logs each rebuild into the
+  // terminal, the way a real one does.
+  const rebuildListenersRef = useRef(new Set<(line: string) => void>());
+  const emitRebuild = (line: string) => {
+    for (const listener of rebuildListenersRef.current) listener(line);
+  };
+
+  const previewController = useMemo(
+    () => ({
+      open: (build: { html: string; title: string; root: string; objectUrls: string[] }) => {
+        releaseBuild(previewBuildRef.current);
+        previewBuildRef.current = { objectUrls: build.objectUrls } as PreviewBuild;
+        setPreview({ html: build.html, title: build.title, root: build.root, watching: true });
+      },
+      // Stopping leaves the panel up — the last build still renders, it just
+      // no longer follows edits, which is what killing a dev server does.
+      stop: () => setPreview((current) => (current ? { ...current, watching: false } : current)),
+      onRebuild: (listener: (line: string) => void) => {
+        rebuildListenersRef.current.add(listener);
+        return () => {
+          rebuildListenersRef.current.delete(listener);
+        };
+      },
+    }),
+    []
+  );
+
+  // Keep the preview live: any edit rebuilds the watched project, debounced
+  // so a burst of typing produces one rebuild. Depends on the ROOT (not the
+  // built html), so writing the result can't retrigger it.
+  const previewRoot = preview?.watching ? preview.root : null;
   useEffect(() => {
     if (previewRoot === null) return;
     const timeout = setTimeout(() => {
+      const started = performance.now();
       buildPreview(vfs, previewRoot)
         .then((build) => {
-          // Free the previous build's modules before swapping them out.
           releaseBuild(previewBuildRef.current);
           previewBuildRef.current = build;
           setPreview((current) =>
             current && current.root === previewRoot ? { ...current, html: build.html } : current
           );
+          emitRebuild(`rebuilt in ${Math.round(performance.now() - started)}ms`);
         })
-        .catch(() => {
-          // A broken intermediate edit shouldn't blank the preview — keep
-          // showing the last build that worked.
+        .catch((err) => {
+          // A broken intermediate edit shouldn't blank the preview — keep the
+          // last build that worked, and report it the way a dev server would.
+          emitRebuild(`build failed: ${err instanceof Error ? err.message : String(err)}`);
         });
     }, 400);
     return () => clearTimeout(timeout);
@@ -385,15 +416,7 @@ export function IdeShell() {
             style={{ height: terminal.size }}
             className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
           >
-            <BottomPanel
-              theme={theme}
-              vfs={vfs}
-              onPreview={(build) => {
-                releaseBuild(previewBuildRef.current);
-                previewBuildRef.current = { objectUrls: build.objectUrls } as PreviewBuild;
-                setPreview({ html: build.html, title: build.title, root: build.root });
-              }}
-            />
+            <BottomPanel theme={theme} vfs={vfs} preview={previewController} />
           </div>
         </div>
 
@@ -417,6 +440,7 @@ export function IdeShell() {
                 theme={theme}
                 html={preview.html}
                 title={preview.title}
+                watching={preview.watching}
                 onClose={() => {
                   releaseBuild(previewBuildRef.current);
                   previewBuildRef.current = null;

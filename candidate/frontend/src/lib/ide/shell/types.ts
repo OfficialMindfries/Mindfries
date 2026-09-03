@@ -22,17 +22,33 @@ export function createSession(): ShellSession {
   };
 }
 
+export interface PreviewBuildInput {
+  html: string;
+  title: string;
+  root: string;
+  objectUrls: string[];
+}
+
+/**
+ * The IDE's preview sidebar, as the shell sees it. A dev server holds the
+ * terminal open, so it needs more than "show this once": it subscribes to
+ * rebuilds to log them, and stops watching when interrupted.
+ */
+export interface PreviewController {
+  /** Shows a build and starts watching `root` for edits. */
+  open: (build: PreviewBuildInput) => void;
+  /** Stops watching — the dev server exiting. */
+  stop: () => void;
+  /** Subscribes to rebuild lines; returns an unsubscribe. */
+  onRebuild: (listener: (line: string) => void) => () => void;
+}
+
 /** Terminal-level effects a command can reach for (clearing, live streaming, preview). */
 export interface ShellIO {
   /** Writes straight to the terminal, bypassing the pipeline — for live progress only. */
   write: (text: string) => void;
   clear: () => void;
-  /**
-   * Opens a built page in the IDE's preview sidebar. `root` is kept so the
-   * IDE can rebuild on every edit — that's what makes the preview stay live
-   * rather than being a one-shot snapshot.
-   */
-  openPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
+  preview: PreviewController;
 }
 
 export interface CommandContext {
@@ -49,6 +65,12 @@ export interface CommandContext {
    * live progress when nothing downstream is waiting to parse their output.
    */
   isTerminalSink: boolean;
+  /**
+   * Aborted when the user presses Ctrl+C. Long-running foreground commands
+   * (a dev server) wait on this instead of returning immediately, which is
+   * what keeps them holding the terminal the way a real one does.
+   */
+  signal: AbortSignal;
 }
 
 export interface CommandResult {

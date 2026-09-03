@@ -6,7 +6,7 @@ import { resolveInputPath, segmentsToDisplay, segmentsToPath } from "@/lib/ide/v
 import { executeCommandLine } from "@/lib/ide/shell/execute";
 import { isMultiLineInput, splitPastedInput } from "@/lib/ide/shell/paste";
 import { commandNames } from "@/lib/ide/shell/registry";
-import { createSession, type ShellSession } from "@/lib/ide/shell/types";
+import { createSession, type PreviewController, type ShellSession } from "@/lib/ide/shell/types";
 
 // True-color (24-bit) escape for the exact brand mid-blue (#4A7FA7) — the
 // standard 16-color ANSI palette has no matching blue close enough to read
@@ -72,7 +72,7 @@ function completePathWord(
 export function attachVfsShell(
   term: Terminal,
   vfs: VfsBridge,
-  openPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void
+  preview: PreviewController
 ): () => void {
   const session = createSession();
   let buffer = "";
@@ -87,8 +87,12 @@ export function attachVfsShell(
   const io = {
     write: (text: string) => term.write(text),
     clear: () => term.clear(),
-    openPreview,
+    preview,
   };
+
+  // Aborted by Ctrl+C, so a foreground command (a dev server) can be
+  // interrupted rather than owning the terminal forever.
+  let running: AbortController | null = null;
 
   const writePrompt = () => term.write(`\r\n${promptFor(session)}`);
 
@@ -167,13 +171,15 @@ export function attachVfsShell(
     buffer = "";
     cursor = 0;
     busy = true;
+    running = new AbortController();
 
-    executeCommandLine(trimmed, session, vfs, io)
+    executeCommandLine(trimmed, session, vfs, io, running.signal)
       .catch((err) =>
         term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`)
       )
       .finally(() => {
         busy = false;
+        running = null;
         const next = queued.shift();
         if (next !== undefined) {
           term.write(`\r\n${promptFor(session)}${next}\r\n`);
@@ -196,7 +202,23 @@ export function attachVfsShell(
   term.write(promptFor(session));
 
   const disposable = term.onData((data) => {
-    if (busy) return; // block input while a foreground command is running
+    // Ctrl+C is checked before the busy guard: interrupting a running
+    // command is the whole point, and the guard would swallow it.
+    if (data === "") {
+      term.write("^C");
+      if (running) {
+        running.abort();
+        return; // the command resolves and prints its own prompt
+      }
+      buffer = "";
+      cursor = 0;
+      queued = [];
+      pendingInput = "";
+      historyIndex = session.history.length;
+      writePrompt();
+      return;
+    }
+    if (busy) return; // otherwise input is blocked while a command runs
     const code = data.charCodeAt(0);
 
     if (data === "\r" || data === "\n") {
@@ -263,14 +285,6 @@ export function attachVfsShell(
     if (data === "\x17" /* Ctrl+W: delete previous word */) {
       const before = buffer.slice(0, cursor).replace(/\s*\S+\s*$/, "");
       setLine(before + buffer.slice(cursor), before.length);
-      return;
-    }
-    if (data === "\x03" /* Ctrl+C: cancel line */) {
-      term.write("^C");
-      buffer = "";
-      cursor = 0;
-      historyIndex = session.history.length;
-      writePrompt();
       return;
     }
     if (data === "\x0c" /* Ctrl+L: clear screen, keep line */) {

@@ -5,6 +5,7 @@ import type { Terminal as XTerm } from "@xterm/xterm";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";
 import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
+import type { PreviewController } from "@/lib/ide/shell/types";
 import { attachVfsShell } from "./vfs-shell";
 
 const xtermTheme = {
@@ -54,11 +55,11 @@ function paintViewport(container: HTMLElement, background: string) {
 export function TerminalPanel({
   theme,
   vfs,
-  onPreview,
+  preview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
-  onPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
+  preview: PreviewController;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -67,10 +68,10 @@ export function TerminalPanel({
   // The shell is attached once, on mount, so it can't close over the current
   // prop — a ref keeps the callback live across re-renders. Assigned in an
   // effect rather than during render, which React forbids.
-  const onPreviewRef = useRef(onPreview);
+  const previewRef = useRef(preview);
   useEffect(() => {
-    onPreviewRef.current = onPreview;
-  }, [onPreview]);
+    previewRef.current = preview;
+  }, [preview]);
 
   // Create the terminal once on mount.
   useEffect(() => {
@@ -119,7 +120,11 @@ export function TerminalPanel({
           // and stable setState setters, so capturing this render's `vfs`
           // instance here (the effect only runs once, on mount) behaves
           // identically to a "live" reference — no staleness concern.
-          detachShell = attachVfsShell(term, vfs, (build) => onPreviewRef.current(build));
+          detachShell = attachVfsShell(term, vfs, {
+            open: (build) => previewRef.current.open(build),
+            stop: () => previewRef.current.stop(),
+            onRebuild: (listener) => previewRef.current.onRebuild(listener),
+          });
         });
       });
 

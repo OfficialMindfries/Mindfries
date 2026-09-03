@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
+import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalGroup } from "./TerminalGroup";
 
 type PanelTab = "problems" | "output" | "debug" | "terminal" | "ports";
@@ -20,11 +21,11 @@ const TABS: { id: PanelTab; label: string }[] = [
 export function BottomPanel({
   theme,
   vfs,
-  onPreview,
+  preview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
-  onPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
+  preview: PreviewController;
 }) {
   const palette = idePalette(theme);
   const [active, setActive] = useState<PanelTab>("terminal");
@@ -53,7 +54,7 @@ export function BottomPanel({
         {/* Kept mounted (just hidden) rather than unmounted while another tab is
             active, so terminal sessions and their scrollback survive tab switches. */}
         <div className="h-full" style={{ display: active === "terminal" ? "block" : "none" }}>
-          <TerminalGroup theme={theme} vfs={vfs} onPreview={onPreview} />
+          <TerminalGroup theme={theme} vfs={vfs} preview={preview} />
         </div>
         {active === "problems" && (
           <EmptyState theme={theme} text="No problems have been detected in the workspace." />
