@@ -69,7 +69,11 @@ function completePathWord(
  * lib/ide/shell (parser + pipeline executor + command registry), so pipes,
  * redirection, `&&`/`||`, globs and exit codes all work like a real shell.
  */
-export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
+export function attachVfsShell(
+  term: Terminal,
+  vfs: VfsBridge,
+  openPreview: (html: string, title: string) => void
+): () => void {
   const session = createSession();
   let buffer = "";
   let cursor = 0;
@@ -83,6 +87,7 @@ export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
   const io = {
     write: (text: string) => term.write(text),
     clear: () => term.clear(),
+    openPreview,
   };
 
   const writePrompt = () => term.write(`\r\n${promptFor(session)}`);

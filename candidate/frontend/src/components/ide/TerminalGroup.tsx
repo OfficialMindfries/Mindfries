@@ -20,7 +20,15 @@ interface Session {
  * into a folder in one tab while running a script from another. All
  * share the SAME virtual filesystem (the same files the Explorer shows).
  */
-export function TerminalGroup({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge }) {
+export function TerminalGroup({
+  theme,
+  vfs,
+  onPreview,
+}: {
+  theme: IdeTheme;
+  vfs: VfsBridge;
+  onPreview: (html: string, title: string) => void;
+}) {
   const palette = idePalette(theme);
   const nextId = useRef(1);
   const [sessions, setSessions] = useState<Session[]>(() => [{ id: 1, name: "1: Terminal" }]);
@@ -119,7 +127,7 @@ export function TerminalGroup({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge 
         ) : (
           sessions.map((s) => (
             <div key={s.id} className="h-full" style={{ display: s.id === activeId ? "block" : "none" }}>
-              <TerminalPanel theme={theme} vfs={vfs} />
+              <TerminalPanel theme={theme} vfs={vfs} onPreview={onPreview} />
             </div>
           ))
         )}
