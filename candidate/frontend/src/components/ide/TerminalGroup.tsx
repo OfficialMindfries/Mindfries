@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import clsx from "clsx";
-import { Plus, Trash2, Video, X } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
@@ -28,12 +28,14 @@ export function TerminalGroup({
   theme,
   vfs,
   preview,
+  cameraStream,
   previewState,
   onClosePreview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
+  cameraStream: MediaStream | null;
   previewState: { html: string; title: string; root: string; watching: boolean } | null;
   onClosePreview: () => void;
 }) {
@@ -44,7 +46,6 @@ export function TerminalGroup({
   // The preview sits beside the terminals, so it's sized by width.
   const previewPane = useResizable({ initial: 460, min: 240, max: 900, axis: "horizontal", invert: true });
   const cameraPane = useResizable({ initial: 260, min: 160, max: 520, axis: "horizontal", invert: true });
-  const [cameraOpen, setCameraOpen] = useState(false);
 
   const addTerminal = () => {
     nextId.current += 1;
@@ -106,14 +107,6 @@ export function TerminalGroup({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 px-1.5">
-          <button
-            type="button"
-            title={cameraOpen ? "Hide camera" : "Show camera"}
-            className={clsx("rounded p-0.5", palette.hover)}
-            onClick={() => setCameraOpen((open) => !open)}
-          >
-            <Video size={12} className={cameraOpen ? palette.accent : palette.textMuted} />
-          </button>
           {activeId !== null && (
             <button
               type="button"
@@ -176,21 +169,19 @@ export function TerminalGroup({
           </>
         )}
 
-        {cameraOpen && (
-          <>
-            <div
-              onMouseDown={cameraPane.startDrag}
-              className={clsx(
-                "flex w-1 shrink-0 cursor-col-resize items-center justify-center border-l",
-                palette.border,
-                palette.hover
-              )}
-            />
-            <div style={{ width: cameraPane.size }} className="min-h-0 shrink-0">
-              <CameraPanel theme={theme} onClose={() => setCameraOpen(false)} />
-            </div>
-          </>
-        )}
+        {/* Always mounted: the session requires the camera to stay on, and
+            showing it constantly is what makes that honest. */}
+        <div
+          onMouseDown={cameraPane.startDrag}
+          className={clsx(
+            "flex w-1 shrink-0 cursor-col-resize items-center justify-center border-l",
+            palette.border,
+            palette.hover
+          )}
+        />
+        <div style={{ width: cameraPane.size }} className="min-h-0 shrink-0">
+          <CameraPanel theme={theme} stream={cameraStream} />
+        </div>
       </div>
     </div>
   );

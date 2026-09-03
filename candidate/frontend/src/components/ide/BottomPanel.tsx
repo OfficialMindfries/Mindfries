@@ -22,12 +22,14 @@ export function BottomPanel({
   theme,
   vfs,
   preview,
+  cameraStream,
   previewState,
   onClosePreview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
+  cameraStream: MediaStream | null;
   previewState: { html: string; title: string; root: string; watching: boolean } | null;
   onClosePreview: () => void;
 }) {
@@ -62,6 +64,7 @@ export function BottomPanel({
             theme={theme}
             vfs={vfs}
             preview={preview}
+            cameraStream={cameraStream}
             previewState={previewState}
             onClosePreview={onClosePreview}
           />
