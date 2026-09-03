@@ -380,6 +380,28 @@ how to stop, registers a log subscriber, streams rebuild lines, ends on
 Ctrl+C, reports stopping, tells the IDE to stop watching, unsubscribes, and
 stays one-shot when redirected.
 
+## Phase 21 — Preview moves inside the terminal panel
+
+- [x] The preview is no longer a full-height column beside the editor. It now
+      sits **inside the terminal panel**, to the right of the terminals and
+      below the kill button — a wide landscape strip, which suits a running
+      page better than a tall narrow one
+- [x] Resizable divider between the terminals and the preview, so either side
+      can take the space
+- [x] `PreviewController` state (`html`/`title`/`watching`) is threaded down
+      to `TerminalGroup`, which owns the split; `IdeShell` still owns the
+      state and the rebuild watcher
+
+Note this **replaced** the right sidebar rather than adding a second copy of
+the same preview — trivial to move back if the full-height column is wanted
+for wider screens.
+
+### Not covered
+Same gap as Phases 19–20: the terminal input automation drops keystrokes, so
+`npm run dev` couldn't be driven through the real UI to photograph the new
+split. It's layout-only JSX (a flex row plus the existing resizable hook)
+that compiles, lints and builds; every piece it renders was verified earlier.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

@@ -8,6 +8,8 @@ import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalPanel } from "./TerminalPanel";
+import { PreviewPanel } from "./PreviewPanel";
+import { useResizable } from "@/lib/ide/use-resizable";
 
 interface Session {
   id: number;
@@ -25,15 +27,21 @@ export function TerminalGroup({
   theme,
   vfs,
   preview,
+  previewState,
+  onClosePreview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
+  previewState: { html: string; title: string; root: string; watching: boolean } | null;
+  onClosePreview: () => void;
 }) {
   const palette = idePalette(theme);
   const nextId = useRef(1);
   const [sessions, setSessions] = useState<Session[]>(() => [{ id: 1, name: "1: Terminal" }]);
   const [activeId, setActiveId] = useState<number | null>(1);
+  // The preview sits beside the terminals, so it's sized by width.
+  const previewPane = useResizable({ initial: 460, min: 240, max: 900, axis: "horizontal", invert: true });
 
   const addTerminal = () => {
     nextId.current += 1;
@@ -108,7 +116,8 @@ export function TerminalGroup({
         )}
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1">
         {sessions.length === 0 ? (
           <div className={clsx("flex h-full flex-col items-center justify-center gap-2", palette.textMuted)}>
             <p className="text-xs">No active terminals.</p>
@@ -131,6 +140,29 @@ export function TerminalGroup({
               <TerminalPanel theme={theme} vfs={vfs} preview={preview} />
             </div>
           ))
+        )}
+        </div>
+
+        {previewState && (
+          <>
+            <div
+              onMouseDown={previewPane.startDrag}
+              className={clsx(
+                "flex w-1 shrink-0 cursor-col-resize items-center justify-center border-l",
+                palette.border,
+                palette.hover
+              )}
+            />
+            <div style={{ width: previewPane.size }} className="min-h-0 shrink-0">
+              <PreviewPanel
+                theme={theme}
+                html={previewState.html}
+                title={previewState.title}
+                watching={previewState.watching}
+                onClose={onClosePreview}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
