@@ -271,6 +271,51 @@ and it made the engine testable without a browser.
   accept). `react` verified loading and running live in-browser, and
   `node_modules/react` + `react-dom` verified rendering in the Explorer
 
+## Phase 18 — Scaffold a project, and actually run it
+
+The honest error from Phase 17 explained why `npm create vite` couldn't work,
+but an IDE you can't start a project in isn't much of an IDE. Both halves are
+now real.
+
+- [x] `npm create vite@latest <name> -- --template <t>` fetches the **real**
+      `create-vite` template from jsDelivr and writes it into the workspace —
+      the same files the real CLI copies, including the `_gitignore` →
+      `.gitignore` rename and setting the project name in `package.json`
+      (`lib/ide/scaffold.ts`). Binary assets can't live in a text filesystem,
+      so they're skipped *and reported*
+- [x] `dev` builds and opens a live preview (`lib/ide/preview/build-preview.ts`
+      + `PreviewPanel.tsx`). Vite's dev server is a Node process and can't
+      come along, but a bundler isn't what makes React run — the browser is.
+      JSX goes through the real TypeScript compiler, relative imports resolve
+      to the user's own modules, bare imports to installed packages. CSS
+      imports inject a `<style>`, imported SVGs become data URIs, unresolved
+      assets warn instead of taking the page down
+- [x] Commands reach the UI through a new `ShellIO.openPreview` — the same
+      effect channel `write`/`clear` already use, rather than a second
+      mechanism
+
+### The sandbox bug worth remembering
+`sandbox="allow-scripts"` alone gives the iframe an **opaque origin, which
+silently refuses to load `blob:` URLs created by the parent** — the preview
+came up blank with no error anywhere in the parent. `allow-same-origin` is
+therefore load-bearing, not decoration. The trade-off (previewed code can
+reach this origin's storage) matches the boundary the IDE already works to:
+`node app.js` runs user code in the page itself, so an iframe with its own
+document is more contained, not less.
+
+### Verified
+- 14/14: real template fetched and written, `package.json` renamed,
+  `.gitignore` renamed, existing directory refused, preview built, JSX
+  transpiled, bare imports → CDN, relative imports → blob modules
+- React rendering live in the sandboxed iframe, confirmed side by side
+  against the broken opaque-origin variant
+
+### Not covered
+The full click-through inside the IDE (type `dev`, watch the panel open)
+wasn't completed — the terminal input automation kept dropping keystrokes.
+Each piece is verified independently; the wiring between them is prop
+passing that typechecks. Worth one manual run.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

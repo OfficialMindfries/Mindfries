@@ -17,7 +17,15 @@ const TABS: { id: PanelTab; label: string }[] = [
   { id: "ports", label: "Ports" },
 ];
 
-export function BottomPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge }) {
+export function BottomPanel({
+  theme,
+  vfs,
+  onPreview,
+}: {
+  theme: IdeTheme;
+  vfs: VfsBridge;
+  onPreview: (html: string, title: string) => void;
+}) {
   const palette = idePalette(theme);
   const [active, setActive] = useState<PanelTab>("terminal");
 
@@ -45,7 +53,7 @@ export function BottomPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge })
         {/* Kept mounted (just hidden) rather than unmounted while another tab is
             active, so terminal sessions and their scrollback survive tab switches. */}
         <div className="h-full" style={{ display: active === "terminal" ? "block" : "none" }}>
-          <TerminalGroup theme={theme} vfs={vfs} />
+          <TerminalGroup theme={theme} vfs={vfs} onPreview={onPreview} />
         </div>
         {active === "problems" && (
           <EmptyState theme={theme} text="No problems have been detected in the workspace." />

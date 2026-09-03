@@ -1,5 +1,6 @@
 import type { CommandFn } from "./types";
 import * as builtins from "./commands/builtins";
+import * as devCommands from "./commands/dev";
 import * as fs from "./commands/fs";
 import * as gitCommands from "./commands/git";
 import * as net from "./commands/net";
@@ -46,6 +47,11 @@ const COMMANDS: Record<string, CommandFn> = {
   tsx: run.node,
   python: run.python,
   python3: run.python,
+
+  // Build & preview
+  dev: devCommands.dev,
+  serve: devCommands.dev,
+  preview: devCommands.dev,
 
   // Packages
   pip: pkg.pip,

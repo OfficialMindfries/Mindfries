@@ -51,10 +51,26 @@ function paintViewport(container: HTMLElement, background: string) {
   if (viewport) viewport.style.backgroundColor = background;
 }
 
-export function TerminalPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge }) {
+export function TerminalPanel({
+  theme,
+  vfs,
+  onPreview,
+}: {
+  theme: IdeTheme;
+  vfs: VfsBridge;
+  onPreview: (html: string, title: string) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<XFitAddon | null>(null);
+
+  // The shell is attached once, on mount, so it can't close over the current
+  // prop — a ref keeps the callback live across re-renders. Assigned in an
+  // effect rather than during render, which React forbids.
+  const onPreviewRef = useRef(onPreview);
+  useEffect(() => {
+    onPreviewRef.current = onPreview;
+  }, [onPreview]);
 
   // Create the terminal once on mount.
   useEffect(() => {
@@ -103,7 +119,9 @@ export function TerminalPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge 
           // and stable setState setters, so capturing this render's `vfs`
           // instance here (the effect only runs once, on mount) behaves
           // identically to a "live" reference — no staleness concern.
-          detachShell = attachVfsShell(term, vfs);
+          detachShell = attachVfsShell(term, vfs, (html, title) =>
+            onPreviewRef.current(html, title)
+          );
         });
       });
 

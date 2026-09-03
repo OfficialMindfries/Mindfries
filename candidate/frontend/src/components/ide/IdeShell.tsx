@@ -9,6 +9,7 @@ import { EditorPanel } from "./EditorPanel";
 import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
 import { PackageCleanupGuard } from "./PackageCleanupGuard";
+import { PreviewPanel } from "./PreviewPanel";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -113,6 +114,9 @@ export function IdeShell() {
   const saveFile = (path: string) => {
     setSavedFiles((prev) => ({ ...prev, [path]: files[path] }));
   };
+
+  // A built preview (from `dev`) takes over the editor area while it's open.
+  const [preview, setPreview] = useState<{ html: string; title: string } | null>(null);
 
   // --- Virtual filesystem: the single source of truth shared by the
   // Explorer, the Editor, AND the terminal (see vfs-shell.ts). The
@@ -322,6 +326,15 @@ export function IdeShell() {
           >
             <Breadcrumbs path={activePath} theme={theme} />
             <div className="min-h-0 flex-1">
+              {preview ? (
+                <PreviewPanel
+                  theme={theme}
+                  html={preview.html}
+                  title={preview.title}
+                  onClose={() => setPreview(null)}
+                  onReload={() => setPreview(null)}
+                />
+              ) : (
               <EditorPanel
                 theme={theme}
                 openPaths={openPaths}
@@ -333,6 +346,7 @@ export function IdeShell() {
                 onChange={changeFile}
                 onSave={saveFile}
               />
+              )}
             </div>
           </div>
 
@@ -350,7 +364,11 @@ export function IdeShell() {
             style={{ height: terminal.size }}
             className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
           >
-            <BottomPanel theme={theme} vfs={vfs} />
+            <BottomPanel
+              theme={theme}
+              vfs={vfs}
+              onPreview={(html, title) => setPreview({ html, title })}
+            />
           </div>
         </div>
       </div>

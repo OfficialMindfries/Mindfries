@@ -22,11 +22,13 @@ export function createSession(): ShellSession {
   };
 }
 
-/** Terminal-level effects a command can reach for (clearing, live streaming). */
+/** Terminal-level effects a command can reach for (clearing, live streaming, preview). */
 export interface ShellIO {
   /** Writes straight to the terminal, bypassing the pipeline — for live progress only. */
   write: (text: string) => void;
   clear: () => void;
+  /** Opens a built page in the IDE's preview panel. */
+  openPreview: (html: string, title: string) => void;
 }
 
 export interface CommandContext {

@@ -1,5 +1,6 @@
 import { loadManifest, moduleUrlFor, resolvePackage, saveManifest, verifyEsmBuild, type InstalledPackage } from "../../packages";
 import { getPyodide } from "../../pyodide-runtime";
+import { applyProjectName, fetchViteTemplate, latestVersion } from "../../scaffold";
 import { nodeAt } from "../fs-util";
 import { fail, ok, type CommandContext, type CommandResult } from "../types";
 import { parseFlags } from "./fs";
@@ -106,6 +107,79 @@ function pythonErrorMessage(err: unknown): string {
 export const NODE_MODULES = "node_modules";
 
 /**
+ * `npm create vite@latest <name> -- --template react` — real scaffolding.
+ *
+ * The published create-vite package's template directory is fetched and
+ * written into the workspace, so the files are genuinely Vite's. What can't
+ * follow is the CLI's interactive prompting and its `npm install` step;
+ * `dev` then builds a live preview instead of running Vite's dev server.
+ */
+async function npmCreate(ctx: CommandContext, args: string[]): Promise<CommandResult> {
+  const positional = args.filter((a) => a !== "--" && !a.startsWith("--"));
+  const starter = positional[0] ?? "";
+  const generator = starter.split("@")[0] || "vite";
+
+  if (generator !== "vite") {
+    return fail(
+      `npm create ${generator}: only the vite templates are available here.\n` +
+        `They're fetched from the real create-vite package; other generators need their Node CLI.`,
+      127
+    );
+  }
+
+  const templateFlag = args.indexOf("--template");
+  const template = templateFlag !== -1 ? args[templateFlag + 1] : "react";
+  const projectName = positional[1] ?? "vite-project";
+
+  if (nodeAt(ctx.vfs, projectName.split("/"))) {
+    return fail(`npm create: "${projectName}" already exists here`);
+  }
+
+  if (ctx.isTerminalSink) {
+    ctx.io.write(`resolving create-vite from the npm registry...\r\n`);
+  }
+
+  let scaffold;
+  try {
+    const version = await latestVersion("create-vite");
+    if (ctx.isTerminalSink) ctx.io.write(`scaffolding ${template} template from create-vite@${version}\r\n`);
+    scaffold = await fetchViteTemplate(template, version);
+  } catch (err) {
+    return fail(`npm create: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const files = applyProjectName(scaffold.files, projectName);
+  let stderr = "";
+  for (const file of files) {
+    const full = `${projectName}/${file.path}`;
+    // Create each parent directory the file needs.
+    const segments = full.split("/");
+    for (let i = 1; i < segments.length; i++) {
+      const dir = segments.slice(0, i).join("/");
+      if (!nodeAt(ctx.vfs, segments.slice(0, i))) {
+        const error = ctx.vfs.createFolder(dir);
+        if (error) stderr += `npm create: ${dir}: ${error}\n`;
+      }
+    }
+    const error = ctx.vfs.write(full, file.content);
+    if (error) stderr += `npm create: ${full}: ${error}\n`;
+  }
+
+  const lines = [
+    ``,
+    `Scaffolded ${files.length} files into ${projectName}/ from create-vite@${scaffold.version}`,
+  ];
+  if (scaffold.skipped.length > 0) {
+    // Binary assets can't live in a text filesystem — say so rather than
+    // leaving a project with mysteriously missing images.
+    lines.push(`Skipped ${scaffold.skipped.length} binary asset(s): ${scaffold.skipped.join(", ")}`);
+  }
+  lines.push(``, `  cd ${projectName}`, `  npm install`, `  dev            # build and preview it here`, ``);
+
+  return { stdout: `${lines.join("\n")}`, stderr, code: stderr ? 1 : 0 };
+}
+
+/**
  * `npx` exists to execute a package's command-line binary. Those are Node
  * programs expecting a process, a real filesystem and argv — none of which
  * exist in a tab — so this reports that plainly rather than looking like a
@@ -206,13 +280,24 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
     return ok(`removed ${removed} package${removed === 1 ? "" : "s"}\n`);
   }
 
-  // Commands that exist in real npm but run a package's Node CLI. There's no
-  // Node process here to run one, so say exactly that instead of a bare
-  // "unknown command" that leaves you guessing whether it's a typo.
-  if (["create", "init", "exec", "run", "start", "test", "publish"].includes(subcommand)) {
+  if (subcommand === "create" || subcommand === "init") {
+    return npmCreate(ctx, packages);
+  }
+
+  // The rest run a package's Node CLI, and there's no Node process here to
+  // run one — say exactly that rather than a bare "unknown command" that
+  // reads like a typo.
+  if (["exec", "start", "test", "publish"].includes(subcommand)) {
     return fail(
-      `npm ${subcommand}: not supported — it runs a package's Node CLI, and there's no Node process in the browser.\n` +
-        `Install libraries instead (npm install <pkg>) and create files with touch/mkdir or the Explorer.`,
+      `npm ${subcommand}: not supported — it runs a package's Node CLI, and there's no Node process in the browser.`,
+      127
+    );
+  }
+
+  if (subcommand === "run") {
+    return fail(
+      `npm run: there's no Node process to run scripts with.\n` +
+        `For a Vite/React project, use "dev" to build and open a live preview of it here.`,
       127
     );
   }
