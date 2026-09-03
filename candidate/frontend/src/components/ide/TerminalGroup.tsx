@@ -55,7 +55,7 @@ export function TerminalGroup({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge 
                 onClick={() => setActiveId(s.id)}
                 className={clsx(
                   "group flex shrink-0 cursor-pointer items-center gap-1 border-r px-1.5 text-[11px]",
-                  isActive && "rounded-t-[4px]",
+                  isActive && "rounded-t-lg",
                   palette.border,
                   isActive ? palette.tabActiveBg : palette.tabInactiveBg,
                   isActive ? palette.text : palette.textMuted

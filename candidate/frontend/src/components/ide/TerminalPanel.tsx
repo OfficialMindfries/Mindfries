@@ -9,14 +9,14 @@ import { attachVfsShell } from "./vfs-shell";
 
 const xtermTheme = {
   dark: {
-    background: "#1e1e1e",
-    foreground: "#cccccc",
-    cursor: "#cccccc",
+    background: "#0A1931",
+    foreground: "#F6FAFD",
+    cursor: "#4A7FA7",
   },
   light: {
-    background: "#ffffff",
-    foreground: "#1e1e1e",
-    cursor: "#1e1e1e",
+    background: "#F6FAFD",
+    foreground: "#0A1931",
+    cursor: "#4A7FA7",
   },
 } as const;
 
@@ -35,6 +35,20 @@ function safeFit(fit: XFitAddon) {
   const proposed = fit.proposeDimensions();
   if (!proposed || proposed.cols < MIN_COLS || proposed.rows < MIN_ROWS) return;
   fit.fit();
+}
+
+/**
+ * xterm's bundled CSS hardcodes `.xterm-viewport { background-color: #000 }`,
+ * and the DOM renderer (unlike the canvas renderer) never overrides that
+ * class rule with an inline style from `theme.background` — the option is
+ * simply ignored for this element. It went unnoticed while the dark theme's
+ * background (#0A1931-ish) was close enough to black to look right by
+ * accident; it's glaring once the light theme's near-white background needs
+ * to show instead. Set it directly, since an inline style beats the class rule.
+ */
+function paintViewport(container: HTMLElement, background: string) {
+  const viewport = container.querySelector<HTMLElement>(".xterm-viewport");
+  if (viewport) viewport.style.backgroundColor = background;
 }
 
 export function TerminalPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge }) {
@@ -63,12 +77,17 @@ export function TerminalPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge 
         fontSize: 13,
         fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
         cursorBlink: true,
+        // A thin vertical bar ("|"), not the default solid block, per feedback
+        // that the cursor read as too heavy — cursorWidth only applies to "bar".
+        cursorStyle: "bar",
+        cursorWidth: 1,
         convertEol: true,
         theme: xtermTheme[theme],
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(container);
+      paintViewport(container, xtermTheme[theme].background);
 
       termRef.current = term;
       fitRef.current = fit;
@@ -115,6 +134,9 @@ export function TerminalPanel({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge 
   useEffect(() => {
     if (termRef.current) {
       termRef.current.options.theme = xtermTheme[theme];
+    }
+    if (containerRef.current) {
+      paintViewport(containerRef.current, xtermTheme[theme].background);
     }
   }, [theme]);
 

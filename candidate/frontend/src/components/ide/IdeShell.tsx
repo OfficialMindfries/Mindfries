@@ -8,6 +8,7 @@ import { Breadcrumbs } from "./Breadcrumbs";
 import { EditorPanel } from "./EditorPanel";
 import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
+import { PackageCleanupGuard } from "./PackageCleanupGuard";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -124,14 +125,33 @@ export function IdeShell() {
     vfsSnapshotRef.current = { tree, files };
   });
 
+  /**
+   * Writes the mutation into the snapshot ref *synchronously* before queuing
+   * the React update. This matters as soon as one command line can run more
+   * than one command (`echo hi > a.txt && cat a.txt`): every command in that
+   * line executes within a single tick, long before React re-renders, so a
+   * ref that only refreshed on render would hand the second command a
+   * filesystem that doesn't have the first command's file in it yet.
+   */
+  const syncSnapshot = (next: { tree?: TreeNode[]; files?: FileContents }) => {
+    vfsSnapshotRef.current = {
+      tree: next.tree ?? vfsSnapshotRef.current.tree,
+      files: next.files ?? vfsSnapshotRef.current.files,
+    };
+  };
+
   const vfsCreateFile = (path: string, content = ""): string | null => {
-    const { tree: t } = vfsSnapshotRef.current;
+    const { tree: t, files: f } = vfsSnapshotRef.current;
     if (findNode(t, path)) return "File exists";
     const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
     if (parentPath && !findNode(t, parentPath)) return "No such file or directory";
     const name = path.split("/").pop() as string;
-    setTree((prev) => addNode(prev, parentPath, { type: "file", path, name }));
-    setFiles((prev) => ({ ...prev, [path]: content }));
+
+    const nextTree = addNode(t, parentPath, { type: "file", path, name });
+    const nextFiles = { ...f, [path]: content };
+    syncSnapshot({ tree: nextTree, files: nextFiles });
+    setTree(nextTree);
+    setFiles(nextFiles);
     setSavedFiles((prev) => ({ ...prev, [path]: content }));
     return null;
   };
@@ -142,18 +162,25 @@ export function IdeShell() {
     const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
     if (parentPath && !findNode(t, parentPath)) return "No such file or directory";
     const name = path.split("/").pop() as string;
-    setTree((prev) => addNode(prev, parentPath, { type: "folder", path, name, children: [] }));
+
+    const nextTree = addNode(t, parentPath, { type: "folder", path, name, children: [] });
+    syncSnapshot({ tree: nextTree });
+    setTree(nextTree);
     return null;
   };
 
   const vfsRemove = (path: string, recursive: boolean): string | null => {
-    const { tree: t } = vfsSnapshotRef.current;
+    const { tree: t, files: f } = vfsSnapshotRef.current;
     const node = findNode(t, path);
     if (!node) return "No such file or directory";
     if (node.type === "folder" && !recursive) return "Is a directory";
     const removedFiles = collectFilePaths(t, path);
-    setTree((prev) => removeNode(prev, path));
-    setFiles((prev) => omit(prev, removedFiles));
+
+    const nextTree = removeNode(t, path);
+    const nextFiles = omit(f, removedFiles);
+    syncSnapshot({ tree: nextTree, files: nextFiles });
+    setTree(nextTree);
+    setFiles(nextFiles);
     setSavedFiles((prev) => omit(prev, removedFiles));
     setOpenPaths((prev) => {
       const next = prev.filter((p) => !removedFiles.includes(p));
@@ -169,14 +196,20 @@ export function IdeShell() {
     const { tree: t, files: f } = vfsSnapshotRef.current;
     const existing = findNode(t, path);
     if (existing?.type === "folder") return "Is a directory";
+
+    let nextTree = t;
     if (!existing) {
       const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : null;
       if (parentPath && !findNode(t, parentPath)) return "No such file or directory";
       const name = path.split("/").pop() as string;
-      setTree((prev) => addNode(prev, parentPath, { type: "file", path, name }));
+      nextTree = addNode(t, parentPath, { type: "file", path, name });
     }
+
     const newContent = append ? (f[path] ?? "") + content : content;
-    setFiles((prev) => ({ ...prev, [path]: newContent }));
+    const nextFiles = { ...f, [path]: newContent };
+    syncSnapshot({ tree: nextTree, files: nextFiles });
+    setTree(nextTree);
+    setFiles(nextFiles);
     setSavedFiles((prev) => ({ ...prev, [path]: newContent }));
     return null;
   };
@@ -193,6 +226,7 @@ export function IdeShell() {
     if (!nextTree) return "No such file or directory";
     const newFilePaths = collectFilePaths(nextTree, destPath);
 
+    syncSnapshot({ tree: nextTree });
     setTree(nextTree);
     remapFilePaths(oldFilePaths, newFilePaths);
     return null;
@@ -202,7 +236,9 @@ export function IdeShell() {
     if (oldPaths.length !== newPaths.length) return;
     const mapping = new Map(oldPaths.map((old, i) => [old, newPaths[i]]));
 
-    setFiles((prev) => remapKeys(prev, mapping));
+    const nextFiles = remapKeys(vfsSnapshotRef.current.files, mapping);
+    syncSnapshot({ files: nextFiles });
+    setFiles(nextFiles);
     setSavedFiles((prev) => remapKeys(prev, mapping));
     setOpenPaths((prev) => prev.map((p) => mapping.get(p) ?? p));
     setActivePath((prev) => (prev ? mapping.get(prev) ?? prev : prev));
@@ -244,10 +280,18 @@ export function IdeShell() {
     vfsRemove(path, true);
   };
 
+  // The chrome is a set of independent rounded "cards" (Explorer, Editor,
+  // Terminal, status bar) floating on a recessed canvas, rather than VS
+  // Code's flush edge-to-edge panels — every panel gets `overflow-hidden` so
+  // its own (sharp-cornered) internal content is clipped to the card's
+  // rounded shape instead of poking out past the corners.
   return (
-    <div className={clsx("flex h-dvh w-full flex-col", palette.appBg, palette.text)}>
-      <div className="flex min-h-0 flex-1">
-        <div style={{ width: sidebar.size }} className="shrink-0">
+    <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.panelBg, palette.text)}>
+      <div className="flex min-h-0 flex-1 gap-1">
+        <div
+          style={{ width: sidebar.size }}
+          className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
+        >
           <FileExplorer
             tree={tree}
             activePath={activePath}
@@ -262,53 +306,65 @@ export function IdeShell() {
         <div
           onMouseDown={sidebar.startDrag}
           className={clsx(
-            "flex w-1 shrink-0 cursor-col-resize items-center justify-center border-x",
-            palette.border,
+            "flex w-1 shrink-0 cursor-col-resize items-center justify-center rounded-full",
             palette.hover
           )}
         >
           <GripVertical size={10} className={palette.textMuted} />
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Breadcrumbs path={activePath} theme={theme} />
-          <div className="min-h-0 flex-1">
-            <EditorPanel
-              theme={theme}
-              openPaths={openPaths}
-              activePath={activePath}
-              dirtyPaths={dirtyPaths}
-              content={activePath ? files[activePath] ?? "" : ""}
-              onSelectTab={setActivePath}
-              onCloseTab={closeTab}
-              onChange={changeFile}
-              onSave={saveFile}
-            />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div
+            className={clsx(
+              "flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border",
+              palette.border
+            )}
+          >
+            <Breadcrumbs path={activePath} theme={theme} />
+            <div className="min-h-0 flex-1">
+              <EditorPanel
+                theme={theme}
+                openPaths={openPaths}
+                activePath={activePath}
+                dirtyPaths={dirtyPaths}
+                content={activePath ? files[activePath] ?? "" : ""}
+                onSelectTab={setActivePath}
+                onCloseTab={closeTab}
+                onChange={changeFile}
+                onSave={saveFile}
+              />
+            </div>
           </div>
 
           <div
             onMouseDown={terminal.startDrag}
             className={clsx(
-              "flex h-1 shrink-0 cursor-row-resize items-center justify-center border-y",
-              palette.border,
+              "flex h-1 shrink-0 cursor-row-resize items-center justify-center rounded-full",
               palette.hover
             )}
           >
             <GripHorizontal size={10} className={palette.textMuted} />
           </div>
 
-          <div style={{ height: terminal.size }} className="shrink-0">
+          <div
+            style={{ height: terminal.size }}
+            className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
+          >
             <BottomPanel theme={theme} vfs={vfs} />
           </div>
         </div>
       </div>
 
-      <StatusBar
-        activePath={activePath}
-        dirtyCount={dirtyPaths.size}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-      />
+      <div className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}>
+        <StatusBar
+          activePath={activePath}
+          dirtyCount={dirtyPaths.size}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+      </div>
+
+      <PackageCleanupGuard theme={theme} />
     </div>
   );
 }
