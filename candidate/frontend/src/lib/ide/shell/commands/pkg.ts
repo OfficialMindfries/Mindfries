@@ -1,5 +1,6 @@
-import { loadManifest, resolvePackage, saveManifest, verifyEsmBuild } from "../../packages";
+import { loadManifest, moduleUrlFor, resolvePackage, saveManifest, verifyEsmBuild, type InstalledPackage } from "../../packages";
 import { getPyodide } from "../../pyodide-runtime";
+import { nodeAt } from "../fs-util";
 import { fail, ok, type CommandContext, type CommandResult } from "../types";
 import { parseFlags } from "./fs";
 
@@ -102,14 +103,79 @@ function pythonErrorMessage(err: unknown): string {
   return (start === -1 ? lines.slice(-1) : lines.slice(start)).join("\n");
 }
 
+export const NODE_MODULES = "node_modules";
+
+/**
+ * `npx` exists to execute a package's command-line binary. Those are Node
+ * programs expecting a process, a real filesystem and argv — none of which
+ * exist in a tab — so this reports that plainly rather than looking like a
+ * missing command.
+ */
+export function npx(ctx: CommandContext): CommandResult {
+  const target = ctx.argv[1];
+  return fail(
+    `npx: not supported${target ? ` (can't run "${target}")` : ""} — it executes a package's Node CLI, ` +
+      `and there's no Node process in the browser.\n` +
+      `Library code does work: npm install <pkg>, then import it from a .js/.ts file and run it with node.`,
+    127
+  );
+}
+
+/**
+ * Writes the installed package into `node_modules/<name>/package.json` so an
+ * install is something you can actually see in the Explorer, not just an
+ * invisible entry in browser storage.
+ *
+ * The contents are the real registry metadata, including npm's own `_from`
+ * and `_resolved` bookkeeping fields — `_resolved` records that the code is
+ * served from the CDN rather than unpacked from a tarball, which is the one
+ * place this differs from a real install.
+ */
+function writePackageIntoTree(ctx: CommandContext, pkg: InstalledPackage): string | null {
+  // Scoped names ("@scope/pkg") need their parent directory created first.
+  const segments = [NODE_MODULES, ...pkg.name.split("/")];
+  for (let i = 1; i <= segments.length; i++) {
+    const dir = segments.slice(0, i).join("/");
+    if (!nodeAt(ctx.vfs, segments.slice(0, i))) {
+      const error = ctx.vfs.createFolder(dir);
+      if (error) return error;
+    }
+  }
+
+  const manifest = {
+    name: pkg.name,
+    version: pkg.version,
+    ...(pkg.description ? { description: pkg.description } : {}),
+    _from: `${pkg.name}@${pkg.version}`,
+    _resolved: moduleUrlFor(pkg.name, { [pkg.name]: pkg }),
+  };
+  return ctx.vfs.write(`${segments.join("/")}/package.json`, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+/** Removes `node_modules/<name>`, and the scope directory if it's now empty. */
+function removePackageFromTree(ctx: CommandContext, name: string): void {
+  const segments = [NODE_MODULES, ...name.split("/")];
+  if (nodeAt(ctx.vfs, segments)) ctx.vfs.remove(segments.join("/"), true);
+
+  if (name.startsWith("@")) {
+    const scope = segments.slice(0, 2);
+    const node = nodeAt(ctx.vfs, scope);
+    if (node && node !== "root" && node.type === "folder" && node.children.length === 0) {
+      ctx.vfs.remove(scope.join("/"), true);
+    }
+  }
+}
+
 /**
  * `npm` — real registry metadata plus real ESM code from esm.sh, recorded in
- * a manifest that persists in this browser. Installed packages become
- * importable by name from `node`/`ts-node` scripts.
+ * a manifest that persists in this browser and mirrored into `node_modules/`
+ * so installs are visible in the Explorer. Installed packages are importable
+ * by name from `node`/`ts-node` scripts.
  *
- * This is not real npm: no node_modules, no lifecycle scripts, no native
- * addons, and packages that never ship ESM won't work. Those need the
- * backend executor.
+ * This is not real npm: the `node_modules` entries are metadata only (the
+ * code is fetched from the CDN at run time), there are no lifecycle scripts
+ * or native addons, and packages that never ship ESM won't work. Those need
+ * a real machine.
  */
 export async function npm(ctx: CommandContext): Promise<CommandResult> {
   const { operands } = parseFlags(ctx.argv);
@@ -132,6 +198,7 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
     for (const name of packages) {
       if (manifest[name]) {
         delete manifest[name];
+        removePackageFromTree(ctx, name);
         removed++;
       }
     }
@@ -139,8 +206,19 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
     return ok(`removed ${removed} package${removed === 1 ? "" : "s"}\n`);
   }
 
+  // Commands that exist in real npm but run a package's Node CLI. There's no
+  // Node process here to run one, so say exactly that instead of a bare
+  // "unknown command" that leaves you guessing whether it's a typo.
+  if (["create", "init", "exec", "run", "start", "test", "publish"].includes(subcommand)) {
+    return fail(
+      `npm ${subcommand}: not supported — it runs a package's Node CLI, and there's no Node process in the browser.\n` +
+        `Install libraries instead (npm install <pkg>) and create files with touch/mkdir or the Explorer.`,
+      127
+    );
+  }
+
   if (subcommand !== "install" && subcommand !== "i" && subcommand !== "add") {
-    return fail(`npm: unknown command "${subcommand}"`);
+    return fail(`npm: unknown command "${subcommand}"`, 127);
   }
   if (packages.length === 0) return fail("npm install: missing package name");
 
@@ -162,10 +240,16 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
     }
 
     manifest[resolved.name] = resolved;
+    const treeError = writePackageIntoTree(ctx, resolved);
+    if (treeError) stderr += `npm WARN could not write node_modules/${resolved.name}: ${treeError}\n`;
     stdout += `+ ${resolved.name}@${resolved.version}\n`;
   }
 
   saveManifest(manifest);
-  if (stdout) stdout += `\nimport it by name from a .js/.ts file, then run it with node\n`;
+  if (stdout) {
+    stdout +=
+      `\nadded to ${NODE_MODULES}/ — import by name from a .js/.ts file and run it with node, e.g.\n` +
+      `  echo 'import x from "${Object.keys(manifest)[0] ?? "pkg"}"; console.log(x);' > app.js && node app.js\n`;
+  }
   return { stdout, stderr, code: stderr ? 1 : 0 };
 }

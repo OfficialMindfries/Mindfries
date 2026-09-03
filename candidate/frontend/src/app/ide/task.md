@@ -239,6 +239,38 @@ and it made the engine testable without a browser.
   silent when nothing is installed
 - `next build` (production) and `eslint` clean
 
+## Phase 17 — Visible installs, and pasting multiple commands
+
+- [x] `npm install` now mirrors each package into
+      `node_modules/<name>/package.json` (real registry metadata plus npm's
+      own `_from`/`_resolved` fields), so an install is something you can see
+      in the Explorer instead of an invisible entry in browser storage.
+      Scoped names nest correctly; `npm uninstall` and the cleanup dialog
+      both remove the directory again
+- [x] `npm create` / `npm init` / `npm run` / `npx` explain that they run a
+      package's Node CLI and there's no Node process in a browser, instead of
+      a bare `unknown command` that reads like a typo. Deliberately *not*
+      faked with hardcoded templates
+- [x] **Fixed: pasting multiple commands did nothing.** xterm delivers a
+      paste as ONE `onData` chunk with newlines normalized to `\r`. It
+      matched no key handler and fell through to the plain-text branch, so
+      the whole block landed on a single line with literal control
+      characters embedded. Chunks with line breaks are now split
+      (`lib/ide/shell/paste.ts`) and run in order, each echoed after its own
+      prompt. A trailing newline decides whether the final line runs or waits
+      on the prompt — matching bash/zsh. A bare `\n` now works as Enter too
+
+### Verified
+- 15/15 paste cases: `\r` / `\n` / CRLF, trailing break vs not, pasting into
+  already-typed text, pasting mid-line (splices at the cursor), blank lines,
+  and *not* misfiring on arrow-key escape sequences — plus a real pasted
+  block (`mkdir demo ; cd demo ; touch a.txt b.txt ; ls ; pwd`) run through
+  the engine, asserting both the output and that the filesystem changed
+- 11/12 npm cases (the one failure is the harness, not the app: module
+  execution uses `Blob` URLs, which Node's ESM loader rejects and browsers
+  accept). `react` verified loading and running live in-browser, and
+  `node_modules/react` + `react-dom` verified rendering in the Explorer
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are
