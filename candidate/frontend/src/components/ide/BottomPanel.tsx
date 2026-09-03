@@ -22,10 +22,14 @@ export function BottomPanel({
   theme,
   vfs,
   preview,
+  previewState,
+  onClosePreview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
+  previewState: { html: string; title: string; root: string; watching: boolean } | null;
+  onClosePreview: () => void;
 }) {
   const palette = idePalette(theme);
   const [active, setActive] = useState<PanelTab>("terminal");
@@ -54,7 +58,13 @@ export function BottomPanel({
         {/* Kept mounted (just hidden) rather than unmounted while another tab is
             active, so terminal sessions and their scrollback survive tab switches. */}
         <div className="h-full" style={{ display: active === "terminal" ? "block" : "none" }}>
-          <TerminalGroup theme={theme} vfs={vfs} preview={preview} />
+          <TerminalGroup
+            theme={theme}
+            vfs={vfs}
+            preview={preview}
+            previewState={previewState}
+            onClosePreview={onClosePreview}
+          />
         </div>
         {active === "problems" && (
           <EmptyState theme={theme} text="No problems have been detected in the workspace." />

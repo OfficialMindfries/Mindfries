@@ -9,7 +9,6 @@ import { EditorPanel } from "./EditorPanel";
 import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
 import { PackageCleanupGuard } from "./PackageCleanupGuard";
-import { PreviewPanel } from "./PreviewPanel";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -88,7 +87,6 @@ export function IdeShell() {
 
   const sidebar = useResizable({ initial: 240, min: 160, max: 480, axis: "horizontal" });
   const terminal = useResizable({ initial: 220, min: 100, max: 520, axis: "vertical", invert: true });
-  const previewPane = useResizable({ initial: 380, min: 240, max: 720, axis: "horizontal", invert: true });
 
 
   const openFile = (path: string) => {
@@ -416,40 +414,19 @@ export function IdeShell() {
             style={{ height: terminal.size }}
             className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
           >
-            <BottomPanel theme={theme} vfs={vfs} preview={previewController} />
+            <BottomPanel
+              theme={theme}
+              vfs={vfs}
+              preview={previewController}
+              previewState={preview}
+              onClosePreview={() => {
+                releaseBuild(previewBuildRef.current);
+                previewBuildRef.current = null;
+                setPreview(null);
+              }}
+            />
           </div>
         </div>
-
-        {preview && (
-          <>
-            <div
-              onMouseDown={previewPane.startDrag}
-              className={clsx(
-                "flex w-1 shrink-0 cursor-col-resize items-center justify-center rounded-full",
-                palette.hover
-              )}
-            >
-              <GripVertical size={10} className={palette.textMuted} />
-            </div>
-
-            <div
-              style={{ width: previewPane.size }}
-              className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
-            >
-              <PreviewPanel
-                theme={theme}
-                html={preview.html}
-                title={preview.title}
-                watching={preview.watching}
-                onClose={() => {
-                  releaseBuild(previewBuildRef.current);
-                  previewBuildRef.current = null;
-                  setPreview(null);
-                }}
-              />
-            </div>
-          </>
-        )}
       </div>
 
       <div className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}>
