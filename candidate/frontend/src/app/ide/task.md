@@ -480,6 +480,25 @@ the right message with a working retry while the workspace stays locked.
 pane blocks camera access outright, so no stream can be obtained in this
 environment. Both need a manual check with a real camera.
 
+## Phase 25 — Floating launcher for the AI agents
+
+- [x] Removed the **AI help** row from the Explorer footer; only the
+      signed-in candidate remains there
+- [x] `ChatLauncher.tsx`: a floating 48px circle at the bottom right carrying
+      the Mindfries logo, with a status dot sat on the circle's outline
+      (ringed in the surrounding colour so it reads as attached to the edge,
+      not floating over it)
+- [x] Clicking it opens the AI agents panel; the launcher hides while the
+      panel is open, since the panel has its own close and the bubble would
+      otherwise sit on top of what it opened
+- [x] It sits above the status bar and beneath the proctor gate, so a locked
+      session can't be bypassed by opening chat
+
+### Verified
+Live: 48×48 at 16px from the right, logo loads, the dot measures 12px on the
+circle's outline at bottom-right (offset 17,17 from centre against a 24px
+radius), clicking opens the chat and hides the launcher.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

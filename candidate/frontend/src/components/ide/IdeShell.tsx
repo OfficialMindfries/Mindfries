@@ -11,6 +11,7 @@ import { StatusBar } from "./StatusBar";
 import { PackageCleanupGuard } from "./PackageCleanupGuard";
 import { ChatPanel } from "./ChatPanel";
 import { ProctorGate } from "./ProctorGate";
+import { ChatLauncher } from "./ChatLauncher";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -368,8 +369,6 @@ export function IdeShell() {
             tree={tree}
             activePath={activePath}
             theme={theme}
-            chatOpen={chatOpen}
-            onToggleChat={() => setChatOpen((open) => !open)}
             onOpenFile={openFile}
             onCreate={createEntry}
             onRename={renameEntry}
@@ -471,6 +470,7 @@ export function IdeShell() {
 
       <PackageCleanupGuard theme={theme} vfs={vfs} />
       <ProctorGate theme={theme} camera={camera} />
+      <ChatLauncher theme={theme} hidden={chatOpen} onClick={() => setChatOpen(true)} />
     </div>
   );
 }

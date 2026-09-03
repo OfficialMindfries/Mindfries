@@ -9,7 +9,6 @@ import {
   FilePlus,
   FolderPlus,
   Pencil,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -28,8 +27,6 @@ interface FileExplorerProps {
   tree: TreeNode[];
   activePath: string | null;
   theme: IdeTheme;
-  chatOpen: boolean;
-  onToggleChat: () => void;
   onOpenFile: (path: string) => void;
   onCreate: (parentPath: string | null, kind: "file" | "folder", name: string) => void;
   onRename: (path: string, newName: string) => void;
@@ -40,8 +37,6 @@ export function FileExplorer({
   tree,
   activePath,
   theme,
-  chatOpen,
-  onToggleChat,
   onOpenFile,
   onCreate,
   onRename,
@@ -142,39 +137,19 @@ export function FileExplorer({
         )}
       </div>
 
-      <SidebarFooter theme={theme} chatOpen={chatOpen} onToggleChat={onToggleChat} />
+      <SidebarFooter theme={theme} />
     </div>
   );
 }
 
-/** AI help and the signed-in candidate, pinned to the bottom of the Explorer. */
-function SidebarFooter({
-  theme,
-  chatOpen,
-  onToggleChat,
-}: {
-  theme: IdeTheme;
-  chatOpen: boolean;
-  onToggleChat: () => void;
-}) {
+/** The signed-in candidate, pinned to the bottom of the Explorer. AI help
+ * moved out to the floating launcher (ChatLauncher). */
+function SidebarFooter({ theme }: { theme: IdeTheme }) {
   const palette = idePalette(theme);
 
   return (
     <div className={clsx("shrink-0 border-t", palette.border)}>
-      <button
-        type="button"
-        onClick={onToggleChat}
-        className={clsx(
-          "flex w-full items-center gap-2 px-3 py-2 text-xs",
-          palette.hover,
-          chatOpen ? palette.accent : palette.text
-        )}
-      >
-        <Sparkles size={14} className={palette.accent} />
-        AI help
-      </button>
-
-      <div className={clsx("flex items-center gap-2 border-t px-3 py-2", palette.border)}>
+      <div className={clsx("flex items-center gap-2 px-3 py-2", palette.border)}>
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#4A7FA7] text-[11px] font-semibold text-[#F6FAFD]">
           R
         </span>
