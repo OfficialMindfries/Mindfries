@@ -364,7 +364,7 @@ export function IdeShell() {
         />
       </div>
 
-      <PackageCleanupGuard theme={theme} />
+      <PackageCleanupGuard theme={theme} vfs={vfs} />
     </div>
   );
 }

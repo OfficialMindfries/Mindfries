@@ -4,6 +4,7 @@ import type { TreeNode } from "@/lib/ide/types";
 import { findNode } from "@/lib/ide/tree";
 import { resolveInputPath, segmentsToDisplay, segmentsToPath } from "@/lib/ide/vfs-path";
 import { executeCommandLine } from "@/lib/ide/shell/execute";
+import { isMultiLineInput, splitPastedInput } from "@/lib/ide/shell/paste";
 import { commandNames } from "@/lib/ide/shell/registry";
 import { createSession, type ShellSession } from "@/lib/ide/shell/types";
 
@@ -74,6 +75,10 @@ export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
   let cursor = 0;
   let historyIndex = 0;
   let busy = false;
+  /** Remaining complete lines from a multi-line paste, run one after another. */
+  let queued: string[] = [];
+  /** Text after a paste's last line break — goes on the prompt, not executed. */
+  let pendingInput = "";
 
   const io = {
     write: (text: string) => term.write(text),
@@ -145,6 +150,43 @@ export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
     redraw();
   };
 
+  /**
+   * Runs one line, then drains anything a multi-line paste left queued —
+   * each queued line is echoed after its own prompt first, so the transcript
+   * reads the same as if it had been typed.
+   */
+  const submit = (line: string) => {
+    const trimmed = line.trim();
+    if (trimmed) session.history.push(trimmed);
+    historyIndex = session.history.length;
+    buffer = "";
+    cursor = 0;
+    busy = true;
+
+    executeCommandLine(trimmed, session, vfs, io)
+      .catch((err) =>
+        term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`)
+      )
+      .finally(() => {
+        busy = false;
+        const next = queued.shift();
+        if (next !== undefined) {
+          term.write(`\r\n${promptFor(session)}${next}\r\n`);
+          submit(next);
+          return;
+        }
+        writePrompt();
+        // Text after the paste's final line break isn't a command yet — it
+        // sits on the prompt waiting for Enter, same as a real terminal.
+        if (pendingInput) {
+          buffer = pendingInput;
+          cursor = buffer.length;
+          pendingInput = "";
+          term.write(buffer);
+        }
+      });
+  };
+
   term.writeln("Linux commands are supported. Type help to see them.");
   term.write(promptFor(session));
 
@@ -152,22 +194,25 @@ export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
     if (busy) return; // block input while a foreground command is running
     const code = data.charCodeAt(0);
 
-    if (data === "\r") {
+    if (data === "\r" || data === "\n") {
       term.write("\r\n");
-      const line = buffer.trim();
-      if (line) session.history.push(line);
-      historyIndex = session.history.length;
-      buffer = "";
-      cursor = 0;
-      busy = true;
-      executeCommandLine(line, session, vfs, io)
-        .catch((err) =>
-          term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`)
-        )
-        .finally(() => {
-          busy = false;
-          writePrompt();
-        });
+      submit(buffer);
+      return;
+    }
+
+    // A paste arrives as ONE chunk that can carry line breaks. Without this
+    // it would fall through to the insert branch below and land as a single
+    // line with literal control characters in it, running nothing.
+    if (isMultiLineInput(data)) {
+      const split = splitPastedInput(data, buffer, cursor);
+      queued = split.queued;
+      pendingInput = split.pending;
+
+      buffer = split.line;
+      cursor = split.line.length;
+      redraw();
+      term.write("\r\n");
+      submit(split.line);
       return;
     }
 

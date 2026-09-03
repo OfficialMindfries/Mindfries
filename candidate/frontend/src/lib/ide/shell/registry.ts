@@ -51,6 +51,7 @@ const COMMANDS: Record<string, CommandFn> = {
   pip: pkg.pip,
   pip3: pkg.pip,
   npm: pkg.npm,
+  npx: pkg.npx,
 
   // Version control
   git: gitCommands.git,

@@ -6,6 +6,7 @@ import { Package, Trash2 } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
 import type { IdeTheme } from "@/lib/ide/theme";
+import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 
 /**
  * Asks whether to delete downloaded packages when the user leaves.
@@ -24,7 +25,7 @@ import type { IdeTheme } from "@/lib/ide/theme";
  * The prompt is only armed when packages actually exist, so a workspace
  * without downloads never nags.
  */
-export function PackageCleanupGuard({ theme }: { theme: IdeTheme }) {
+export function PackageCleanupGuard({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge }) {
   const palette = idePalette(theme);
   const [pending, setPending] = useState<InstalledPackage[] | null>(null);
 
@@ -49,6 +50,9 @@ export function PackageCleanupGuard({ theme }: { theme: IdeTheme }) {
 
   const deletePackages = () => {
     saveManifest({});
+    // Also drop the node_modules/ mirror, so "deleted" means gone from the
+    // Explorer too and not just from browser storage.
+    vfs.remove("node_modules", true);
     setPending(null);
   };
 
