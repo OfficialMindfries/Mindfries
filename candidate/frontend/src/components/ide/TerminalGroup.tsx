@@ -6,6 +6,7 @@ import { Plus, Trash2, X } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
+import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalPanel } from "./TerminalPanel";
 
 interface Session {
@@ -23,11 +24,11 @@ interface Session {
 export function TerminalGroup({
   theme,
   vfs,
-  onPreview,
+  preview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
-  onPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
+  preview: PreviewController;
 }) {
   const palette = idePalette(theme);
   const nextId = useRef(1);
@@ -127,7 +128,7 @@ export function TerminalGroup({
         ) : (
           sessions.map((s) => (
             <div key={s.id} className="h-full" style={{ display: s.id === activeId ? "block" : "none" }}>
-              <TerminalPanel theme={theme} vfs={vfs} onPreview={onPreview} />
+              <TerminalPanel theme={theme} vfs={vfs} preview={preview} />
             </div>
           ))
         )}

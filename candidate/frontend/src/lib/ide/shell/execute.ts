@@ -54,7 +54,8 @@ async function runPipeline(
   commands: SimpleCommand[],
   session: ShellSession,
   vfs: VfsBridge,
-  io: ShellIO
+  io: ShellIO,
+  signal: AbortSignal
 ): Promise<number> {
   let piped = "";
   let exitCode = 0;
@@ -100,7 +101,7 @@ async function runPipeline(
     } else {
       const isTerminalSink = isLast && !redirects.stdoutTo;
       try {
-        result = await command_({ argv, stdin, session, vfs, io, isTerminalSink });
+        result = await command_({ argv, stdin, session, vfs, io, isTerminalSink, signal });
       } catch (err) {
         result = {
           stderr: `${argv[0]}: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -150,7 +151,8 @@ export async function executeCommandLine(
   line: string,
   session: ShellSession,
   vfs: VfsBridge,
-  io: ShellIO
+  io: ShellIO,
+  signal: AbortSignal = new AbortController().signal
 ): Promise<void> {
   if (!line.trim()) return;
 
@@ -169,6 +171,6 @@ export async function executeCommandLine(
   for (const entry of entries) {
     if (entry.joiner === "&&" && session.lastExit !== 0) continue;
     if (entry.joiner === "||" && session.lastExit === 0) continue;
-    session.lastExit = await runPipeline(entry.pipeline.commands, session, vfs, io);
+    session.lastExit = await runPipeline(entry.pipeline.commands, session, vfs, io, signal);
   }
 }
