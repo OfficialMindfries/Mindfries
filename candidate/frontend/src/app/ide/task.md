@@ -1,0 +1,260 @@
+# In-Browser Workspace IDE — Task Log
+
+Status log for the work under `src/{app/ide,components/ide,lib/ide}`. See
+[spec.md](spec.md) for what each item actually does.
+
+## Phase 1 — Shell & layout
+- [x] `IdeShell.tsx` as single source of truth (tree, files, open tabs, active tab)
+- [x] Explorer / Editor / Bottom panel layout, resizable Explorer width
+- [x] Problems / Output / Debug Console / Terminal / Ports tab strip in `BottomPanel`
+- [x] Removed the side activity-bar panel (dead code `ActivityBar.tsx`,
+      `SearchPanel.tsx`, `PlaceholderSidebar.tsx` deleted)
+- [x] Removed the top header bar; theme toggle moved into `StatusBar`
+
+## Phase 2 — Virtual filesystem & Explorer
+- [x] `VfsBridge` interface (`getSnapshot`, `createFile`, `createFolder`,
+      `remove`, `write`, `move`) shared by Explorer/Editor/Terminal
+- [x] Tree transforms in `lib/ide/tree.ts` (`addNode`, `removeNode`,
+      `renameNode`, `moveNode`, `collectFilePaths`, `findNode`, `siblingNames`)
+- [x] Path resolution utilities (`.`/`..`/absolute) in `lib/ide/vfs-path.ts`
+- [x] Create/rename/delete files & folders inline in the Explorer
+- [x] Started empty — all hardcoded sample files removed from `mock-project.ts`
+
+## Phase 3 — Editor
+- [x] Monaco self-hosted (`scripts/copy-monaco.js` → `public/monaco-editor`),
+      loader pointed at the local path (CDN loading is blocked in the sandbox)
+- [x] Tabs with dirty-state dot, Ctrl/Cmd+S
+- [x] `lib/ide/language.ts` — extension → Monaco language id mapping
+
+## Phase 4 — Terminal: a real shell over the VFS
+- [x] Replaced the mock/canned-response shell (`shell.ts`, deleted) with
+      `vfs-shell.ts`: real `ls/cd/pwd/cat/touch/mkdir/rm/mv/cp/echo` against the
+      shared VFS, real error messages, per-session `cwd`
+- [x] `mv` supports moving across directories, not just same-directory rename
+- [x] Multiple terminal sessions as left-aligned tabs (not a dropdown), `+`
+      button directly after the last tab, compact sizing
+- [x] Fixed `FitAddon.fit()` measuring bogus dimensions before first paint
+      (`safeFit()` guard, double-`requestAnimationFrame` defer)
+- [x] Removed the "Loading Python runtime..." message and the old
+      "Mindfries workspace terminal..." banner; replaced with a one-liner
+      ("Linux commands are supported.")
+
+## Phase 5 — Real code execution
+- [x] `lib/ide/code-runner.ts`: `runJavaScript` (`new Function`, captured
+      console output) and `runPython` (Pyodide)
+- [x] `lib/ide/pyodide-runtime.ts`: singleton Pyodide loader, `<script>`-tag
+      injection (not `import`), lazy-loaded on first Python run
+- [x] `scripts/copy-pyodide.js`, wired into `postinstall` and `build`
+- [x] Verified live: variable set in one terminal `python` run is not expected
+      to persist across separate script runs by design, but **does** persist
+      across notebook cells and repeated `python` invocations in the same tab
+      (shared singleton kernel)
+
+## Phase 6 — File-type icons
+- [x] Replaced letter-abbreviation icons with real brand SVGs from `devicon`
+      (fixed the Python/HTML-same-icon bug)
+- [x] `scripts/copy-file-icons.js` — ~40 SVGs copied into `public/file-icons/`
+- [x] `FileTypeIcon.tsx` — ~65 extension/filename mappings
+
+## Phase 7 — Branding & theming
+- [x] Mindfries logo converted from the supplied JPG to a traced SVG
+      (`potrace`, 16× upscale before tracing) — renders correctly in both themes
+- [x] Logo added to the Explorer header before "EXPLORER", and as the favicon
+- [x] Accent color and status bar recolored to brand purple (`#7957da`)
+- [x] Terminal prompt ("mindfries") recolored to the same purple via 24-bit
+      ANSI true-color codes
+- [x] Theme toggle moved to the status bar, icon-only (moon/sun)
+- [x] Fixed a CSS cascade-layers bug where an unlayered `body { color }` rule
+      in `globals.css` beat every layered Tailwind utility class
+- [x] Fixed Tailwind v4 not content-scanning plain `.ts` files (only `.tsx`),
+      which had silently dropped every class string defined in `palette.ts`
+      from the compiled CSS — fixed with an explicit `@source` directive
+
+## Phase 8 — Jupyter notebooks
+- [x] `.ipynb` support: `lib/ide/notebook.ts` (nbformat v4 parse/serialize,
+      scoped to code+markdown cells, text-only output)
+- [x] `NotebookEditor.tsx`: Run All / + Code / + Markdown, per-cell Play/Delete,
+      auto-resizing cell textareas, Ctrl/Cmd+S handled independently of Monaco
+- [x] `tiny-markdown.tsx`: minimal Markdown renderer for markdown cells
+- [x] Verified kernel-state sharing across cells live (variable set in cell 1
+      readable in cell 2)
+- [x] Jupyter logo used for the `.ipynb` file icon
+
+## Phase 9 — Persistence
+- [x] `lib/ide/fs-persist.ts`: debounced `localStorage` save + restore-on-mount
+      (`mindfries-ide-workspace` key)
+- [x] Auto Save on by default (~800ms debounce after edits stop)
+- [x] Verified: created a file, confirmed it in `localStorage`, refreshed,
+      confirmed it came back
+
+## Phase 10 — Repo hygiene
+- [x] Found and fixed a repo-root `.gitignore` bug: the unanchored `lib/`
+      pattern (meant for a Python `build/lib/` artifact) was matching
+      `candidate/frontend/src/lib/` anywhere in the tree and silently keeping
+      13 real source files out of git. Anchored to `/lib/`, `/lib64/`.
+      (commit `98f034b`)
+- [x] Deleted dead code left over from earlier iterations (`ActivityBar.tsx`,
+      `SearchPanel.tsx`, `PlaceholderSidebar.tsx`, old `shell.ts`,
+      `ThemeToggle.tsx`)
+- [x] Committed the full feature, wrote [pr.md](/pr.md), opened
+      [PR #3](https://github.com/RishiGoswami-code/Mindfries/pull/3)
+- [x] Recovered from a git ref corruption caused by a mid-session power loss
+      (`refs/heads/candidate/ide-workspace` was zero-filled; repaired via
+      `git update-ref` once the commit object was confirmed intact)
+
+## Phase 11 — Rebrand to the navy/blue palette
+- [x] Replaced the purple brand palette (`#7957da`/`#a78bfa`) with the five-swatch
+      navy/blue palette (`#0A1931`, `#1A3D63`, `#4A7FA7`, `#B3CFE5`, `#F6FAFD`)
+      across `palette.ts` (both dark and light token sets), the status bar
+      (`STATUS_BAR_BG`), the terminal prompt (`vfs-shell.ts`), the terminal's
+      xterm theme, the light-flash paint color (`theme.tsx`), the file-icon
+      fallback glyph, and the logo/favicon SVGs
+- [x] Found and fixed a real bug while verifying the recolor: xterm's bundled
+      CSS hardcodes `.xterm-viewport { background-color: #000 }`, and the DOM
+      renderer never overrides it with `theme.background` — the terminal had
+      *always* rendered on a plain black viewport, just invisibly so while the
+      dark theme's background was close enough to black to hide it. Fixed by
+      painting `.xterm-viewport`'s inline style directly
+      (see [claude.md](claude.md), gotcha #8)
+
+## Phase 12 — Rounded floating-card layout
+- [x] Replaced VS Code's flush, edge-to-edge panel layout with independent
+      rounded cards (Explorer, Editor+Breadcrumbs, Terminal, status bar)
+      floating on a recessed canvas — `p-2 gap-2` on the root, each panel
+      wrapped in `rounded-xl border overflow-hidden` (the `overflow-hidden`
+      clips each panel's own sharp-cornered content to the card's rounded
+      shape) in [IdeShell.tsx](../../components/ide/IdeShell.tsx)
+- [x] Resize-drag handles (sidebar/terminal splitters) moved into the gap
+      between cards, restyled as small rounded-pill grips instead of a
+      1px border-divider
+- [x] Active editor and terminal-session tabs bumped from `rounded-t-[4px]`
+      to `rounded-t-lg` to match the new card radius
+
+## Phase 13 — Real line editing in the terminal
+- [x] Tab-completion in `vfs-shell.ts`: completes command names on the first
+      word, file/folder paths (relative to cwd) elsewhere — single
+      unambiguous match completes inline (directories get a trailing `/`,
+      files get a trailing space), multiple matches complete their longest
+      common prefix and print the candidate list, same as bash/zsh
+- [x] Full line editing to match a real terminal: cursor tracking with
+      Left/Right (and Ctrl+B/F), Home/End (and Ctrl+A/E), Delete key,
+      Ctrl+U/K (kill to start/end of line), Ctrl+W (delete previous word),
+      Ctrl+C (cancel line), Ctrl+L (clear screen, keep the line) — all
+      rendering through one `redraw()` helper instead of ad hoc cursor math
+- [x] Cursor style switched from the default solid block to a thin `bar`
+      (`cursorStyle: "bar"`, `cursorWidth: 1`) in `TerminalPanel.tsx`
+
+## Phase 14 — Real TypeScript execution
+- [x] `runTypeScript` in `code-runner.ts`: transpiles with the real
+      `typescript` compiler (`ts.transpileModule`, dynamically imported —
+      moved `typescript` from devDependencies to dependencies since it's now
+      a genuine runtime dependency of the client bundle, not just a
+      build-time type checker), then runs the emitted JS through the
+      existing `runJavaScript`
+- [x] `node` (plus new `ts-node`/`tsx` aliases) in `vfs-shell.ts` auto-detects
+      `.ts`/`.tsx` and transpiles first — no separate command or install
+      step needed, matching how `python` needs none either
+- [x] Verified live: a `.ts` file with a real type annotation
+      (`(name: string): string`) ran via `node hello.ts` and printed the
+      correct output, confirming the annotation was actually stripped and
+      the result actually executed (not just displayed)
+
+## Phase 15 — Real shell: parser, pipelines, package managers
+
+Architecture decision: commands moved out of a `switch` that wrote straight to
+xterm, into functions returning `{stdout, stderr, code}` behind a registry
+(`lib/ide/shell/`). Writing to the terminal from inside a command makes pipes
+structurally impossible — this refactor is what unlocked everything below,
+and it made the engine testable without a browser.
+
+- [x] `parser.ts` — tokenizer with real quoting rules (`'literal'` /
+      `"expanded"` / `\escaped`), parsed into pipelines joined by `&&`/`||`/`;`
+      with `>`/`>>`/`<`/`2>` redirects
+- [x] `execute.ts` — pipes stdin→stdout between commands, applies redirects,
+      short-circuits on real exit codes, expands `$VAR`/`${VAR}`/`$?`/`~`
+- [x] Glob expansion (`*.ts`, `src/*`, `?`), unmatched patterns left literal
+      like bash's default
+- [x] Unix toolbelt: `grep -i -n -v -c -r`, `sed s///`, `find -name -type`,
+      `head`, `tail`, `wc`, `sort -n -r -u`, `uniq -c -d`, `cut`, `tr`,
+      `diff`, `tree`, plus `ls -l -a -1`, `rm -f`, and **`cp -r`** — which
+      closes [issue #5](https://github.com/RishiGoswami-code/Mindfries/issues/5)
+- [x] Shell builtins: `export`, `env`, `unset`, `alias`, `unalias`, `which`,
+      `history`, `uname`
+- [x] `curl`/`wget` — real `fetch()`, with an honest CORS-limit message
+      rather than a vague failure
+- [x] `pip install/list/show` via micropip (real PyPI + Pyodide index)
+- [x] `npm install/list/uninstall` via the real npm registry + esm.sh, with a
+      persisted manifest; the JS/TS runner now executes module code as a real
+      ES module (blob URL) with bare imports rewritten to the installed version
+- [x] **Fixed a real bug the refactor exposed**: VFS mutations went through
+      React `setState`, and the synchronous snapshot ref only refreshed on
+      the *next render* — so with multiple commands per line
+      (`echo hi > a.txt && cat a.txt`), every command after the first read a
+      stale filesystem, and repeated writes even created duplicate tree
+      nodes. Mutators now update the ref synchronously before queuing the
+      React update (`syncSnapshot` in `IdeShell.tsx`)
+- [x] Verified with a 30-case harness driving the real engine against an
+      in-memory VFS (pipes, redirects, chaining, globs, exit codes, quoting,
+      `cp -r`, `sort | uniq -c`, aliases) — 30/30 — plus live browser checks
+      of `npm install left-pad` and importing it in a script (`[00007]`)
+
+## Phase 16 — Real git (hybrid storage) + package cleanup on close
+
+- [x] `lib/ide/git/idb.ts` — binary-safe IndexedDB key/value store
+- [x] `lib/ide/git/hybrid-fs.ts` — the fs adapter isomorphic-git talks to:
+      `/.git/**` → IndexedDB (git objects are compressed binary and would be
+      corrupted by our text-only VFS), everything else → the VFS, so the
+      working tree stays the files the user can see and edit
+- [x] `git init/add/status/commit/log/branch/checkout/rm/config` via
+      isomorphic-git — real SHA-1 objects, a real commit graph. `clone`/`push`/
+      `pull` refuse honestly (they need a CORS proxy or the backend executor)
+- [x] **Fixed:** isomorphic-git passes bare relative paths (it calls
+      `lstat(".")` while walking the tree), which a naive "prefix a slash"
+      normalizer turned into `/.` — every status/checkout failed ENOENT
+- [x] **Fixed a bug that made `pip install` impossible for everyone:** the
+      pyodide npm package ships the runtime but *zero* wheels — not even
+      micropip. With `indexURL` pointed at our self-hosted copy, every
+      `loadPackage()` 404'd against our own server ("Failed to fetch"). Now
+      `packageBaseUrl` points at the official CDN for exactly the version we
+      ship (version read from `pyodide/package.json`, so it tracks upgrades),
+      while the runtime itself stays self-hosted
+- [x] `pip` now surfaces the *useful* line of micropip's error rather than
+      its trailing "use keep_going=True" hint
+- [x] `PackageCleanupGuard.tsx` — asks whether to delete downloaded packages
+      when leaving, with "Yes, delete" / "Don't delete" / "Cancel closing
+      window". Only arms when packages actually exist. See the note in that
+      file on why the three buttons can't live in the browser's own close
+      prompt (pages can't customize it — that restriction stops tab-trapping)
+
+### Verified
+- Shell engine: **30/30** automated cases against the real parser/executor
+- Git: **18/18** automated cases against real isomorphic-git + the hybrid fs,
+  including "objects went to IndexedDB, not the VFS"
+- pip: live in-browser — installed `attrs` 26.1.0 from PyPI, imported it, and
+  built a real `@attrs.define` object; `tensorflow` fails with micropip's own
+  honest "no pure Python 3 wheel" error
+- npm: live end-to-end — `npm install left-pad` → `+ left-pad@1.3.0`, then
+  importing it in a script printed `[00007]`
+- Cleanup dialog: live — deletes / keeps / dismisses correctly, and stays
+  silent when nothing is installed
+- `next build` (production) and `eslint` clean
+
+## Backlog / known limitations
+
+Filed as GitHub issues so they don't get lost — none are blocking, all are
+honest scope calls documented in [spec.md §8](spec.md#8-known-limitations--out-of-scope):
+
+| # | Issue | Area |
+|---|---|---|
+| [#4](https://github.com/RishiGoswami-code/Mindfries/issues/4) | Only Python and JavaScript actually execute in the terminal/notebooks | Code execution |
+| [#5](https://github.com/RishiGoswami-code/Mindfries/issues/5) | Terminal's `cp` doesn't support copying directories (`-r`) | Terminal |
+| [#6](https://github.com/RishiGoswami-code/Mindfries/issues/6) | Jupyter notebook cells don't render rich output (images, plots, HTML) | Notebooks |
+| [#7](https://github.com/RishiGoswami-code/Mindfries/issues/7) | Auto Save can't be disabled or configured — no settings UI | Persistence |
+| [#8](https://github.com/RishiGoswami-code/Mindfries/issues/8) | Silent data loss risk when `localStorage` quota is exceeded | Persistence |
+
+Not yet filed as issues, lower priority:
+- [ ] No settings/preferences panel of any kind beyond the theme toggle
+- [ ] No multi-select / bulk operations in the Explorer
+- [ ] No search-across-files (Ctrl+Shift+F) — `SearchPanel.tsx` was removed
+      with the activity bar and never replaced
+- [ ] No undo/redo for filesystem operations (rm, mv, etc. are immediate and final)

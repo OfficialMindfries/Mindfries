@@ -104,5 +104,5 @@ export function FileTypeIcon({ name, size = 16 }: { name: string; size?: number 
     );
   }
 
-  return <FileText size={size} className="shrink-0 text-[#8a8a8a]" />;
+  return <FileText size={size} className="shrink-0 text-[#4A7FA7]" />;
 }

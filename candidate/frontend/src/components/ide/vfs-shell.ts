@@ -1,77 +1,169 @@
 import type { Terminal } from "@xterm/xterm";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
+import type { TreeNode } from "@/lib/ide/types";
 import { findNode } from "@/lib/ide/tree";
 import { resolveInputPath, segmentsToDisplay, segmentsToPath } from "@/lib/ide/vfs-path";
-import { getPyodide } from "@/lib/ide/pyodide-runtime";
-import { runJavaScript } from "@/lib/ide/code-runner";
+import { executeCommandLine } from "@/lib/ide/shell/execute";
+import { commandNames } from "@/lib/ide/shell/registry";
+import { createSession, type ShellSession } from "@/lib/ide/shell/types";
 
-const HELP_TEXT = [
-  "Filesystem: ls, cd, pwd, cat, touch, mkdir [-p], rm [-r], mv, cp, echo [> file | >> file]",
-  "Run scripts: node <file>.js, python <file>.py",
-  "Other: clear, whoami, date, help",
-].join("\r\n");
+// True-color (24-bit) escape for the exact brand mid-blue (#4A7FA7) — the
+// standard 16-color ANSI palette has no matching blue close enough to read
+// as on-brand next to the rest of the UI.
+const BRAND_BLUE = "\x1b[1;38;2;74;127;167m";
+const PATH_BLUE = "\x1b[1;38;2;179;207;229m";
 
-// True-color (24-bit) escape for the exact brand purple (#7957da) — the
-// standard 16-color ANSI palette has no purple, only magenta, which reads
-// noticeably pink/off-brand next to the rest of the UI.
-const BRAND_PURPLE = "\x1b[1;38;2;121;87;218m";
-
-function promptFor(cwd: string[]): string {
-  return `${BRAND_PURPLE}mindfries\x1b[0m \x1b[1;34m~${segmentsToDisplay(cwd)}\x1b[0m$ `;
+function promptFor(session: ShellSession): string {
+  return `${BRAND_BLUE}mindfries\x1b[0m ${PATH_BLUE}~${segmentsToDisplay(session.cwd)}\x1b[0m$ `;
 }
 
-function tokenize(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (const ch of input) {
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (ch === " " && !inQuotes) {
-      if (current) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += ch;
+function longestCommonPrefix(strings: string[]): string {
+  if (strings.length === 0) return "";
+  let prefix = strings[0];
+  for (const s of strings.slice(1)) {
+    let i = 0;
+    while (i < prefix.length && i < s.length && prefix[i] === s[i]) i++;
+    prefix = prefix.slice(0, i);
+    if (!prefix) break;
   }
-  if (current) tokens.push(current);
-  return tokens;
+  return prefix;
 }
 
-interface ShellState {
-  cwd: string[];
+/** Word being completed -> its `dirPart` (up to the last "/") and `prefix` (the basename typed so far). */
+function splitCompletionWord(word: string): { dirPart: string; prefix: string } {
+  const idx = word.lastIndexOf("/");
+  return idx === -1
+    ? { dirPart: "", prefix: word }
+    : { dirPart: word.slice(0, idx + 1), prefix: word.slice(idx + 1) };
 }
 
-/** Attaches an interactive shell backed by a real (in-memory) virtual filesystem, shared with the Explorer/Editor. */
+/** Matches for a path-completion word, resolved against the shell's cwd — folders get a trailing "/". */
+function completePathWord(
+  session: ShellSession,
+  vfs: VfsBridge,
+  word: string
+): { matches: string[]; dirPart: string; prefix: string } {
+  const { dirPart, prefix } = splitCompletionWord(word);
+  const target = resolveInputPath(session.cwd, dirPart);
+  const { tree } = vfs.getSnapshot();
+
+  let children: TreeNode[];
+  if (target.length === 0) {
+    children = tree;
+  } else {
+    const node = findNode(tree, segmentsToPath(target));
+    if (!node || node.type !== "folder") return { matches: [], dirPart, prefix };
+    children = node.children;
+  }
+
+  const matches = children
+    .filter((n) => n.name.startsWith(prefix))
+    .map((n) => (n.type === "folder" ? `${n.name}/` : n.name))
+    .sort();
+  return { matches, dirPart, prefix };
+}
+
+/**
+ * Attaches an interactive shell — line editor here, command execution in
+ * lib/ide/shell (parser + pipeline executor + command registry), so pipes,
+ * redirection, `&&`/`||`, globs and exit codes all work like a real shell.
+ */
 export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
-  const state: ShellState = { cwd: [] };
+  const session = createSession();
   let buffer = "";
-  const history: string[] = [];
-  let historyIndex = -1;
+  let cursor = 0;
+  let historyIndex = 0;
   let busy = false;
 
-  const writePrompt = () => term.write(`\r\n${promptFor(state.cwd)}`);
+  const io = {
+    write: (text: string) => term.write(text),
+    clear: () => term.clear(),
+  };
 
-  term.writeln("Linux commands are supported.");
-  term.write(promptFor(state.cwd));
+  const writePrompt = () => term.write(`\r\n${promptFor(session)}`);
+
+  // Full redraw of the current input line: clear it, rewrite prompt + buffer,
+  // then reposition the cursor. Simpler and less bug-prone than manually
+  // tracking cursor-relative writes for every edit (insert/delete/history/
+  // completion all funnel through this one place).
+  const redraw = () => {
+    term.write(`\r\x1b[2K${promptFor(session)}${buffer}`);
+    const back = buffer.length - cursor;
+    if (back > 0) term.write(`\x1b[${back}D`);
+  };
+
+  const setLine = (next: string, cursorAt = next.length) => {
+    buffer = next;
+    cursor = Math.max(0, Math.min(cursorAt, buffer.length));
+    redraw();
+  };
+
+  const handleTab = () => {
+    const upToCursor = buffer.slice(0, cursor);
+    const wordStart = upToCursor.lastIndexOf(" ") + 1;
+    const word = upToCursor.slice(wordStart);
+    const isFirstWord = upToCursor.slice(0, wordStart).trim().length === 0;
+
+    let candidates: string[];
+    let replaceStart: number;
+    let typedLen: number;
+
+    if (isFirstWord) {
+      candidates = commandNames().filter((c) => c.startsWith(word));
+      replaceStart = wordStart;
+      typedLen = word.length;
+    } else {
+      const { matches, dirPart, prefix } = completePathWord(session, vfs, word);
+      candidates = matches;
+      replaceStart = wordStart + dirPart.length;
+      typedLen = prefix.length;
+    }
+
+    if (candidates.length === 0) return;
+
+    const applyReplacement = (text: string) => {
+      const tail = buffer.slice(cursor);
+      buffer = buffer.slice(0, replaceStart) + text + tail;
+      cursor = replaceStart + text.length;
+    };
+
+    if (candidates.length === 1) {
+      const completion = candidates[0];
+      // Only auto-append a trailing space once the completion is unambiguous
+      // AND it's not a directory (so the user can keep typing deeper into
+      // it) AND there's nothing already after the cursor to collide with.
+      const trailingSpace = !completion.endsWith("/") && cursor === buffer.length ? " " : "";
+      applyReplacement(completion + trailingSpace);
+      redraw();
+      return;
+    }
+
+    const lcp = longestCommonPrefix(candidates);
+    if (lcp.length > typedLen) applyReplacement(lcp);
+
+    term.write(`\r\n${candidates.join("  ")}`);
+    redraw();
+  };
+
+  term.writeln("Linux commands are supported. Type help to see them.");
+  term.write(promptFor(session));
 
   const disposable = term.onData((data) => {
-    if (busy) return; // block input while a foreground command (python/node) is running
+    if (busy) return; // block input while a foreground command is running
     const code = data.charCodeAt(0);
 
     if (data === "\r") {
       term.write("\r\n");
-      const cmd = buffer.trim();
-      if (cmd) history.push(cmd);
-      historyIndex = history.length;
+      const line = buffer.trim();
+      if (line) session.history.push(line);
+      historyIndex = session.history.length;
       buffer = "";
+      cursor = 0;
       busy = true;
-      runCommand(term, vfs, state, cmd)
-        .catch((err) => term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`))
+      executeCommandLine(line, session, vfs, io)
+        .catch((err) =>
+          term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`)
+        )
         .finally(() => {
           busy = false;
           writePrompt();
@@ -79,338 +171,87 @@ export function attachVfsShell(term: Terminal, vfs: VfsBridge): () => void {
       return;
     }
 
-    if (code === 127) {
-      if (buffer.length > 0) {
-        buffer = buffer.slice(0, -1);
-        term.write("\b \b");
+    if (data === "\t") {
+      handleTab();
+      return;
+    }
+
+    if (code === 127 || data === "\x1b[3~") {
+      // Backspace (127) deletes before the cursor; Delete ("\x1b[3~") deletes at it.
+      if (data === "\x1b[3~") {
+        if (cursor < buffer.length) setLine(buffer.slice(0, cursor) + buffer.slice(cursor + 1), cursor);
+      } else if (cursor > 0) {
+        setLine(buffer.slice(0, cursor - 1) + buffer.slice(cursor), cursor - 1);
       }
+      return;
+    }
+
+    if (data === "\x1b[D" || data === "\x02" /* Ctrl+B */) {
+      if (cursor > 0) setLine(buffer, cursor - 1);
+      return;
+    }
+    if (data === "\x1b[C" || data === "\x06" /* Ctrl+F */) {
+      if (cursor < buffer.length) setLine(buffer, cursor + 1);
+      return;
+    }
+    if (data === "\x1b[H" || data === "\x1b[1~" || data === "\x01" /* Ctrl+A */) {
+      setLine(buffer, 0);
+      return;
+    }
+    if (data === "\x1b[F" || data === "\x1b[4~" || data === "\x05" /* Ctrl+E */) {
+      setLine(buffer, buffer.length);
+      return;
+    }
+    if (data === "\x15" /* Ctrl+U: kill to start */) {
+      setLine(buffer.slice(cursor), 0);
+      return;
+    }
+    if (data === "\x0b" /* Ctrl+K: kill to end */) {
+      setLine(buffer.slice(0, cursor));
+      return;
+    }
+    if (data === "\x17" /* Ctrl+W: delete previous word */) {
+      const before = buffer.slice(0, cursor).replace(/\s*\S+\s*$/, "");
+      setLine(before + buffer.slice(cursor), before.length);
+      return;
+    }
+    if (data === "\x03" /* Ctrl+C: cancel line */) {
+      term.write("^C");
+      buffer = "";
+      cursor = 0;
+      historyIndex = session.history.length;
+      writePrompt();
+      return;
+    }
+    if (data === "\x0c" /* Ctrl+L: clear screen, keep line */) {
+      term.clear();
+      redraw();
       return;
     }
 
     if (data === "\x1b[A") {
       if (historyIndex > 0) {
         historyIndex -= 1;
-        replaceLine(term, buffer, history[historyIndex]);
-        buffer = history[historyIndex];
+        setLine(session.history[historyIndex]);
       }
       return;
     }
 
     if (data === "\x1b[B") {
-      if (historyIndex < history.length - 1) {
+      if (historyIndex < session.history.length - 1) {
         historyIndex += 1;
-        replaceLine(term, buffer, history[historyIndex]);
-        buffer = history[historyIndex];
-      } else if (historyIndex === history.length - 1) {
-        historyIndex = history.length;
-        replaceLine(term, buffer, "");
-        buffer = "";
+        setLine(session.history[historyIndex]);
+      } else if (historyIndex === session.history.length - 1) {
+        historyIndex = session.history.length;
+        setLine("");
       }
       return;
     }
 
     if (code < 32) return; // ignore other control characters for this shell
 
-    buffer += data;
-    term.write(data);
+    setLine(buffer.slice(0, cursor) + data + buffer.slice(cursor), cursor + data.length);
   });
 
   return () => disposable.dispose();
-}
-
-function replaceLine(term: Terminal, current: string, next: string) {
-  if (current.length > 0) term.write("\b \b".repeat(current.length));
-  term.write(next);
-}
-
-async function runCommand(term: Terminal, vfs: VfsBridge, state: ShellState, cmd: string): Promise<void> {
-  if (!cmd) return;
-  const [name, ...args] = tokenize(cmd);
-
-  switch (name) {
-    case "help":
-      term.writeln(HELP_TEXT);
-      return;
-    case "pwd":
-      term.writeln(segmentsToDisplay(state.cwd));
-      return;
-    case "whoami":
-      term.writeln("candidate");
-      return;
-    case "date":
-      term.writeln(new Date().toString());
-      return;
-    case "clear":
-      term.clear();
-      return;
-    case "ls":
-      return runLs(term, vfs, state, args[0]);
-    case "cd":
-      return runCd(term, vfs, state, args[0]);
-    case "cat":
-      return runCat(term, vfs, state, args);
-    case "touch":
-      return runTouch(term, vfs, state, args);
-    case "mkdir":
-      return runMkdir(term, vfs, state, args);
-    case "rm":
-      return runRm(term, vfs, state, args);
-    case "mv":
-      return runMv(term, vfs, state, args);
-    case "cp":
-      return runCp(term, vfs, state, args);
-    case "echo":
-      return runEcho(term, vfs, state, args);
-    case "node":
-    case "js":
-      return runNode(term, vfs, state, args);
-    case "python":
-    case "python3":
-      return runPython(term, vfs, state, args);
-    default:
-      term.writeln(`command not found: ${name}`);
-  }
-}
-
-function resolve(state: ShellState, input: string | undefined): string[] {
-  return resolveInputPath(state.cwd, input ?? "");
-}
-
-function runLs(term: Terminal, vfs: VfsBridge, state: ShellState, arg?: string) {
-  const target = arg ? resolve(state, arg) : state.cwd;
-  const { tree } = vfs.getSnapshot();
-
-  let children;
-  if (target.length === 0) {
-    children = tree;
-  } else {
-    const node = findNode(tree, segmentsToPath(target));
-    if (!node) {
-      term.writeln(`ls: ${arg}: No such file or directory`);
-      return;
-    }
-    if (node.type === "file") {
-      term.writeln(node.name);
-      return;
-    }
-    children = node.children;
-  }
-
-  if (children.length === 0) return;
-  const sorted = [...children].sort((a, b) => {
-    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-  const line = sorted
-    .map((n) => (n.type === "folder" ? `\x1b[1;34m${n.name}/\x1b[0m` : n.name))
-    .join("  ");
-  term.writeln(line);
-}
-
-function runCd(term: Terminal, vfs: VfsBridge, state: ShellState, arg?: string) {
-  const target = resolve(state, arg);
-  if (target.length === 0) {
-    state.cwd = [];
-    return;
-  }
-  const { tree } = vfs.getSnapshot();
-  const node = findNode(tree, segmentsToPath(target));
-  if (!node) {
-    term.writeln(`cd: ${arg}: No such file or directory`);
-    return;
-  }
-  if (node.type === "file") {
-    term.writeln(`cd: ${arg}: Not a directory`);
-    return;
-  }
-  state.cwd = target;
-}
-
-function runCat(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  if (args.length === 0) {
-    term.writeln("cat: missing file operand");
-    return;
-  }
-  const { tree, files } = vfs.getSnapshot();
-  for (const arg of args) {
-    const target = resolve(state, arg);
-    const node = findNode(tree, segmentsToPath(target));
-    if (!node) {
-      term.writeln(`cat: ${arg}: No such file or directory`);
-      continue;
-    }
-    if (node.type === "folder") {
-      term.writeln(`cat: ${arg}: Is a directory`);
-      continue;
-    }
-    term.write(files[node.path] ?? "");
-    term.write("\r\n");
-  }
-}
-
-function runTouch(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  if (args.length === 0) {
-    term.writeln("touch: missing file operand");
-    return;
-  }
-  for (const arg of args) {
-    const target = resolve(state, arg);
-    const err = vfs.createFile(segmentsToPath(target));
-    if (err) term.writeln(`touch: cannot touch '${arg}': ${err}`);
-  }
-}
-
-function runMkdir(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const parents = args.includes("-p");
-  const targets = args.filter((a) => a !== "-p");
-  if (targets.length === 0) {
-    term.writeln("mkdir: missing operand");
-    return;
-  }
-  for (const arg of targets) {
-    const target = resolve(state, arg);
-    if (parents) {
-      for (let i = 1; i <= target.length; i++) {
-        const prefix = target.slice(0, i);
-        const { tree } = vfs.getSnapshot();
-        if (!findNode(tree, segmentsToPath(prefix))) {
-          const err = vfs.createFolder(segmentsToPath(prefix));
-          if (err) {
-            term.writeln(`mkdir: cannot create directory '${arg}': ${err}`);
-            break;
-          }
-        }
-      }
-    } else {
-      const err = vfs.createFolder(segmentsToPath(target));
-      if (err) term.writeln(`mkdir: cannot create directory '${arg}': ${err}`);
-    }
-  }
-}
-
-function runRm(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const recursive = args.some((a) => a === "-r" || a === "-rf" || a === "-fr" || a === "-R");
-  const targets = args.filter((a) => !a.startsWith("-"));
-  if (targets.length === 0) {
-    term.writeln("rm: missing operand");
-    return;
-  }
-  for (const arg of targets) {
-    const target = resolve(state, arg);
-    const err = vfs.remove(segmentsToPath(target), recursive);
-    if (err) term.writeln(`rm: cannot remove '${arg}': ${err}`);
-  }
-}
-
-function runMv(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const [src, dest] = args;
-  if (!src || !dest) {
-    term.writeln("mv: missing file operand");
-    return;
-  }
-  const { tree } = vfs.getSnapshot();
-  const srcTarget = resolve(state, src);
-  const srcPath = segmentsToPath(srcTarget);
-  if (!findNode(tree, srcPath)) {
-    term.writeln(`mv: cannot stat '${src}': No such file or directory`);
-    return;
-  }
-
-  // `mv a b/` (an existing directory) moves INTO it, keeping the same name —
-  // same as real mv — otherwise the destination's last segment is the new name.
-  const destTarget = resolve(state, dest);
-  const destNode = findNode(tree, segmentsToPath(destTarget));
-  const destParent = destNode?.type === "folder" ? destTarget : destTarget.slice(0, -1);
-  const destName = destNode?.type === "folder" ? srcTarget[srcTarget.length - 1] : destTarget[destTarget.length - 1];
-
-  const err = vfs.move(srcPath, destParent.length ? segmentsToPath(destParent) : null, destName);
-  if (err) term.writeln(`mv: cannot move '${src}' to '${dest}': ${err}`);
-}
-
-function runCp(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const [src, dest] = args;
-  if (!src || !dest) {
-    term.writeln("cp: missing file operand");
-    return;
-  }
-  const { tree, files } = vfs.getSnapshot();
-  const srcTarget = resolve(state, src);
-  const srcNode = findNode(tree, segmentsToPath(srcTarget));
-  if (!srcNode) {
-    term.writeln(`cp: cannot stat '${src}': No such file or directory`);
-    return;
-  }
-  if (srcNode.type === "folder") {
-    term.writeln(`cp: -r not implemented for directories in this demo shell`);
-    return;
-  }
-  const destTarget = resolve(state, dest);
-  const err = vfs.createFile(segmentsToPath(destTarget), files[srcNode.path] ?? "");
-  if (err) term.writeln(`cp: cannot create '${dest}': ${err}`);
-}
-
-function runEcho(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const redirectIndex = args.findIndex((a) => a === ">" || a === ">>" || a.startsWith(">"));
-  if (redirectIndex === -1) {
-    term.writeln(args.join(" "));
-    return;
-  }
-  const text = args.slice(0, redirectIndex).join(" ");
-  const marker = args[redirectIndex];
-  const append = marker.startsWith(">>");
-  const inlineTarget = marker.replace(/^>>?/, "");
-  const target = inlineTarget || args[redirectIndex + 1];
-  if (!target) {
-    term.writeln("echo: syntax error near unexpected token 'newline'");
-    return;
-  }
-  const path = segmentsToPath(resolve(state, target));
-  const err = vfs.write(path, text + "\n", append);
-  if (err) term.writeln(`echo: ${target}: ${err}`);
-}
-
-function runNode(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const [file] = args;
-  if (!file) {
-    term.writeln("node: missing file operand");
-    return;
-  }
-  const { tree, files } = vfs.getSnapshot();
-  const target = resolve(state, file);
-  const node = findNode(tree, segmentsToPath(target));
-  if (!node || node.type !== "file") {
-    term.writeln(`node: cannot access '${file}': No such file`);
-    return;
-  }
-
-  const { output, errored } = runJavaScript(files[node.path] ?? "");
-  for (const [i, line] of output.entries()) {
-    const isLast = i === output.length - 1;
-    term.writeln(errored && isLast ? `\x1b[31mUncaught ${line}\x1b[0m` : line);
-  }
-}
-
-async function runPython(term: Terminal, vfs: VfsBridge, state: ShellState, args: string[]) {
-  const [file] = args;
-  if (!file) {
-    term.writeln("python: missing file operand");
-    return;
-  }
-  const { tree, files } = vfs.getSnapshot();
-  const target = resolve(state, file);
-  const node = findNode(tree, segmentsToPath(target));
-  if (!node || node.type !== "file") {
-    term.writeln(`python: can't open file '${file}': No such file`);
-    return;
-  }
-
-  const pyodide = await getPyodide();
-  pyodide.setStdout({ batched: (text) => term.writeln(text) });
-  pyodide.setStderr({ batched: (text) => term.writeln(`\x1b[31m${text}\x1b[0m`) });
-
-  try {
-    await pyodide.runPythonAsync(files[node.path] ?? "");
-  } catch (err) {
-    term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`);
-  }
 }

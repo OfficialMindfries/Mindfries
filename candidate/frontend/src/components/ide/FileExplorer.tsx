@@ -85,7 +85,7 @@ export function FileExplorer({
         <span className="flex items-center gap-1.5">
           {/* eslint-disable-next-line @next/next/no-img-element -- tiny static local SVG, no optimization needed */}
           <img src="/mindfries-logo.svg" alt="" width={22} height={22} />
-          Explorer
+          Mindfries
         </span>
         <div className="flex items-center gap-1">
           <button

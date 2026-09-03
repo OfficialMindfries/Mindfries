@@ -11,9 +11,27 @@
  * work, just served from our own /public/pyodide/ instead.
  */
 
+import pyodidePackage from "pyodide/package.json" with { type: "json" };
+
+/**
+ * Where `pip install` fetches wheels from.
+ *
+ * The pyodide npm package ships the runtime but **no packages at all** — not
+ * even micropip. Since `indexURL` points at our self-hosted copy, every
+ * `loadPackage()` would 404 against our own server ("Failed to fetch") and
+ * `pip` would be broken for everyone. Package downloads inherently need the
+ * network anyway (that's what a package manager does), so wheels come from
+ * the official CDN for exactly the version we ship, while the runtime itself
+ * stays self-hosted and works offline.
+ */
+const PACKAGE_CDN_URL = `https://cdn.jsdelivr.net/pyodide/v${pyodidePackage.version}/full/`;
+
 declare global {
   interface Window {
-    loadPyodide?: (options: { indexURL: string }) => Promise<PyodideInterface>;
+    loadPyodide?: (options: {
+      indexURL: string;
+      packageBaseUrl?: string;
+    }) => Promise<PyodideInterface>;
   }
 }
 
@@ -21,6 +39,11 @@ export interface PyodideInterface {
   runPythonAsync: (code: string) => Promise<unknown>;
   setStdout: (options: { batched: (text: string) => void }) => void;
   setStderr: (options: { batched: (text: string) => void }) => void;
+  /** Loads a package from Pyodide's own WASM-built index (numpy, pandas, ...). */
+  loadPackage: (
+    names: string | string[],
+    options?: { messageCallback?: (text: string) => void; errorCallback?: (text: string) => void }
+  ) => Promise<unknown>;
 }
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
@@ -48,7 +71,7 @@ export function getPyodide(): Promise<PyodideInterface> {
       if (!window.loadPyodide) {
         throw new Error("pyodide.js loaded but did not define window.loadPyodide");
       }
-      return window.loadPyodide({ indexURL: "/pyodide/" });
+      return window.loadPyodide({ indexURL: "/pyodide/", packageBaseUrl: PACKAGE_CDN_URL });
     })();
   }
   return pyodidePromise;
