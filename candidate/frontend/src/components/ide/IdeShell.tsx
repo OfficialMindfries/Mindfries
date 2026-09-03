@@ -18,6 +18,7 @@ import type { FileContents, TreeNode } from "@/lib/ide/types";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import { emptyNotebookJson } from "@/lib/ide/notebook";
 import { loadPersistedWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
+import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview/build-preview";
 import { useResizable } from "@/lib/ide/use-resizable";
 
 export function IdeShell() {
@@ -87,6 +88,8 @@ export function IdeShell() {
 
   const sidebar = useResizable({ initial: 240, min: 160, max: 480, axis: "horizontal" });
   const terminal = useResizable({ initial: 220, min: 100, max: 520, axis: "vertical", invert: true });
+  const previewPane = useResizable({ initial: 380, min: 240, max: 720, axis: "horizontal", invert: true });
+
 
   const openFile = (path: string) => {
     setOpenPaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
@@ -114,9 +117,6 @@ export function IdeShell() {
   const saveFile = (path: string) => {
     setSavedFiles((prev) => ({ ...prev, [path]: files[path] }));
   };
-
-  // A built preview (from `dev`) takes over the editor area while it's open.
-  const [preview, setPreview] = useState<{ html: string; title: string } | null>(null);
 
   // --- Virtual filesystem: the single source of truth shared by the
   // Explorer, the Editor, AND the terminal (see vfs-shell.ts). The
@@ -257,6 +257,37 @@ export function IdeShell() {
     move: vfsMove,
   };
 
+  // The live preview: `root` is the project being watched, so edits can
+  // rebuild it. Kept separate from `html` so the rebuild effect can depend
+  // on the root without re-running on its own output.
+  const [preview, setPreview] = useState<{ html: string; title: string; root: string } | null>(null);
+  const previewBuildRef = useRef<PreviewBuild | null>(null);
+
+  // Keep the preview live: any edit to the workspace rebuilds the watched
+  // project, debounced so a burst of typing produces one rebuild. Depends on
+  // the ROOT (not the built html), so writing the result can't retrigger it.
+  const previewRoot = preview?.root ?? null;
+  useEffect(() => {
+    if (previewRoot === null) return;
+    const timeout = setTimeout(() => {
+      buildPreview(vfs, previewRoot)
+        .then((build) => {
+          // Free the previous build's modules before swapping them out.
+          releaseBuild(previewBuildRef.current);
+          previewBuildRef.current = build;
+          setPreview((current) =>
+            current && current.root === previewRoot ? { ...current, html: build.html } : current
+          );
+        })
+        .catch(() => {
+          // A broken intermediate edit shouldn't blank the preview — keep
+          // showing the last build that worked.
+        });
+    }, 400);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- vfs reads live state via a ref; rebuilding is driven by tree/files changing
+  }, [previewRoot, tree, files]);
+
   // Explorer-driven create/rename/delete are the same virtual filesystem
   // operations the terminal uses, just with UI-appropriate confirmation
   // dialogs and auto-opening a newly created file in the editor.
@@ -326,15 +357,6 @@ export function IdeShell() {
           >
             <Breadcrumbs path={activePath} theme={theme} />
             <div className="min-h-0 flex-1">
-              {preview ? (
-                <PreviewPanel
-                  theme={theme}
-                  html={preview.html}
-                  title={preview.title}
-                  onClose={() => setPreview(null)}
-                  onReload={() => setPreview(null)}
-                />
-              ) : (
               <EditorPanel
                 theme={theme}
                 openPaths={openPaths}
@@ -346,7 +368,6 @@ export function IdeShell() {
                 onChange={changeFile}
                 onSave={saveFile}
               />
-              )}
             </div>
           </div>
 
@@ -367,10 +388,44 @@ export function IdeShell() {
             <BottomPanel
               theme={theme}
               vfs={vfs}
-              onPreview={(html, title) => setPreview({ html, title })}
+              onPreview={(build) => {
+                releaseBuild(previewBuildRef.current);
+                previewBuildRef.current = { objectUrls: build.objectUrls } as PreviewBuild;
+                setPreview({ html: build.html, title: build.title, root: build.root });
+              }}
             />
           </div>
         </div>
+
+        {preview && (
+          <>
+            <div
+              onMouseDown={previewPane.startDrag}
+              className={clsx(
+                "flex w-1 shrink-0 cursor-col-resize items-center justify-center rounded-full",
+                palette.hover
+              )}
+            >
+              <GripVertical size={10} className={palette.textMuted} />
+            </div>
+
+            <div
+              style={{ width: previewPane.size }}
+              className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
+            >
+              <PreviewPanel
+                theme={theme}
+                html={preview.html}
+                title={preview.title}
+                onClose={() => {
+                  releaseBuild(previewBuildRef.current);
+                  previewBuildRef.current = null;
+                  setPreview(null);
+                }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       <div className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}>

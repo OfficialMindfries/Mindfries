@@ -72,7 +72,7 @@ function completePathWord(
 export function attachVfsShell(
   term: Terminal,
   vfs: VfsBridge,
-  openPreview: (html: string, title: string) => void
+  openPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void
 ): () => void {
   const session = createSession();
   let buffer = "";
