@@ -23,6 +23,17 @@ export interface PreviewBuild {
   entry: string;
   /** Things referenced but not resolvable, surfaced instead of failing silently. */
   warnings: string[];
+  /**
+   * Every blob URL this build created. Rebuilds happen on every edit, so the
+   * caller revokes the previous build's URLs — otherwise a long editing
+   * session leaks a module's worth of memory per keystroke-batch.
+   */
+  objectUrls: string[];
+}
+
+/** Frees a previous build's modules. Safe to call with URLs already revoked. */
+export function releaseBuild(build: Pick<PreviewBuild, "objectUrls"> | null): void {
+  for (const url of build?.objectUrls ?? []) URL.revokeObjectURL(url);
 }
 
 export class PreviewError extends Error {}
@@ -101,6 +112,7 @@ export async function buildPreview(
 
   const ts = await import("typescript");
   const warnings: string[] = [];
+  const objectUrls: string[] = [];
   const built = new Map<string, string>();
   const building = new Set<string>();
 
@@ -135,6 +147,7 @@ export async function buildPreview(
 
     const rewritten = await rewriteImports(code, path);
     const url = URL.createObjectURL(new Blob([rewritten], { type: "text/javascript" }));
+    objectUrls.push(url);
     building.delete(path);
     built.set(path, url);
     return url;
@@ -164,6 +177,7 @@ export async function buildPreview(
           target = URL.createObjectURL(
             new Blob([`export default "";`], { type: "text/javascript" })
           );
+          objectUrls.push(target);
         } else {
           target = await buildModule(resolvedPath);
         }
@@ -186,5 +200,5 @@ export async function buildPreview(
     .replace(scriptMatch[0], `<script type="module" src="${entryUrl}"></script>`)
     .replace(/<link[^>]*rel=["']icon["'][^>]*>/i, "");
 
-  return { html, entry: entryPath, warnings };
+  return { html, entry: entryPath, warnings, objectUrls };
 }

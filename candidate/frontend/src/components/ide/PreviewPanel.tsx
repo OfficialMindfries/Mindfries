@@ -24,13 +24,11 @@ export function PreviewPanel({
   html,
   title,
   onClose,
-  onReload,
 }: {
   theme: IdeTheme;
   html: string;
   title: string;
   onClose: () => void;
-  onReload: () => void;
 }) {
   const palette = idePalette(theme);
 
@@ -47,14 +45,12 @@ export function PreviewPanel({
           Preview — <span className={palette.text}>{title}</span>
         </span>
         <span className="flex items-center gap-1">
-          <button
-            type="button"
-            title="Rebuild and reload"
-            onClick={onReload}
-            className={clsx("rounded-md p-1", palette.hover)}
-          >
-            <RotateCw size={13} />
-          </button>
+          {/* The workspace watcher rebuilds on every edit, so this reports
+              state rather than offering a manual refresh. */}
+          <span className={clsx("flex items-center gap-1 pr-1", palette.textMuted)} title="Rebuilds on every edit">
+            <RotateCw size={11} />
+            live
+          </span>
           <button
             type="button"
             title="Close preview"

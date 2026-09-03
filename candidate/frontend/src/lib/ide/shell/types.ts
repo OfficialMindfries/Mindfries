@@ -27,8 +27,12 @@ export interface ShellIO {
   /** Writes straight to the terminal, bypassing the pipeline — for live progress only. */
   write: (text: string) => void;
   clear: () => void;
-  /** Opens a built page in the IDE's preview panel. */
-  openPreview: (html: string, title: string) => void;
+  /**
+   * Opens a built page in the IDE's preview sidebar. `root` is kept so the
+   * IDE can rebuild on every edit — that's what makes the preview stay live
+   * rather than being a one-shot snapshot.
+   */
+  openPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
 }
 
 export interface CommandContext {

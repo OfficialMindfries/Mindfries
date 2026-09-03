@@ -58,7 +58,7 @@ export function TerminalPanel({
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
-  onPreview: (html: string, title: string) => void;
+  onPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -119,9 +119,7 @@ export function TerminalPanel({
           // and stable setState setters, so capturing this render's `vfs`
           // instance here (the effect only runs once, on mount) behaves
           // identically to a "live" reference — no staleness concern.
-          detachShell = attachVfsShell(term, vfs, (html, title) =>
-            onPreviewRef.current(html, title)
-          );
+          detachShell = attachVfsShell(term, vfs, (build) => onPreviewRef.current(build));
         });
       });
 

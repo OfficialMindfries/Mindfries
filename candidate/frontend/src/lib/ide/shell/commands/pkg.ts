@@ -1,8 +1,10 @@
 import { loadManifest, moduleUrlFor, resolvePackage, saveManifest, verifyEsmBuild, type InstalledPackage } from "../../packages";
 import { getPyodide } from "../../pyodide-runtime";
 import { applyProjectName, fetchViteTemplate, latestVersion } from "../../scaffold";
-import { nodeAt } from "../fs-util";
+import { segmentsToPath } from "../../vfs-path";
+import { nodeAt, readFile } from "../fs-util";
 import { fail, ok, type CommandContext, type CommandResult } from "../types";
+import { startPreview } from "./dev";
 import { parseFlags } from "./fs";
 
 /**
@@ -180,6 +182,60 @@ async function npmCreate(ctx: CommandContext, args: string[]): Promise<CommandRe
 }
 
 /**
+ * Dev-server scripts we can genuinely stand in for by building a preview.
+ * Anchored at both ends (flags aside) on purpose: matching only the start
+ * would let `vite build` through, and a build is not a dev server.
+ */
+const PREVIEW_SCRIPTS = /^(vite|vite\s+(dev|serve|preview)|next\s+dev|parcel|serve)(\s+-.*)?$/;
+
+/**
+ * `npm run <script>` — reads the project's real package.json.
+ *
+ * A dev-server script (`vite`, `vite dev`, ...) can't launch the actual
+ * server, but building a live preview is the same outcome, so those run.
+ * Anything else (build, lint, test) genuinely needs a Node process, and the
+ * error names the actual script command rather than hand-waving.
+ */
+async function npmRun(ctx: CommandContext, args: string[]): Promise<CommandResult> {
+  const scriptName = args.find((a) => !a.startsWith("-")) ?? "dev";
+  const root = segmentsToPath(ctx.session.cwd);
+  const packagePath = root ? `${root}/package.json` : "package.json";
+
+  const raw = readFile(ctx.vfs, packagePath.split("/"));
+  if (raw === null) {
+    return fail(`npm run: no package.json in ${root || "the workspace root"}`, 254);
+  }
+
+  let scripts: Record<string, string> = {};
+  try {
+    scripts = ((JSON.parse(raw) as { scripts?: Record<string, string> }).scripts ?? {}) as Record<string, string>;
+  } catch {
+    return fail(`npm run: ${packagePath} is not valid JSON`);
+  }
+
+  const command = scripts[scriptName];
+  if (!command) {
+    const available = Object.keys(scripts);
+    return fail(
+      `npm run: missing script "${scriptName}"` +
+        (available.length > 0 ? `\nAvailable: ${available.join(", ")}` : ""),
+      254
+    );
+  }
+
+  if (PREVIEW_SCRIPTS.test(command.trim())) {
+    if (ctx.isTerminalSink) ctx.io.write(`> ${scriptName}\r\n> ${command}\r\n\r\n`);
+    return startPreview(ctx, root);
+  }
+
+  return fail(
+    `npm run ${scriptName}: "${command}" needs a Node process, which the browser doesn't have.\n` +
+      `Dev-server scripts work (they open the live preview); build/lint/test don't.`,
+    127
+  );
+}
+
+/**
  * `npx` exists to execute a package's command-line binary. Those are Node
  * programs expecting a process, a real filesystem and argv — none of which
  * exist in a tab — so this reports that plainly rather than looking like a
@@ -294,12 +350,8 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
     );
   }
 
-  if (subcommand === "run") {
-    return fail(
-      `npm run: there's no Node process to run scripts with.\n` +
-        `For a Vite/React project, use "dev" to build and open a live preview of it here.`,
-      127
-    );
+  if (subcommand === "run" || subcommand === "run-script") {
+    return npmRun(ctx, packages);
   }
 
   if (subcommand !== "install" && subcommand !== "i" && subcommand !== "add") {

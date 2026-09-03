@@ -27,7 +27,7 @@ export function TerminalGroup({
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
-  onPreview: (html: string, title: string) => void;
+  onPreview: (build: { html: string; title: string; root: string; objectUrls: string[] }) => void;
 }) {
   const palette = idePalette(theme);
   const nextId = useRef(1);

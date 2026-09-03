@@ -316,6 +316,41 @@ wasn't completed — the terminal input automation kept dropping keystrokes.
 Each piece is verified independently; the wiring between them is prop
 passing that typechecks. Worth one manual run.
 
+## Phase 19 — `npm run dev`, live rebuilds, preview sidebar
+
+- [x] `npm run <script>` reads the project's **real** package.json scripts. A
+      dev-server script (`vite`, `vite dev`, `next dev`…) opens the live
+      preview, since that's the same outcome; `build`/`lint`/`test` refuse and
+      name the actual script command they'd have run
+- [x] The preview stays live: the IDE watches the workspace and rebuilds the
+      watched project ~400ms after edits stop, so it behaves like a dev server
+      rather than a one-shot snapshot. A build that fails mid-edit keeps the
+      last good render instead of blanking
+- [x] Preview moved to its own **resizable right sidebar**, so code and the
+      running app are visible together (it used to take over the editor)
+- [x] Each build's blob URLs are tracked and the previous set is revoked on
+      rebuild — otherwise a long editing session leaks a module's worth of
+      memory per rebuild
+
+### Fixed while testing
+`vite build` was being treated as a dev server. The script pattern only
+anchored the start, so `vite` matched the prefix of `vite build`; it's now
+anchored at both ends (flags aside). A build is not a dev server.
+
+### Verified
+9/9: `npm run dev` works and echoes the real script, opens the preview and
+reports the watched root; `npm run build` refuses honestly naming
+`vite build`; a missing script lists the real ones; `npm run` outside a
+project reports no package.json; an edit produces a genuinely different
+bundle; each build tracks its own object URLs for release.
+
+### Not covered
+The sidebar rendering itself wasn't visually confirmed — terminal input
+automation kept dropping keystrokes, so `npm run dev` couldn't be driven
+through the real UI. The build pipeline, the watcher and React-in-the-iframe
+are each verified; the layout is ordinary resizable-panel markup that
+compiles and lints.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are
