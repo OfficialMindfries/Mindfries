@@ -9,6 +9,7 @@ import { EditorPanel } from "./EditorPanel";
 import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
 import { PackageCleanupGuard } from "./PackageCleanupGuard";
+import { ChatPanel } from "./ChatPanel";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -87,6 +88,8 @@ export function IdeShell() {
 
   const sidebar = useResizable({ initial: 240, min: 160, max: 480, axis: "horizontal" });
   const terminal = useResizable({ initial: 220, min: 100, max: 520, axis: "vertical", invert: true });
+  const chatPane = useResizable({ initial: 320, min: 240, max: 560, axis: "horizontal", invert: true });
+  const [chatOpen, setChatOpen] = useState(false);
 
 
   const openFile = (path: string) => {
@@ -360,6 +363,8 @@ export function IdeShell() {
             tree={tree}
             activePath={activePath}
             theme={theme}
+            chatOpen={chatOpen}
+            onToggleChat={() => setChatOpen((open) => !open)}
             onOpenFile={openFile}
             onCreate={createEntry}
             onRename={renameEntry}
@@ -427,6 +432,26 @@ export function IdeShell() {
             />
           </div>
         </div>
+
+        {chatOpen && (
+          <>
+            <div
+              onMouseDown={chatPane.startDrag}
+              className={clsx(
+                "flex w-1 shrink-0 cursor-col-resize items-center justify-center rounded-full",
+                palette.hover
+              )}
+            >
+              <GripVertical size={10} className={palette.textMuted} />
+            </div>
+            <div
+              style={{ width: chatPane.size }}
+              className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
+            >
+              <ChatPanel theme={theme} onClose={() => setChatOpen(false)} />
+            </div>
+          </>
+        )}
       </div>
 
       <div className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}>

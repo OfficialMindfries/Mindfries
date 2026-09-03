@@ -432,6 +432,22 @@ dependencies from package.json; it skips devDependencies and says why;
 `node_modules` is created inside the project; no stray one at the workspace
 root; the packages are inside it; each gets a real `package.json`.
 
+## Phase 23 — AI help chat panel (interface only)
+
+- [x] `ChatPanel.tsx`: message history, chat bubbles, auto-scroll to the
+      newest message, Enter to send / Shift+Enter for a newline, send
+      disabled while the draft is empty
+- [x] Opens as a resizable full-height column on the right, toggled by the
+      AI help button in the Explorer footer (which highlights while open)
+- [x] **No model behind it, and it says so.** Rather than inventing
+      plausible-looking answers, the assistant turn states plainly that
+      nothing is connected. Wiring it up is replacing `respondTo` with a real
+      request — history, layout and input already work
+
+### Verified
+Live in the browser: the button opens the panel, a typed question renders as
+a user bubble, and the assistant bubble returns the not-connected reply.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

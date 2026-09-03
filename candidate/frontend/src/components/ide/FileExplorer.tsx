@@ -28,6 +28,8 @@ interface FileExplorerProps {
   tree: TreeNode[];
   activePath: string | null;
   theme: IdeTheme;
+  chatOpen: boolean;
+  onToggleChat: () => void;
   onOpenFile: (path: string) => void;
   onCreate: (parentPath: string | null, kind: "file" | "folder", name: string) => void;
   onRename: (path: string, newName: string) => void;
@@ -38,6 +40,8 @@ export function FileExplorer({
   tree,
   activePath,
   theme,
+  chatOpen,
+  onToggleChat,
   onOpenFile,
   onCreate,
   onRename,
@@ -138,31 +142,33 @@ export function FileExplorer({
         )}
       </div>
 
-      <SidebarFooter theme={theme} />
+      <SidebarFooter theme={theme} chatOpen={chatOpen} onToggleChat={onToggleChat} />
     </div>
   );
 }
 
 /** AI help and the signed-in candidate, pinned to the bottom of the Explorer. */
-function SidebarFooter({ theme }: { theme: IdeTheme }) {
+function SidebarFooter({
+  theme,
+  chatOpen,
+  onToggleChat,
+}: {
+  theme: IdeTheme;
+  chatOpen: boolean;
+  onToggleChat: () => void;
+}) {
   const palette = idePalette(theme);
-  const [showAiNote, setShowAiNote] = useState(false);
 
   return (
     <div className={clsx("shrink-0 border-t", palette.border)}>
-      {showAiNote && (
-        // Saying what it would need is more use than a button that looks
-        // wired up and silently does nothing.
-        <p className={clsx("px-3 py-2 text-[11px] leading-snug", palette.textMuted)}>
-          AI help isn&apos;t connected to a model yet — it needs an API key and a backend route
-          before it can answer anything.
-        </p>
-      )}
-
       <button
         type="button"
-        onClick={() => setShowAiNote((open) => !open)}
-        className={clsx("flex w-full items-center gap-2 px-3 py-2 text-xs", palette.hover, palette.text)}
+        onClick={onToggleChat}
+        className={clsx(
+          "flex w-full items-center gap-2 px-3 py-2 text-xs",
+          palette.hover,
+          chatOpen ? palette.accent : palette.text
+        )}
       >
         <Sparkles size={14} className={palette.accent} />
         AI help
