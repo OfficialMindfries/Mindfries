@@ -443,6 +443,9 @@ export function IdeShell() {
                 previewBuildRef.current = null;
                 setPreview(null);
               }}
+              // Same path Ctrl+C takes: stop watching, keep the last build on
+              // screen. Closing the panel is a separate, more destructive act.
+              onStopPreview={() => previewController.stop()}
             />
           </div>
         </div>
