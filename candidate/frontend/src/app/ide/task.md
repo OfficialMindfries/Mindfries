@@ -666,10 +666,41 @@ terminal (shell commands) and Output (tool logs).
 so no breakpoints, stepping, call stack or variable inspection. What *is*
 honest is expression evaluation against the same runtime `node` uses.
 
-- [ ] REPL evaluating JS/TS expressions, result and errors echoed
-- [ ] History, `Shift+Enter` for multi-line
-- [ ] State it evaluates without a debugger attached — no breakpoints —
+- [x] REPL evaluating JS/TS expressions, result and errors echoed
+- [x] History, `Shift+Enter` for multi-line
+- [x] State it evaluates without a debugger attached — no breakpoints —
       rather than implying a debugger exists
+- [ ] `import` of an installed package (a classic script can't import, and a
+      module script gets a fresh scope every time — the two requirements
+      fight, and resolving them needs more than an afternoon)
+
+**Declarations persist because the code runs as a `<script>`,** injected into
+a hidden same-origin iframe. Top-level `let`/`const`/`class` land in that
+realm's global lexical environment and survive into the next entry; a
+`new Function` wrapper (what `code-runner` uses to run a *file*) would throw
+them away on return. The iframe keeps candidate code away from the
+workspace's own globals, and keeps uncaught errors away from Next's dev
+overlay, which would otherwise throw a full-screen dialog over the IDE on a
+typo. It's also the more faithful reading of VS Code, where the Debug Console
+evaluates in the debugger's context rather than the terminal's.
+
+Fidelity details that took a second pass, each verified in the browser:
+
+| Input | Echoes | Why it's not the naive answer |
+|---|---|---|
+| `count++; count` | `1` | A statement list has a completion value; the last expression is split off and assigned. A split is only taken when *both* halves parse alone, so a newline inside a template literal is left alone. |
+| `class Point {}` | `undefined`, then `new Point(3)` works | Wrapped in parens it would parse as a class *expression*, binding no name. Declarations skip the expression form. |
+| `{ a: 1 }` | `{ a: 1 }` | Expression form is tried first, so it's an object literal, not a block. Node's REPL makes the same choice. |
+| `foo.bar` | 2-line stack | The real stack runs on into React's dispatch machinery; frames from the host are dropped. |
+| `let dup = 1` twice | `SyntaxError` + how to fix it | A lexical binding can't be removed from a realm. Node's REPL only gets to allow this because it drives V8 directly. The error stands, with the ↺ reset button named as the fix. |
+
+**Verified:** 29 formatter assertions under plain Node (`repl-format.check.ts`,
+excluded from the build), and the REPL itself driven in the browser —
+persistence across entries, `let`/`const`/`class`/`function` declarations,
+TypeScript annotations stripped, top-level `await` in both expression and
+declaration position, `console.log` capture, thrown errors, history recall
+with ↑/↓, and ↺ discarding the realm. No Next error overlay appeared through
+any of it, which is the isolation argument holding up.
 
 ## Backlog / known limitations
 
