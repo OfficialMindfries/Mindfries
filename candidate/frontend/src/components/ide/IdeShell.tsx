@@ -24,6 +24,7 @@ import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview
 import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
 import { useDiagnostics } from "@/lib/ide/diagnostics";
+import { CHANNELS, output } from "@/lib/ide/output";
 
 export function IdeShell() {
   const { theme, toggleTheme } = useIdeTheme();
@@ -279,6 +280,9 @@ export function IdeShell() {
   // terminal, the way a real one does.
   const rebuildListenersRef = useRef(new Set<(line: string) => void>());
   const emitRebuild = (line: string) => {
+    // Rebuilds are driven by the file watcher rather than a command, so they
+    // bypass the executor's channel routing and are logged here instead.
+    output.append(CHANNELS.preview, line);
     for (const listener of rebuildListenersRef.current) listener(line);
   };
 

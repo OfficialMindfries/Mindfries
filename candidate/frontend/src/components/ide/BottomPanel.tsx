@@ -9,6 +9,7 @@ import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalGroup } from "./TerminalGroup";
 import { CameraPanel } from "./CameraPanel";
 import { ProblemsPanel } from "./ProblemsPanel";
+import { OutputPanel } from "./OutputPanel";
 import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { useResizable } from "@/lib/ide/use-resizable";
 
@@ -86,7 +87,7 @@ export function BottomPanel({
           {active === "problems" && (
             <ProblemsPanel theme={theme} diagnostics={diagnostics} onOpen={onOpenLocation} />
           )}
-          {active === "output" && <EmptyState theme={theme} text="No output yet." />}
+          {active === "output" && <OutputPanel theme={theme} />}
           {active === "debug" && (
             <EmptyState theme={theme} text="Start a debug session to see the debug output." />
           )}

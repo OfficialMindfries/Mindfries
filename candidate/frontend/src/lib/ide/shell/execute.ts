@@ -3,6 +3,7 @@ import { segmentsToPath } from "../vfs-path";
 import { parse, expandWord, ShellSyntaxError, type SimpleCommand } from "./parser";
 import { expandGlob, readFile, resolve } from "./fs-util";
 import { lookupCommand } from "./registry";
+import { channelForCommand, output } from "../output";
 import type { CommandResult, ShellIO, ShellSession } from "./types";
 
 /** Alias expansion is one level deep — enough for `alias ll="ls -la"`, no recursion loops. */
@@ -113,6 +114,17 @@ async function runPipeline(
     exitCode = result.code ?? 0;
     const stdout = result.stdout ?? "";
     const stderr = result.stderr ?? "";
+
+    // Tooling output is mirrored into the Output panel from this one place,
+    // so individual commands never need to know the panel exists. A command
+    // with no channel (node, python, ls...) simply doesn't log — program
+    // output belongs in the terminal, as it does in VS Code.
+    const channel = channelForCommand(argv[0]);
+    if (channel) {
+      output.append(channel, `$ ${argv.join(" ")}`);
+      if (stdout) output.append(channel, stdout);
+      if (stderr) output.append(channel, stderr);
+    }
 
     if (stderr) {
       if (redirects.stderrTo) {
