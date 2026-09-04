@@ -224,6 +224,12 @@ and it made the engine testable without a browser.
       session downloaded ("Keep them" / "Yes, delete"). Fires once per tab and
       only when packages actually exist, and waits for the proctoring gate so
       two modals never stack
+- [x] `EndSession.tsx` — an **End session** control in the Explorer footer:
+      the workspace's own three-way confirmation (cancel / end keeping
+      packages / end and delete), which stops the preview, releases the
+      camera, and replaces the workspace with a closing screen. It stops at a
+      screen rather than closing the tab, because `window.close()` only works
+      on a window a script opened itself
 - [x] **Reworked:** it used to fire `beforeunload` on close and show the real
       dialog to whoever cancelled the browser's own prompt. A page cannot put
       custom buttons in that prompt — by design, since that's what stops
@@ -242,6 +248,10 @@ and it made the engine testable without a browser.
   honest "no pure Python 3 wheel" error
 - npm: live end-to-end — `npm install left-pad` → `+ left-pad@1.3.0`, then
   importing it in a script printed `[00007]`
+- End session: live — three buttons with packages present and two without,
+  Cancel returns to the workspace with the camera still live, and *End &
+  delete* empties the manifest, moves the camera track to `ended`, and shows
+  the closing screen with no proctoring gate reappearing behind it
 - Cleanup dialog: live — deletes / keeps correctly, stays silent when nothing
   is installed, and no longer arms `beforeunload` at all (verified by
   dispatching a cancelable `beforeunload` and confirming nothing calls

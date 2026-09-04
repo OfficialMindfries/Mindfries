@@ -36,6 +36,8 @@ export interface ProctorCamera {
   /** Details for the lock screen when something went wrong. */
   message: string | null;
   request: () => Promise<void>;
+  /** Releases the device deliberately, for when the candidate ends the session. */
+  stop: () => void;
 }
 
 export function useProctorCamera(): ProctorCamera {
@@ -93,5 +95,19 @@ export function useProctorCamera(): ProctorCamera {
     }
   }, []);
 
-  return { status, stream, message, request };
+  /**
+   * Deliberate release, distinct from the `ended` status: that one means the
+   * camera went away mid-session and the workspace must lock. This one is the
+   * candidate finishing, so it lands on `idle` and the capture light goes out
+   * at the moment they're told the session is over.
+   */
+  const stop = useCallback(() => {
+    for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+    streamRef.current = null;
+    setStream(null);
+    setStatus("idle");
+    setMessage(null);
+  }, []);
+
+  return { status, stream, message, request, stop };
 }
