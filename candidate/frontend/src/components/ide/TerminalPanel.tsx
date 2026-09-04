@@ -49,7 +49,11 @@ function safeFit(fit: XFitAddon) {
  */
 function paintViewport(container: HTMLElement, background: string) {
   const viewport = container.querySelector<HTMLElement>(".xterm-viewport");
-  if (viewport) viewport.style.backgroundColor = background;
+  if (!viewport) return;
+  viewport.style.backgroundColor = background;
+  // Matches the rounded container. The viewport is absolutely positioned, so
+  // it gets the radius directly rather than relying only on the parent clip.
+  viewport.style.borderRadius = "0.5rem";
 }
 
 export function TerminalPanel({
@@ -161,5 +165,14 @@ export function TerminalPanel({
     }
   }, [theme]);
 
-  return <div ref={containerRef} className="h-full min-h-0 w-full p-1" />;
+  // `overflow-hidden` + a radius rounds the terminal surface itself: xterm
+  // paints .xterm-viewport as a plain rectangle, so without clipping here its
+  // square corners show through the rounded panel around it.
+  // The extra left padding is what sets the prompt in off the edge.
+  return (
+    <div
+      ref={containerRef}
+      className="h-full min-h-0 w-full overflow-hidden rounded-lg py-1 pr-1 pl-3"
+    />
+  );
 }
