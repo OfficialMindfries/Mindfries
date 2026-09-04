@@ -10,6 +10,7 @@ import { TerminalGroup } from "./TerminalGroup";
 import { CameraPanel } from "./CameraPanel";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { OutputPanel } from "./OutputPanel";
+import { DebugConsolePanel } from "./DebugConsolePanel";
 import { PortsPanel } from "./PortsPanel";
 import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { useResizable } from "@/lib/ide/use-resizable";
@@ -91,9 +92,11 @@ export function BottomPanel({
             <ProblemsPanel theme={theme} diagnostics={diagnostics} onOpen={onOpenLocation} />
           )}
           {active === "output" && <OutputPanel theme={theme} />}
-          {active === "debug" && (
-            <EmptyState theme={theme} text="Start a debug session to see the debug output." />
-          )}
+          {/* Kept mounted like the terminal: the REPL's scrollback and its
+              declarations are a session, and switching tabs shouldn't end it. */}
+          <div className="h-full" style={{ display: active === "debug" ? "block" : "none" }}>
+            <DebugConsolePanel theme={theme} />
+          </div>
           {active === "ports" && (
             <PortsPanel
               theme={theme}
@@ -122,12 +125,5 @@ export function BottomPanel({
         </div>
       </div>
     </div>
-  );
-}
-
-function EmptyState({ theme, text }: { theme: IdeTheme; text: string }) {
-  const palette = idePalette(theme);
-  return (
-    <div className={clsx("flex h-full items-center px-4 text-xs", palette.textMuted)}>{text}</div>
   );
 }
