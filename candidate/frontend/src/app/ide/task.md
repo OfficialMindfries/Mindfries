@@ -198,7 +198,7 @@ and it made the engine testable without a browser.
       `cp -r`, `sort | uniq -c`, aliases) — 30/30 — plus live browser checks
       of `npm install left-pad` and importing it in a script (`[00007]`)
 
-## Phase 16 — Real git (hybrid storage) + package cleanup on close
+## Phase 16 — Real git (hybrid storage) + package cleanup
 
 - [x] `lib/ide/git/idb.ts` — binary-safe IndexedDB key/value store
 - [x] `lib/ide/git/hybrid-fs.ts` — the fs adapter isomorphic-git talks to:
@@ -220,11 +220,18 @@ and it made the engine testable without a browser.
       while the runtime itself stays self-hosted
 - [x] `pip` now surfaces the *useful* line of micropip's error rather than
       its trailing "use keep_going=True" hint
-- [x] `PackageCleanupGuard.tsx` — asks whether to delete downloaded packages
-      when leaving, with "Yes, delete" / "Don't delete" / "Cancel closing
-      window". Only arms when packages actually exist. See the note in that
-      file on why the three buttons can't live in the browser's own close
-      prompt (pages can't customize it — that restriction stops tab-trapping)
+- [x] `PackageCleanupGuard.tsx` — asks whether to keep packages a previous
+      session downloaded ("Keep them" / "Yes, delete"). Fires once per tab and
+      only when packages actually exist, and waits for the proctoring gate so
+      two modals never stack
+- [x] **Reworked:** it used to fire `beforeunload` on close and show the real
+      dialog to whoever cancelled the browser's own prompt. A page cannot put
+      custom buttons in that prompt — by design, since that's what stops
+      tab-trapping — so the old flow meant a native "Leave site?" warning on
+      every exit just to reach a question about cached downloads. The question
+      moved to the one moment the app fully owns: opening the workspace.
+      Nothing is lost by asking later, and the candidate sees what a previous
+      session left behind before building on top of it
 
 ### Verified
 - Shell engine: **30/30** automated cases against the real parser/executor
@@ -235,8 +242,12 @@ and it made the engine testable without a browser.
   honest "no pure Python 3 wheel" error
 - npm: live end-to-end — `npm install left-pad` → `+ left-pad@1.3.0`, then
   importing it in a script printed `[00007]`
-- Cleanup dialog: live — deletes / keeps / dismisses correctly, and stays
-  silent when nothing is installed
+- Cleanup dialog: live — deletes / keeps correctly, stays silent when nothing
+  is installed, and no longer arms `beforeunload` at all (verified by
+  dispatching a cancelable `beforeunload` and confirming nothing calls
+  `preventDefault`). Shown only after the camera gate, once per tab; React's
+  development double-mount had to be handled, or the first mount's cleanup
+  cancelled the dialog the second mount then declined to re-open
 - `next build` (production) and `eslint` clean
 
 ## Phase 17 — Visible installs, and pasting multiple commands

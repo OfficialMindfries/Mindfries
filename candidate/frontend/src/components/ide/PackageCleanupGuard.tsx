@@ -8,42 +8,73 @@ import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/pac
 import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 
+/** Per-tab marker. `sessionStorage` survives reloads but dies with the tab. */
+const SESSION_MARKER = "mindfries.ide.session";
+
+let resumedSession: boolean | null = null;
+
 /**
- * Asks whether to delete downloaded packages when the user leaves.
+ * Whether this page load is a continuation of a session already in progress.
  *
- * An important browser limit to know about: a page CANNOT put custom buttons
- * in the close prompt. `beforeunload` only gets you the browser's own
- * two-button "Leave site? / Cancel" dialog — the text and buttons aren't
- * ours to set. That restriction exists so pages can't trap people in a tab.
+ * Memoized at module scope, which is load-bearing rather than an
+ * optimization: React mounts effects twice in development, and a check that
+ * wrote the marker on the first mount would report "resumed" to the second
+ * one and swallow the dialog entirely. Deciding once per page load means both
+ * mounts get the same answer.
+ */
+function isResumedSession(): boolean {
+  if (resumedSession !== null) return resumedSession;
+  try {
+    resumedSession = sessionStorage.getItem(SESSION_MARKER) !== null;
+    sessionStorage.setItem(SESSION_MARKER, String(Date.now()));
+  } catch {
+    // Storage can be blocked outright. Staying quiet is the right failure: a
+    // dialog on every refresh would be worse than never asking.
+    resumedSession = true;
+  }
+  return resumedSession;
+}
+
+/**
+ * Asks whether to keep the packages downloaded in a previous session.
  *
- * So this is split the only way it can be:
- *   1. `beforeunload` fires the browser's native prompt, whose Cancel button
- *      is what actually keeps the window open.
- *   2. If the user cancels (we're still alive on the next tick), we show our
- *      own dialog, which CAN offer all three choices.
+ * ## Why this asks on the way in, not on the way out
  *
- * The prompt is only armed when packages actually exist, so a workspace
- * without downloads never nags.
+ * The obvious design is to ask while the tab is closing. It can't be done,
+ * and the reason is worth knowing: a page cannot put custom buttons in the
+ * close prompt. `beforeunload` yields the browser's own "Leave site? /
+ * Cancel" dialog and nothing else — the text and the buttons aren't ours to
+ * set. That restriction is deliberate; it's what stops a page trapping
+ * someone in a tab.
+ *
+ * This used to fire `beforeunload` anyway and show our dialog to whoever
+ * cancelled it. That works, but it means every exit is met with a browser
+ * warning the workspace didn't want and can't style — a native dialog to get
+ * to a real one. Not worth it for a question about cached downloads.
+ *
+ * So the question moves to the one moment we own completely: opening the
+ * workspace. Packages live in browser storage, so nothing is lost by asking
+ * later, and asking here is arguably the more useful time — the candidate can
+ * see what a previous session left behind before starting work on top of it.
+ *
+ * The session marker keeps a reload from re-asking: `sessionStorage` survives
+ * refreshes within a tab and is gone once the tab closes, so this fires once
+ * per session, and only when there is actually something to clean up.
  */
 export function PackageCleanupGuard({ theme, vfs }: { theme: IdeTheme; vfs: VfsBridge }) {
   const palette = idePalette(theme);
   const [pending, setPending] = useState<InstalledPackage[] | null>(null);
 
   useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      const installed = Object.values(loadManifest());
-      if (installed.length === 0) return;
+    if (isResumedSession()) return;
 
-      event.preventDefault();
-      event.returnValue = "";
+    const installed = Object.values(loadManifest());
+    if (installed.length === 0) return;
 
-      // Timers are frozen while the native dialog is up. If this ever runs,
-      // the user chose to stay — which is our cue to ask the real question.
-      setTimeout(() => setPending(installed), 0);
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    // Deferred a tick so the workspace paints first and the dialog arrives
+    // over a workspace, rather than being part of the mount render.
+    const timer = setTimeout(() => setPending(installed), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   if (!pending) return null;
@@ -72,14 +103,15 @@ export function PackageCleanupGuard({ theme, vfs }: { theme: IdeTheme; vfs: VfsB
         <div className={clsx("flex items-center gap-2 border-b px-4 py-3", palette.border)}>
           <Package size={16} className={palette.accent} />
           <h2 id="cleanup-title" className="text-sm font-semibold">
-            Delete downloaded packages?
+            Packages from a previous session
           </h2>
         </div>
 
         <div className="px-4 py-3 text-sm">
           <p className={palette.textMuted}>
-            {pending.length} package{pending.length === 1 ? "" : "s"} downloaded into this browser
-            will stay available next time unless you delete {pending.length === 1 ? "it" : "them"}:
+            {pending.length} package{pending.length === 1 ? "" : "s"} {pending.length === 1 ? "is" : "are"}{" "}
+            still downloaded in this browser. Keep {pending.length === 1 ? "it" : "them"} and{" "}
+            {pending.length === 1 ? "it stays" : "they stay"} importable straight away, or start clean:
           </p>
           <ul className="mt-2 max-h-40 overflow-auto">
             {pending.map((pkg) => (
@@ -98,16 +130,9 @@ export function PackageCleanupGuard({ theme, vfs }: { theme: IdeTheme; vfs: VfsB
           <button
             type="button"
             onClick={() => setPending(null)}
-            className={clsx("rounded-md px-3 py-1.5 text-xs", palette.hover, palette.textMuted)}
-          >
-            Cancel closing window
-          </button>
-          <button
-            type="button"
-            onClick={() => setPending(null)}
             className={clsx("rounded-md border px-3 py-1.5 text-xs", palette.border, palette.hover)}
           >
-            Don&apos;t delete
+            Keep {pending.length === 1 ? "it" : "them"}
           </button>
           <button
             type="button"
