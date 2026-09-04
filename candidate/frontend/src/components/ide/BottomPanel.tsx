@@ -8,6 +8,8 @@ import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalGroup } from "./TerminalGroup";
 import { CameraPanel } from "./CameraPanel";
+import { ProblemsPanel } from "./ProblemsPanel";
+import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { useResizable } from "@/lib/ide/use-resizable";
 
 type PanelTab = "problems" | "output" | "debug" | "terminal" | "ports";
@@ -25,6 +27,8 @@ export function BottomPanel({
   vfs,
   preview,
   cameraStream,
+  diagnostics,
+  onOpenLocation,
   previewState,
   onClosePreview,
 }: {
@@ -32,6 +36,8 @@ export function BottomPanel({
   vfs: VfsBridge;
   preview: PreviewController;
   cameraStream: MediaStream | null;
+  diagnostics: Diagnostic[];
+  onOpenLocation: (path: string, line: number) => void;
   previewState: { html: string; title: string; root: string; watching: boolean } | null;
   onClosePreview: () => void;
 }) {
@@ -55,6 +61,11 @@ export function BottomPanel({
             )}
           >
             {tab.label}
+            {tab.id === "problems" && diagnostics.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-[#4A7FA7]/30 px-1.5 text-[10px]">
+                {diagnostics.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -73,7 +84,7 @@ export function BottomPanel({
             />
           </div>
           {active === "problems" && (
-            <EmptyState theme={theme} text="No problems have been detected in the workspace." />
+            <ProblemsPanel theme={theme} diagnostics={diagnostics} onOpen={onOpenLocation} />
           )}
           {active === "output" && <EmptyState theme={theme} text="No output yet." />}
           {active === "debug" && (
