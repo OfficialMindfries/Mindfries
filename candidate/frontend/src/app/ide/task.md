@@ -602,11 +602,31 @@ a dropdown to switch between them. Append-only logs, clearable.
 **Here — doable.** We already generate exactly this kind of log; it currently
 only goes to the terminal, where it's mixed with the shell.
 
-- [ ] Channel registry with a dropdown, append + clear
-- [ ] Route the preview builder into a "Preview" channel (rebuild timings,
-      build failures, unresolved-import warnings)
-- [ ] Route `pip`/`npm` into a "Packages" channel
-- [ ] Route git into a "Git" channel
+- [x] Channel registry with a dropdown, append + clear, bounded at 500 lines
+- [x] Route the preview builder into a "Preview" channel (rebuild timings and
+      build failures, emitted by the watcher rather than a command)
+- [x] Route `pip`/`npm` into a "Packages" channel
+- [x] Route git into a "Git" channel
+- [ ] Per-channel filter box (VS Code has one)
+- [ ] Auto-switch the panel to a channel that starts producing output while
+      Output is already open
+
+**Design note:** routing lives in *one* place — `channelForCommand` consulted
+by `execute.ts` after each command — so commands never learn the Output panel
+exists. A command with no channel simply doesn't log, which is why `node` and
+`python` don't: program output belongs in the terminal, as in VS Code.
+
+The store is deliberately plain (no React, no DOM) because shell commands
+write to it from outside React's render cycle and the engine has to stay
+drivable in Node. The panel binds via `useSyncExternalStore`.
+
+**Verified:** 21/21 in Node — routing map, real `git`/`npm` output captured
+with the command line echoed, errors captured too, non-routed commands
+leaving every channel untouched, channel isolation, clear, subscriber
+notification, snapshot identity changing so React re-renders, multi-line
+splitting, and the 500-line bound keeping the newest lines. The empty state
+was confirmed in the browser; the populated panel wasn't, because terminal
+input automation kept dropping keystrokes.
 
 ### Ports
 **VS Code:** lists locally-running services, forwards them via dev tunnels.
