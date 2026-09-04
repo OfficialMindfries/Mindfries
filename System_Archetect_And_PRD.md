@@ -559,6 +559,21 @@ flowchart TB
     REPORT_AGENT --> FINAL["Structured Assessment Report"]
 ```
 
+### Which model runs which agent
+
+| Agent | Model | Why |
+|---|---|---|
+| Code Evaluation | **Claude** | Reading a real diff against a real repository and judging the engineering behind it |
+| Reasoning | **Claude** | Explaining *why* a candidate moved the way they did, from the event trail |
+| Workflow | **Claude** | Interpreting the shape of a session — navigation, tests, debugging loops |
+| **AI Interview** | **Gemini** | Live spoken interview. Gemini's Live API does real-time speech in and out natively, so there's no separate TTS/STT hop to add latency or another vendor |
+| Report | **Claude** | Composing the evidence into a report a hiring team can act on |
+
+Splitting providers is deliberate rather than accidental: the interview is a
+latency-bound *conversation*, while the other four are analysis over text and
+code. Those are different problems, and the interview is the one where a
+round-trip through separate speech services would be felt by the candidate.
+
 ## 1.10 Data Architecture
 
 ```mermaid
@@ -779,9 +794,9 @@ Every tech choice below should be judged against this principle — favor whatev
 | Real-time | Terminal streaming, live status, live events | **WebSocket** | Essential for terminal, status, and live events |
 | Sandbox Infrastructure | Isolated candidate environments, terminal, file system | **Daytona** | Best fit for real development environments *(supersedes the earlier Docker-in-Docker call — Daytona likely runs on containers underneath, but is the managed layer we build against)* |
 | AI / LLM Orchestration | Multi-agent orchestrator (code, reasoning, workflow, interview, report agents) | **Multi-LLM system**, routed per agent | Routing proposal below still pending confirmation |
-| LLM Providers | Reasoning, code evaluation, report generation | **Claude** | Proposed: primary agent for code evaluation, reasoning, and report generation |
-| LLM Providers | Multimodal / vision RAG | **Gemini** | Proposed: vision RAG (e.g., screen/diagram understanding) and multimodal context |
-| LLM Providers | AI Interviewer voice | **ElevenLabs** | Proposed: text-to-speech / speech-to-text for the live AI interview |
+| LLM Providers | Code Evaluation, Reasoning, Workflow and Report agents | **Claude** | Proposed: primary agent for code evaluation, reasoning, and report generation |
+| LLM Providers | **AI Interview agent** — the live spoken interview | **Gemini** | **Confirmed.** Gemini's Live API handles real-time speech in and out natively, so the interview needs no separate TTS/STT layer |
+| LLM Providers | Multimodal / vision RAG | **Gemini** | Vision RAG (e.g. screen/diagram understanding) and multimodal context — same provider as the interviewer, one integration to build and bill |
 | Database | Company, candidate, job, assessment records | **Supabase (PostgreSQL)** | Managed Postgres — also gives us Auth, Storage, and Realtime primitives out of the box if we want them later |
 | Vector / Knowledge Store | Context for AI agents, vision RAG | **pgvector via Supabase** | Same database as primary store — no separate vector DB for MVP |
 | Cache / Realtime State | Session state, queues, rate limiting | **Redis** | Fast session state, queues and rate limiting |
@@ -800,10 +815,11 @@ Every tech choice below should be judged against this principle — favor whatev
 
 The stack is now essentially final. A few smaller items remain:
 
-1. **LLM-per-agent routing** — Claude / Gemini / ElevenLabs mapping above is still a proposal; confirm or adjust the split.
-2. **Testing infra inside the sandbox** — Daytona likely provides a native way to run the automated test suite per submission; worth confirming rather than assuming, since it affects the Evaluation Pipeline (Section 1.8).
-3. **Team ownership** — with Disha (CTO) leading engineering, is there a split you want reflected here (e.g., who owns the sandbox/orchestrator vs. the AI agent layer vs. the frontend)?
-4. **Backend hosting target** — now that the frontend is confirmed on Vercel, where does the FastAPI monolith (WebSocket terminal streaming, Daytona sandbox orchestration) actually run? Vercel serverless functions aren't a fit for long-lived connections; pick a host (Railway, Fly.io, Render, or an AWS box) before build starts.
-5. **Artifact storage: S3 vs. Supabase Storage** — now that Supabase is the primary database, worth a quick call on whether code/session artifacts also live in Supabase Storage (one less vendor) or stay on S3 (already listed above) — no functional difference for MVP, purely an ops-simplicity question.
+1. **LLM-per-agent routing** — the interviewer is settled: **Gemini** runs the AI Interview agent. The remaining question is the Claude side (Code Evaluation, Reasoning, Workflow, Report), still a proposal — confirm or adjust.
+2. **ElevenLabs** — it was in the stack solely for AI-interviewer voice, which Gemini's Live API now covers natively. It is dropped from the table on that basis. Re-add it only if the interview needs a specific voice identity or a level of speech control the Live API does not give us.
+3. **Testing infra inside the sandbox** — Daytona likely provides a native way to run the automated test suite per submission; worth confirming rather than assuming, since it affects the Evaluation Pipeline (Section 1.8).
+4. **Team ownership** — with Disha (CTO) leading engineering, is there a split you want reflected here (e.g., who owns the sandbox/orchestrator vs. the AI agent layer vs. the frontend)?
+5. **Backend hosting target** — now that the frontend is confirmed on Vercel, where does the FastAPI monolith (WebSocket terminal streaming, Daytona sandbox orchestration) actually run? Vercel serverless functions aren't a fit for long-lived connections; pick a host (Railway, Fly.io, Render, or an AWS box) before build starts.
+6. **Artifact storage: S3 vs. Supabase Storage** — now that Supabase is the primary database, worth a quick call on whether code/session artifacts also live in Supabase Storage (one less vendor) or stay on S3 (already listed above) — no functional difference for MVP, purely an ops-simplicity question.
 
 Once those are confirmed, this document is ready to be treated as final for build planning.
