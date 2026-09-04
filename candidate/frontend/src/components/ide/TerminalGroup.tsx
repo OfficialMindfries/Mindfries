@@ -9,7 +9,6 @@ import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalPanel } from "./TerminalPanel";
 import { PreviewPanel } from "./PreviewPanel";
-import { CameraPanel } from "./CameraPanel";
 import { useResizable } from "@/lib/ide/use-resizable";
 
 interface Session {
@@ -28,14 +27,12 @@ export function TerminalGroup({
   theme,
   vfs,
   preview,
-  cameraStream,
   previewState,
   onClosePreview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
-  cameraStream: MediaStream | null;
   previewState: { html: string; title: string; root: string; watching: boolean } | null;
   onClosePreview: () => void;
 }) {
@@ -45,7 +42,6 @@ export function TerminalGroup({
   const [activeId, setActiveId] = useState<number | null>(1);
   // The preview sits beside the terminals, so it's sized by width.
   const previewPane = useResizable({ initial: 460, min: 240, max: 900, axis: "horizontal", invert: true });
-  const cameraPane = useResizable({ initial: 260, min: 160, max: 520, axis: "horizontal", invert: true });
 
   const addTerminal = () => {
     nextId.current += 1;
@@ -169,19 +165,6 @@ export function TerminalGroup({
           </>
         )}
 
-        {/* Always mounted: the session requires the camera to stay on, and
-            showing it constantly is what makes that honest. */}
-        <div
-          onMouseDown={cameraPane.startDrag}
-          className={clsx(
-            "flex w-1 shrink-0 cursor-col-resize items-center justify-center border-l",
-            palette.border,
-            palette.hover
-          )}
-        />
-        <div style={{ width: cameraPane.size }} className="min-h-0 shrink-0">
-          <CameraPanel theme={theme} stream={cameraStream} />
-        </div>
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalGroup } from "./TerminalGroup";
+import { CameraPanel } from "./CameraPanel";
+import { useResizable } from "@/lib/ide/use-resizable";
 
 type PanelTab = "problems" | "output" | "debug" | "terminal" | "ports";
 
@@ -35,6 +37,7 @@ export function BottomPanel({
 }) {
   const palette = idePalette(theme);
   const [active, setActive] = useState<PanelTab>("terminal");
+  const cameraPane = useResizable({ initial: 260, min: 160, max: 520, axis: "horizontal", invert: true });
 
   return (
     <div className={clsx("flex h-full flex-col", palette.panelBg)}>
@@ -56,29 +59,45 @@ export function BottomPanel({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1">
-        {/* Kept mounted (just hidden) rather than unmounted while another tab is
-            active, so terminal sessions and their scrollback survive tab switches. */}
-        <div className="h-full" style={{ display: active === "terminal" ? "block" : "none" }}>
-          <TerminalGroup
-            theme={theme}
-            vfs={vfs}
-            preview={preview}
-            cameraStream={cameraStream}
-            previewState={previewState}
-            onClosePreview={onClosePreview}
-          />
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1">
+          {/* Kept mounted (just hidden) rather than unmounted while another tab is
+              active, so terminal sessions and their scrollback survive tab switches. */}
+          <div className="h-full" style={{ display: active === "terminal" ? "block" : "none" }}>
+            <TerminalGroup
+              theme={theme}
+              vfs={vfs}
+              preview={preview}
+              previewState={previewState}
+              onClosePreview={onClosePreview}
+            />
+          </div>
+          {active === "problems" && (
+            <EmptyState theme={theme} text="No problems have been detected in the workspace." />
+          )}
+          {active === "output" && <EmptyState theme={theme} text="No output yet." />}
+          {active === "debug" && (
+            <EmptyState theme={theme} text="Start a debug session to see the debug output." />
+          )}
+          {active === "ports" && (
+            <EmptyState theme={theme} text="No forwarded ports. This workspace has no running server to forward." />
+          )}
         </div>
-        {active === "problems" && (
-          <EmptyState theme={theme} text="No problems have been detected in the workspace." />
-        )}
-        {active === "output" && <EmptyState theme={theme} text="No output yet." />}
-        {active === "debug" && (
-          <EmptyState theme={theme} text="Start a debug session to see the debug output." />
-        )}
-        {active === "ports" && (
-          <EmptyState theme={theme} text="No forwarded ports. This workspace has no running server to forward." />
-        )}
+
+        {/* Outside the tab switch on purpose: the camera has to be visible on
+            every tab, and mounting it here means the <video> element is never
+            torn down, so switching tabs can't interrupt the feed. */}
+        <div
+          onMouseDown={cameraPane.startDrag}
+          className={clsx(
+            "flex w-1 shrink-0 cursor-col-resize items-center justify-center border-l",
+            palette.border,
+            palette.hover
+          )}
+        />
+        <div style={{ width: cameraPane.size }} className="min-h-0 shrink-0">
+          <CameraPanel theme={theme} stream={cameraStream} />
+        </div>
       </div>
     </div>
   );
