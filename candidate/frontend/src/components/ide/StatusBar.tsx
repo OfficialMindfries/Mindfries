@@ -1,4 +1,5 @@
-import { GitBranch, Check, Bell, Moon, Sun } from "lucide-react";
+import { GitBranch, Bell, Moon, Sun, AlertCircle, AlertTriangle } from "lucide-react";
+import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { STATUS_BAR_BG } from "@/lib/ide/palette";
 import { languageForPath, displayLanguageName } from "@/lib/ide/language";
 import type { IdeTheme } from "@/lib/ide/theme";
@@ -6,11 +7,14 @@ import type { IdeTheme } from "@/lib/ide/theme";
 interface StatusBarProps {
   activePath: string | null;
   dirtyCount: number;
+  diagnostics: Diagnostic[];
   theme: IdeTheme;
   onToggleTheme: () => void;
 }
 
-export function StatusBar({ activePath, dirtyCount, theme, onToggleTheme }: StatusBarProps) {
+export function StatusBar({ activePath, dirtyCount, diagnostics, theme, onToggleTheme }: StatusBarProps) {
+  const errors = diagnostics.filter((d) => d.severity === "error").length;
+  const warnings = diagnostics.filter((d) => d.severity === "warning").length;
   const language = activePath ? displayLanguageName(languageForPath(activePath)) : null;
 
   return (
@@ -23,8 +27,11 @@ export function StatusBar({ activePath, dirtyCount, theme, onToggleTheme }: Stat
           <GitBranch size={13} />
           main
         </span>
-        <span className="flex items-center gap-1">
-          <Check size={13} />0
+        <span className="flex items-center gap-1" title={`${errors} errors, ${warnings} warnings`}>
+          <AlertCircle size={13} />
+          {errors}
+          <AlertTriangle size={13} className="ml-1" />
+          {warnings}
         </span>
         {dirtyCount > 0 && (
           <span>

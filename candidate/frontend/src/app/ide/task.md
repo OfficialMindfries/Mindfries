@@ -515,6 +515,129 @@ Cycled all five tabs in the browser: camera visible on each at a steady
 260px, and a probe attribute on the video node confirmed it is the *same*
 element throughout — never unmounted, so the feed can't break on a tab change.
 
+## Feature inventory (what exists today)
+
+Written out in full so the gaps below are legible. Detail for each is in
+[spec.md](spec.md).
+
+**Editor** — Monaco (self-hosted), tabbed with dirty-state dots, Ctrl/Cmd+S,
+auto-save, syntax highlighting for ~65 file types, breadcrumbs. `.ipynb` opens
+as a real notebook (code + markdown cells, Run All, per-cell run).
+
+**Explorer** — file tree, create/rename/delete files and folders inline,
+per-language brand icons, resizable, candidate profile footer.
+
+**Terminal** — real shell: pipes `|`, redirects `> >> < 2>`, chaining
+`&& || ;` on real exit codes, `$VAR`/`${VAR}`/`$?`, `export`, aliases, globs,
+quoting. Line editor with history, Tab completion, Ctrl+A/E/U/K/W/C/L.
+Multiple independent sessions. Toolbelt: `grep sed find head tail wc sort
+uniq cut tr diff tree ls cp -r`.
+
+**Execution** — Python (Pyodide/real CPython), JavaScript (native ESM),
+TypeScript (real `typescript` compiler).
+
+**Packages** — `pip` via micropip (real PyPI + Pyodide WASM index); `npm` via
+the real registry + esm.sh, mirrored to a visible `node_modules/`.
+
+**Version control** — real git (isomorphic-git): `init add status commit log
+branch checkout rm config`. Objects in IndexedDB, working tree in the VFS.
+
+**Projects** — `npm create vite` fetches the real create-vite template;
+`dev` / `npm run dev` builds a live preview that rebuilds on every edit and
+holds the terminal until Ctrl+C.
+
+**Preview** — sandboxed iframe beside the terminal, live/stopped badge.
+
+**Proctoring** — mandatory camera, workspace locked until live, visible on
+every panel tab.
+
+**Chat** — floating launcher + panel. Interface only, no model connected.
+
+**Persistence** — workspace in `localStorage`, packages and git in IndexedDB.
+
+---
+
+## Panel tabs — making them real (VS Code parity)
+
+Today Problems / Output / Debug Console / Ports are hardcoded empty states.
+Each entry below records what VS Code actually does (from its docs), what we
+can honestly do here, and the work.
+
+### Problems
+**VS Code:** shows warnings and errors from language services, tasks and
+linters that analyse code in the background. Each diagnostic carries
+severity, file, line, message, and source/code. Entries group by file;
+clicking one jumps to that location. Also surfaces as inline squiggles, marks
+in the overview ruler, and a Status Bar error/warning count.
+
+**Here — genuinely doable.** Monaco *is* the VS Code editor and already runs
+the real TypeScript language service; it publishes diagnostics as **markers**
+(`monaco.editor.getModelMarkers()`), the same model VS Code's `Diagnostic`
+API uses. Nothing needs faking.
+
+- [x] Create Monaco models for every workspace file, not just opened ones, so
+      diagnostics cover the project rather than the current tab
+- [x] Read markers, group by file, sort by severity then line
+- [x] Severity icon + `file:line:col`, message, and source
+- [x] Click a row → open that file
+- [x] Error/warning counts in the Status Bar
+- [ ] Reveal the exact line on click (currently opens the file only)
+- [ ] Clicking the Status Bar counts focuses the Problems tab
+
+**Bug worth remembering:** the instance must come from `loader.init()`, not
+`import("monaco-editor")`. The editor runs from the self-hosted AMD bundle at
+`/monaco-editor/vs`; importing the npm package gives a *second*, unrelated
+Monaco whose marker registry the running editor never writes to — Problems
+sits permanently empty with nothing visibly wrong. Cost a debugging round.
+
+**Verified live:** a file with `const n: number = "not a number"` and an
+undefined identifier produced exactly `ts(2322)` and `ts(2304)` at the right
+line/column, grouped under the file, with a count badge on the tab and
+`2 errors / 0 warnings` in the Status Bar. A clean file reports nothing.
+
+### Output
+**VS Code:** named channels — build systems, tasks, language servers — with
+a dropdown to switch between them. Append-only logs, clearable.
+
+**Here — doable.** We already generate exactly this kind of log; it currently
+only goes to the terminal, where it's mixed with the shell.
+
+- [ ] Channel registry with a dropdown, append + clear
+- [ ] Route the preview builder into a "Preview" channel (rebuild timings,
+      build failures, unresolved-import warnings)
+- [ ] Route `pip`/`npm` into a "Packages" channel
+- [ ] Route git into a "Git" channel
+
+### Ports
+**VS Code:** lists locally-running services, forwards them via dev tunnels.
+Each row shows the port and its forwarded address; hovering offers copy
+address, open in browser, open in-editor preview; right-click sets
+visibility. Explicitly only exposes *locally-running* services.
+
+**Here — partially, and the limit is real.** A browser tab cannot listen on a
+port, so genuine forwarding needs the sandbox/backend (PRD §2.3). What we do
+have is a running dev preview, which is the thing a port row would point at.
+
+- [ ] List the running preview as a row: label, project root, live/stopped
+- [ ] Actions: open the preview in a new tab, focus the preview panel, stop
+- [ ] When nothing is running, say *why* real forwarding is unavailable
+      rather than a bare empty state
+
+### Debug Console
+**VS Code:** a REPL that evaluates expressions **in the debugger's context**,
+with suggestions, `Shift+Enter` for multi-line, and program output
+interleaved. Only functions during an active debug session. Distinct from the
+terminal (shell commands) and Output (tool logs).
+
+**Here — the REPL half only, and it must say so.** There is no debug adapter,
+so no breakpoints, stepping, call stack or variable inspection. What *is*
+honest is expression evaluation against the same runtime `node` uses.
+
+- [ ] REPL evaluating JS/TS expressions, result and errors echoed
+- [ ] History, `Shift+Enter` for multi-line
+- [ ] State it evaluates without a debugger attached — no breakpoints —
+      rather than implying a debugger exists
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are

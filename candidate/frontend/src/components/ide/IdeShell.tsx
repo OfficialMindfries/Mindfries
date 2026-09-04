@@ -23,6 +23,7 @@ import { loadPersistedWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-per
 import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview/build-preview";
 import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
+import { useDiagnostics } from "@/lib/ide/diagnostics";
 
 export function IdeShell() {
   const { theme, toggleTheme } = useIdeTheme();
@@ -96,6 +97,8 @@ export function IdeShell() {
   // The session is camera-proctored: the gate below blocks the workspace
   // until this is live, and re-blocks if the stream ever stops.
   const camera = useProctorCamera();
+  // Real markers from Monaco's TypeScript service — see lib/ide/diagnostics.ts.
+  const diagnostics = useDiagnostics(tree, files);
 
 
   const openFile = (path: string) => {
@@ -428,6 +431,8 @@ export function IdeShell() {
               vfs={vfs}
               preview={previewController}
               cameraStream={camera.stream}
+              diagnostics={diagnostics}
+              onOpenLocation={(path) => openFile(path)}
               previewState={preview}
               onClosePreview={() => {
                 releaseBuild(previewBuildRef.current);
@@ -463,6 +468,7 @@ export function IdeShell() {
         <StatusBar
           activePath={activePath}
           dirtyCount={dirtyPaths.size}
+          diagnostics={diagnostics}
           theme={theme}
           onToggleTheme={toggleTheme}
         />
