@@ -7,14 +7,22 @@ import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 
 /**
- * The AI help chat.
+ * Mindfries AI — the candidate's assistant during an assessment.
  *
- * This is the panel only — there is no model behind it. Rather than inventing
- * plausible-looking answers, an assistant turn says plainly that nothing is
- * connected yet, so the UI can be reviewed without anyone mistaking it for a
- * working assistant. Wiring it up means replacing `respondTo` with a real
- * request; everything else here (history, layout, input handling) already
- * works.
+ * The copy below is a **behavioural contract, not decoration**. It tells the
+ * candidate this assistant explains and discusses but does not write their
+ * solution, and that the conversation forms part of the session's evidence
+ * (PRD §1.7 counts AI usage as an evidence dimension). Whoever wires a model
+ * in must enforce the same boundary in its system prompt — if the UI promises
+ * "it won't write the solution" and the model happily does, the product is
+ * lying to the person being assessed.
+ *
+ * Telling the candidate their AI use is observed is the same principle as the
+ * camera disclosure: they can see what is being captured, before it happens.
+ *
+ * There is no model behind it yet. Rather than inventing plausible answers,
+ * the assistant turn says so. Wiring it up means replacing `respondTo` with a
+ * real request; history, layout and input handling already work.
  */
 
 interface Message {
@@ -24,8 +32,9 @@ interface Message {
 }
 
 const NOT_CONNECTED =
-  "I'm not connected to a model yet — this panel is the interface only. " +
-  "Point it at an API endpoint (and a key) and this reply becomes a real answer.";
+  "Mindfries AI isn't connected to a model yet, so I can't answer properly — " +
+  "this panel is the interface only. Once a model is wired in, I'll help you " +
+  "reason about the task, and still leave the code to you.";
 
 function respondTo(): string {
   return NOT_CONNECTED;
@@ -75,7 +84,7 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
       >
         <span className={clsx("flex items-center gap-1.5", palette.text)}>
           <Sparkles size={13} className={palette.accent} />
-          AI help
+          Mindfries AI
         </span>
         <button type="button" title="Close" onClick={onClose} className={clsx("rounded-md p-1", palette.hover)}>
           <X size={13} />
@@ -84,11 +93,22 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {messages.length === 0 ? (
-          <div className={clsx("space-y-2 text-xs leading-relaxed", palette.textMuted)}>
-            <p className={palette.text}>Ask about the code in your workspace.</p>
+          <div className={clsx("space-y-2.5 text-xs leading-relaxed", palette.textMuted)}>
+            <p className={palette.text}>
+              An assistant for the assessment — not a coding agent.
+            </p>
             <p>
-              Heads up: no model is connected yet, so replies are a placeholder. The panel, history
-              and input all work — only the answer is missing.
+              Ask it to explain unfamiliar code, unpack an error, or think through an approach
+              with you. It won&apos;t write the solution or hand you code to paste: what&apos;s
+              being assessed is how <em>you</em> work.
+            </p>
+            <p>
+              Your conversation here forms part of the evidence from this session, so a sharp
+              question is worth more than asking for the answer.
+            </p>
+            <p className="opacity-80">
+              No model is connected yet, so replies are a placeholder — the panel, history and
+              input all work, only the answer is missing.
             </p>
           </div>
         ) : (
@@ -119,7 +139,7 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question…"
+            placeholder="Ask about the code, an error, or an approach…"
             className={clsx(
               "min-h-0 flex-1 resize-none bg-transparent text-xs outline-none placeholder:opacity-60",
               palette.text
