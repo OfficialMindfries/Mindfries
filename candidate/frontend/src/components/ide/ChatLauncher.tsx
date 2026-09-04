@@ -5,7 +5,7 @@ import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 
 /**
- * Floating launcher for the AI agents panel — the familiar bottom-right
+ * Floating launcher for the Mindfries AI panel — the familiar bottom-right
  * bubble.
  *
  * It hides while the panel is open: the panel has its own close control, and
@@ -27,8 +27,8 @@ export function ChatLauncher({
     <button
       type="button"
       onClick={onClick}
-      title="AI agents"
-      aria-label="Open AI agents"
+      title="Mindfries AI"
+      aria-label="Open Mindfries AI"
       className={clsx(
         // Sits above the status bar rather than over it.
         "fixed right-4 bottom-8 z-40 flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition hover:scale-105",
