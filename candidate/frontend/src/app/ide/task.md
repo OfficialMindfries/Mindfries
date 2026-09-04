@@ -499,6 +499,22 @@ Live: 48×48 at 16px from the right, logo loads, the dot measures 12px on the
 circle's outline at bottom-right (offset 17,17 from centre against a 24px
 radius), clicking opens the chat and hides the launcher.
 
+## Phase 26 — Camera visible on every bottom-panel tab
+
+- [x] The camera lived inside `TerminalGroup`, so it only appeared on the
+      Terminal tab — switching to Problems/Output/Debug/Ports hid the feed
+      mid-session, which defeats the point of a proctored workspace
+- [x] Moved up to `BottomPanel`, beside the tab-content area rather than
+      inside it. It now renders on all five tabs
+- [x] **Mounted outside the tab switch**, so the `<video>` element is never
+      torn down. That's what makes it uninterrupted rather than merely
+      re-shown: a remount would re-attach the stream and flicker
+
+### Verified
+Cycled all five tabs in the browser: camera visible on each at a steady
+260px, and a probe attribute on the video node confirmed it is the *same*
+element throughout — never unmounted, so the feed can't break on a tab change.
+
 ## Backlog / known limitations
 
 Filed as GitHub issues so they don't get lost — none are blocking, all are
