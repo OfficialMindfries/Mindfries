@@ -12,6 +12,7 @@ import { PackageCleanupGuard } from "./PackageCleanupGuard";
 import { ChatPanel } from "./ChatPanel";
 import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
+import { EndSessionDialog, SessionEnded } from "./EndSession";
 import { useIdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -25,6 +26,8 @@ import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
 import { useDiagnostics } from "@/lib/ide/diagnostics";
 import { CHANNELS, output } from "@/lib/ide/output";
+import { exitFullscreen } from "@/lib/ide/fullscreen";
+import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
 
 export function IdeShell() {
   const { theme, toggleTheme } = useIdeTheme();
@@ -100,6 +103,12 @@ export function IdeShell() {
   const camera = useProctorCamera();
   // Real markers from Monaco's TypeScript service — see lib/ide/diagnostics.ts.
   const diagnostics = useDiagnostics(tree, files);
+
+  // Ending the session, on the candidate's own terms rather than the
+  // browser's. `ending` holds the packages the confirmation is asking about;
+  // `ended` swaps the workspace for the closing screen.
+  const [ending, setEnding] = useState<InstalledPackage[] | null>(null);
+  const [ended, setEnded] = useState<{ deleted: boolean } | null>(null);
 
 
   const openFile = (path: string) => {
@@ -333,6 +342,28 @@ export function IdeShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- vfs reads live state via a ref; rebuilding is driven by tree/files changing
   }, [previewRoot, tree, files]);
 
+  /**
+   * Ends the session for real: stop the preview, release the camera, and
+   * optionally drop the downloaded packages. The camera goes last so the
+   * capture light goes out at the same moment the closing screen appears.
+   *
+   * Files are deliberately left alone — the candidate's work is theirs, and
+   * nothing here has been submitted anywhere yet.
+   */
+  const endSession = (deletePackages: boolean) => {
+    previewController.stop();
+    if (deletePackages) {
+      saveManifest({});
+      vfs.remove("node_modules", true);
+    }
+    camera.stop();
+    // Hand the screen back: staying fullscreen on a closing screen leaves
+    // someone stuck in a chrome-less tab with nothing left to do in it.
+    void exitFullscreen();
+    setEnding(null);
+    setEnded({ deleted: deletePackages });
+  };
+
   // Explorer-driven create/rename/delete are the same virtual filesystem
   // operations the terminal uses, just with UI-appropriate confirmation
   // dialogs and auto-opening a newly created file in the editor.
@@ -360,6 +391,13 @@ export function IdeShell() {
     vfsRemove(path, true);
   };
 
+  // Replaces the workspace outright rather than overlaying it: the session is
+  // over, so there's nothing behind the screen worth showing. It also means
+  // the proctoring gate can't reappear over the top once the camera is
+  // released — releasing it deliberately looks the same to the gate as never
+  // having started.
+  if (ended) return <SessionEnded theme={theme} deleted={ended.deleted} />;
+
   // The chrome is a set of independent rounded "cards" (Explorer, Editor,
   // Terminal, status bar) floating on a recessed canvas, rather than VS
   // Code's flush edge-to-edge panels — every panel gets `overflow-hidden` so
@@ -380,6 +418,7 @@ export function IdeShell() {
             onCreate={createEntry}
             onRename={renameEntry}
             onDelete={deleteEntry}
+            onEndSession={() => setEnding(Object.values(loadManifest()))}
           />
         </div>
 
@@ -486,6 +525,14 @@ export function IdeShell() {
           dialog reads as a stack of broken overlays. The proctoring gate is
           the one that has to be answered first. */}
       {camera.status === "live" && <PackageCleanupGuard theme={theme} vfs={vfs} />}
+      {ending && (
+        <EndSessionDialog
+          theme={theme}
+          packages={ending}
+          onCancel={() => setEnding(null)}
+          onEnd={endSession}
+        />
+      )}
       <ProctorGate theme={theme} camera={camera} />
       <ChatLauncher theme={theme} hidden={chatOpen} onClick={() => setChatOpen(true)} />
     </div>

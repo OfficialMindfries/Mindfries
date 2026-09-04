@@ -8,6 +8,7 @@ import {
   FolderOpen,
   FilePlus,
   FolderPlus,
+  LogOut,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -31,6 +32,7 @@ interface FileExplorerProps {
   onCreate: (parentPath: string | null, kind: "file" | "folder", name: string) => void;
   onRename: (path: string, newName: string) => void;
   onDelete: (path: string) => void;
+  onEndSession: () => void;
 }
 
 export function FileExplorer({
@@ -41,6 +43,7 @@ export function FileExplorer({
   onCreate,
   onRename,
   onDelete,
+  onEndSession,
 }: FileExplorerProps) {
   const palette = idePalette(theme);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["src", "tests"]));
@@ -137,14 +140,14 @@ export function FileExplorer({
         )}
       </div>
 
-      <SidebarFooter theme={theme} />
+      <SidebarFooter theme={theme} onEndSession={onEndSession} />
     </div>
   );
 }
 
 /** The signed-in candidate, pinned to the bottom of the Explorer. AI help
  * moved out to the floating launcher (ChatLauncher). */
-function SidebarFooter({ theme }: { theme: IdeTheme }) {
+function SidebarFooter({ theme, onEndSession }: { theme: IdeTheme; onEndSession: () => void }) {
   const palette = idePalette(theme);
 
   return (
@@ -153,10 +156,22 @@ function SidebarFooter({ theme }: { theme: IdeTheme }) {
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#4A7FA7] text-[11px] font-semibold text-[#F6FAFD]">
           R
         </span>
-        <span className="min-w-0">
+        <span className="min-w-0 flex-1">
           <span className={clsx("block truncate text-xs", palette.text)}>Rishi</span>
           <span className={clsx("block truncate text-[10px]", palette.textMuted)}>Candidate</span>
         </span>
+        {/* The workspace's own exit. It's here rather than somewhere more
+            prominent on purpose: ending is deliberate, not something to hit
+            while reaching for a tab. */}
+        <button
+          type="button"
+          title="End session"
+          aria-label="End session"
+          onClick={onEndSession}
+          className={clsx("shrink-0 rounded-md p-1.5", palette.hover, palette.textMuted)}
+        >
+          <LogOut size={14} />
+        </button>
       </div>
     </div>
   );

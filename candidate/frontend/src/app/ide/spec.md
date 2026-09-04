@@ -143,6 +143,42 @@ top of it.
 It waits for the proctoring gate: both are modal, and asking about packages
 behind a "you cannot start yet" dialog reads as a stack of broken overlays.
 
+### 4.3.4 Fullscreen (`lib/ide/fullscreen.ts`)
+Opening `/ide` and pressing **Enable camera & start** takes the workspace
+fullscreen. The status bar carries a toggle, and ending the session hands the
+screen back.
+
+It rides on that click because it has to: `requestFullscreen()` only works
+while a user gesture is active, so it cannot run on page load — the same class
+of restriction as the close prompt. Since no one reaches the workspace without
+pressing that button, hooking onto it makes fullscreen automatic in practice
+without pretending the restriction isn't there. The call is made
+*synchronously*, before the camera request: the first `await` consumes the
+activation.
+
+Refusal is quiet. An embedded frame without `allow="fullscreen"`, a managed
+device or an unsupported browser can all say no, and none of that should stop
+a session starting. The toggle exists because Esc leaves fullscreen without
+asking, and there has to be a way back that isn't "reload and start over".
+
+### 4.3.5 Ending the session (`components/ide/EndSession.tsx`)
+The Explorer's footer, beside the candidate's name, carries an **End session**
+control. It opens the workspace's own confirmation — *Cancel* / *End, keep
+packages* / *End & delete* when packages exist, *Cancel* / *End session* when
+they don't. Confirming stops the preview, optionally deletes the packages and
+their `node_modules/` mirror, releases the camera, and replaces the workspace
+with a closing screen.
+
+This is the answer to the close-prompt problem above: the only way to get a
+real confirmation with real choices is to own the exit. A control inside the
+workspace, pressed deliberately, with no browser dialog anywhere near it.
+
+The flow stops at a screen rather than closing the tab, because
+`window.close()` only works on a window a script opened itself. Files are left
+alone — the work is the candidate's, and nothing has been submitted. Finality
+is a client-side gesture for now: a real assessment ends when the server says
+it ended (PRD §2.3).
+
 ### 4.4 Code execution (`lib/ide/code-runner.ts`, `pyodide-runtime.ts`)
 Shared by the terminal's `node`/`python` commands and notebook code cells:
 - **JavaScript** — `new Function("console", code)`; `console.log/warn/error`

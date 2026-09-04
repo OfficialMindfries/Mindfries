@@ -5,6 +5,7 @@ import { Video, ShieldAlert } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 import type { ProctorCamera } from "@/lib/ide/proctor-camera";
+import { enterFullscreen } from "@/lib/ide/fullscreen";
 
 /**
  * Blocks the workspace until the proctoring camera is live.
@@ -12,6 +13,11 @@ import type { ProctorCamera } from "@/lib/ide/proctor-camera";
  * It states plainly, before the permission prompt, that the session is
  * recorded-on-camera and that the camera stays on throughout. Springing that
  * on someone after the fact would be the wrong way to build this.
+ *
+ * The start button also takes the workspace fullscreen. That isn't an
+ * afterthought about where to put it: `requestFullscreen()` needs an active
+ * user gesture, so it can't run on page load, and this click is the one
+ * gesture every session is guaranteed to pass through. See lib/ide/fullscreen.ts.
  */
 export function ProctorGate({
   theme,
@@ -68,7 +74,13 @@ export function ProctorGate({
         <div className={clsx("flex justify-end border-t px-4 py-3", palette.border)}>
           <button
             type="button"
-            onClick={() => void camera.request()}
+            onClick={() => {
+              // Synchronously first: this click is the user gesture that
+              // makes fullscreen legal, and awaiting the camera permission
+              // would consume the activation before we got to ask.
+              void enterFullscreen();
+              void camera.request();
+            }}
             disabled={busy}
             className={clsx(
               "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium",
