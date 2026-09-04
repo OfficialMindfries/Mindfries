@@ -105,7 +105,15 @@ export function EndSessionDialog({
             <button
               type="button"
               onClick={() => onEnd(true)}
-              className="flex items-center gap-1.5 rounded-md bg-[#4A7FA7] px-3 py-1.5 text-xs font-medium text-[#F6FAFD] hover:opacity-90"
+              // Red to match the control that opened this dialog, and because
+              // it's the only button here that destroys something.
+              //
+              // #AD2934 rather than the #E06C75 used on the trigger: that one
+              // is the same hue darkened to L 42%, which is what lets
+              // #F6FAFD sit on it at 6.4:1. #E06C75 as a fill would put white
+              // text at 2.9:1 — the light tone is for text and icons on a
+              // neutral background, the dark one for white-on-red fills.
+              className="flex items-center gap-1.5 rounded-md bg-[#AD2934] px-3 py-1.5 text-xs font-medium text-[#F6FAFD] hover:opacity-90"
             >
               <Trash2 size={13} />
               End &amp; delete
