@@ -168,7 +168,10 @@ function SidebarFooter({ theme, onEndSession }: { theme: IdeTheme; onEndSession:
           title="End session"
           aria-label="End session"
           onClick={onEndSession}
-          className={clsx("shrink-0 rounded-md p-1.5", palette.hover, palette.textMuted)}
+          // Red, because it's the one control here that ends something. The
+          // hue is the same #E06C75 the Debug Console uses for errors, rather
+          // than a second red introduced alongside it.
+          className="shrink-0 rounded-md p-1.5 text-[#E06C75] hover:bg-[#E06C75]/15"
         >
           <LogOut size={14} />
         </button>
