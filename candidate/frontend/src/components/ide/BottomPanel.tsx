@@ -10,6 +10,7 @@ import { TerminalGroup } from "./TerminalGroup";
 import { CameraPanel } from "./CameraPanel";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { OutputPanel } from "./OutputPanel";
+import { PortsPanel } from "./PortsPanel";
 import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { useResizable } from "@/lib/ide/use-resizable";
 
@@ -32,6 +33,7 @@ export function BottomPanel({
   onOpenLocation,
   previewState,
   onClosePreview,
+  onStopPreview,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
@@ -41,6 +43,7 @@ export function BottomPanel({
   onOpenLocation: (path: string, line: number) => void;
   previewState: { html: string; title: string; root: string; watching: boolean } | null;
   onClosePreview: () => void;
+  onStopPreview: () => void;
 }) {
   const palette = idePalette(theme);
   const [active, setActive] = useState<PanelTab>("terminal");
@@ -92,7 +95,14 @@ export function BottomPanel({
             <EmptyState theme={theme} text="Start a debug session to see the debug output." />
           )}
           {active === "ports" && (
-            <EmptyState theme={theme} text="No forwarded ports. This workspace has no running server to forward." />
+            <PortsPanel
+              theme={theme}
+              preview={previewState}
+              // The preview lives beside the terminals, so "focus" means
+              // switching to the tab it's rendered on.
+              onFocusPreview={() => setActive("terminal")}
+              onStopPreview={onStopPreview}
+            />
           )}
         </div>
 

@@ -638,10 +638,23 @@ visibility. Explicitly only exposes *locally-running* services.
 port, so genuine forwarding needs the sandbox/backend (PRD §2.3). What we do
 have is a running dev preview, which is the thing a port row would point at.
 
-- [ ] List the running preview as a row: label, project root, live/stopped
-- [ ] Actions: open the preview in a new tab, focus the preview panel, stop
-- [ ] When nothing is running, say *why* real forwarding is unavailable
+- [x] List the running preview as a row: address, project root, running/stopped
+- [x] Actions: focus the preview panel, open the built page in a new tab, stop
+- [x] When nothing is running, say *why* real forwarding is unavailable
       rather than a bare empty state
+- [ ] Real forwarded ports, once the sandbox exists (PRD §2.3)
+
+**The Port column reads "—" deliberately.** Inventing a plausible number
+(5173, say) would be a lie the rest of this workspace doesn't tell — nothing
+is bound, because a browser tab cannot bind a port.
+
+**Verified:** the empty state renders with its explanation. The "open in new
+tab" action depends on a blob HTML document being able to load blob module
+URLs created by the IDE — that was proven directly (an iframe pointed at the
+same blob URL executed its module and reported back). Popup delivery itself
+is browser-dependent and wasn't observable here, since the automation pane
+doesn't track popups. The populated row wasn't rendered either: it needs a
+running preview, which needs terminal input that keeps dropping keystrokes.
 
 ### Debug Console
 **VS Code:** a REPL that evaluates expressions **in the debugger's context**,
