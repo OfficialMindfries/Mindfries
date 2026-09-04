@@ -1,4 +1,5 @@
-import { GitBranch, Bell, Moon, Sun, AlertCircle, AlertTriangle } from "lucide-react";
+import { GitBranch, Bell, Moon, Sun, AlertCircle, AlertTriangle, Maximize2, Minimize2 } from "lucide-react";
+import { useFullscreen } from "@/lib/ide/fullscreen";
 import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { STATUS_BAR_BG } from "@/lib/ide/palette";
 import { languageForPath, displayLanguageName } from "@/lib/ide/language";
@@ -13,6 +14,9 @@ interface StatusBarProps {
 }
 
 export function StatusBar({ activePath, dirtyCount, diagnostics, theme, onToggleTheme }: StatusBarProps) {
+  // Esc leaves fullscreen and the browser never asks first, so there has to
+  // be a way back in that isn't "reload the page and start over".
+  const fullscreen = useFullscreen();
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const warnings = diagnostics.filter((d) => d.severity === "warning").length;
   const language = activePath ? displayLanguageName(languageForPath(activePath)) : null;
@@ -45,6 +49,14 @@ export function StatusBar({ activePath, dirtyCount, diagnostics, theme, onToggle
         <span>UTF-8</span>
         <span>LF</span>
         <Bell size={13} />
+        <button
+          type="button"
+          title={fullscreen.active ? "Exit fullscreen" : "Enter fullscreen"}
+          onClick={fullscreen.toggle}
+          className="flex items-center hover:opacity-80"
+        >
+          {fullscreen.active ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
         <button
           type="button"
           title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}

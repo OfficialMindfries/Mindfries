@@ -26,6 +26,7 @@ import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
 import { useDiagnostics } from "@/lib/ide/diagnostics";
 import { CHANNELS, output } from "@/lib/ide/output";
+import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
 
 export function IdeShell() {
@@ -356,6 +357,9 @@ export function IdeShell() {
       vfs.remove("node_modules", true);
     }
     camera.stop();
+    // Hand the screen back: staying fullscreen on a closing screen leaves
+    // someone stuck in a chrome-less tab with nothing left to do in it.
+    void exitFullscreen();
     setEnding(null);
     setEnded({ deleted: deletePackages });
   };

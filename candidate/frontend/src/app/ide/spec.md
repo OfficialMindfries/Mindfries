@@ -143,7 +143,25 @@ top of it.
 It waits for the proctoring gate: both are modal, and asking about packages
 behind a "you cannot start yet" dialog reads as a stack of broken overlays.
 
-### 4.3.4 Ending the session (`components/ide/EndSession.tsx`)
+### 4.3.4 Fullscreen (`lib/ide/fullscreen.ts`)
+Opening `/ide` and pressing **Enable camera & start** takes the workspace
+fullscreen. The status bar carries a toggle, and ending the session hands the
+screen back.
+
+It rides on that click because it has to: `requestFullscreen()` only works
+while a user gesture is active, so it cannot run on page load — the same class
+of restriction as the close prompt. Since no one reaches the workspace without
+pressing that button, hooking onto it makes fullscreen automatic in practice
+without pretending the restriction isn't there. The call is made
+*synchronously*, before the camera request: the first `await` consumes the
+activation.
+
+Refusal is quiet. An embedded frame without `allow="fullscreen"`, a managed
+device or an unsupported browser can all say no, and none of that should stop
+a session starting. The toggle exists because Esc leaves fullscreen without
+asking, and there has to be a way back that isn't "reload and start over".
+
+### 4.3.5 Ending the session (`components/ide/EndSession.tsx`)
 The Explorer's footer, beside the candidate's name, carries an **End session**
 control. It opens the workspace's own confirmation — *Cancel* / *End, keep
 packages* / *End & delete* when packages exist, *Cancel* / *End session* when
