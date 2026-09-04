@@ -118,15 +118,30 @@ Supported: `init`, `add` (incl. `.`), `status`, `commit -m`, `log [--oneline]`,
 `branch`, `checkout [-b]`, `rm`, `config`. `clone`/`push`/`pull`/`fetch` need
 a CORS proxy or the backend executor and refuse honestly rather than pretend.
 
-### 4.3.3 Leaving the workspace (`components/ide/PackageCleanupGuard.tsx`)
-When packages have been downloaded, closing the tab asks whether to delete
-them, offering *Yes, delete* / *Don't delete* / *Cancel closing window*.
+### 4.3.3 Packages left over from a previous session (`components/ide/PackageCleanupGuard.tsx`)
+Opening the workspace when a previous session left packages downloaded asks
+whether to keep them: *Keep them* / *Yes, delete*. Deleting clears the
+manifest and the `node_modules/` mirror, so "deleted" means gone from the
+Explorer too. It fires once per tab — `sessionStorage` survives a refresh and
+dies with the tab — and only when there is something to clean up.
 
-Worth knowing: a page **cannot** put custom buttons in the browser's close
-prompt — `beforeunload` only yields the browser's own two-button dialog, by
-design (it's what stops pages trapping you in a tab). So the browser's prompt
-provides the "cancel closing" half, and if the user stays, the app's own
-dialog offers the three-way choice.
+**Why it asks on the way in, not on the way out.** The obvious design is to
+ask while the tab closes, and it cannot be done: a page **cannot** put custom
+buttons in the close prompt. `beforeunload` yields the browser's own
+two-button "Leave site?" dialog and nothing else, by design — it's what stops
+a page trapping you in a tab.
+
+An earlier version fired `beforeunload` anyway and showed the real dialog to
+whoever cancelled it. It worked, but it meant every exit was met with a
+browser warning the workspace didn't want and couldn't style: a native dialog
+to reach a real one, over a question about cached downloads. The question
+moved to the one moment the app owns completely instead. Nothing is lost by
+asking later — the packages are in browser storage either way — and the
+candidate gets to see what a previous session left behind before building on
+top of it.
+
+It waits for the proctoring gate: both are modal, and asking about packages
+behind a "you cannot start yet" dialog reads as a stack of broken overlays.
 
 ### 4.4 Code execution (`lib/ide/code-runner.ts`, `pyodide-runtime.ts`)
 Shared by the terminal's `node`/`python` commands and notebook code cells:

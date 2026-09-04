@@ -481,7 +481,11 @@ export function IdeShell() {
         />
       </div>
 
-      <PackageCleanupGuard theme={theme} vfs={vfs} />
+      {/* Held back until the camera gate has been satisfied: both are modal,
+          and asking about cached packages behind a "you cannot start yet"
+          dialog reads as a stack of broken overlays. The proctoring gate is
+          the one that has to be answered first. */}
+      {camera.status === "live" && <PackageCleanupGuard theme={theme} vfs={vfs} />}
       <ProctorGate theme={theme} camera={camera} />
       <ChatLauncher theme={theme} hidden={chatOpen} onClick={() => setChatOpen(true)} />
     </div>
