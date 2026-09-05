@@ -3,11 +3,12 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
-  addOnboarded, addWaitlist, recordEmailEvent, setLeadStage,
+  addOnboarded, addWaitlist, createTemplate, recordEmailEvent, setLeadStage,
+  setSessionState, setTemplateStatus,
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
 import type { EmailTemplate } from "@/lib/email-templates";
-import type { LeadStage, Plan } from "@/lib/types";
+import type { LeadStage, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -69,6 +70,52 @@ Please change your password after first login. Reply to this email if you need a
     revalidatePath("/admin/onboarding");
     revalidatePath("/admin/costs");
     revalidatePath("/admin/tracker");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Author a game into the shared library (candidate app reads published ones).
+export async function createGameTemplate(input: {
+  name: string; taskVariant: TaskVariant; repoTemplate: string; techStack: string[];
+  durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
+}): Promise<Result> {
+  try {
+    if (!input.name.trim()) throw new Error("Game name is required");
+    await createTemplate(input);
+    revalidatePath("/admin/library");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function toggleTemplateStatus(id: string, status: TemplateStatus): Promise<Result> {
+  try {
+    await setTemplateStatus(id, status);
+    revalidatePath("/admin/library");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Session Monitor support overrides.
+export async function resetSession(id: string): Promise<Result> {
+  try {
+    await setSessionState(id, { status: "live", sandboxHealth: "healthy", progressPct: 0, elapsedMin: 0 });
+    revalidatePath("/admin/sessions");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function retriggerEval(id: string): Promise<Result> {
+  try {
+    await setSessionState(id, { status: "evaluating" });
+    revalidatePath("/admin/sessions");
     return { ok: true };
   } catch (e) {
     return fail(e);

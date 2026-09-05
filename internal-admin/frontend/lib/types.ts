@@ -99,6 +99,20 @@ export interface OnboardedCompany {
   createdAt: string;
 }
 
+// A candidate invited to run a template for a company (candidate app reads these).
+export interface Assessment {
+  id: string;
+  companyId: string | null;
+  templateId: string | null;
+  candidateName: string | null;
+  candidateEmail: string;
+  role: string | null;
+  status: "invited" | "in_progress" | "submitted" | "closed";
+  dueDate: string | null;
+  matchScore: number | null;
+  createdAt: string;
+}
+
 export type SessionStatus =
   | "live"
   | "submitted"

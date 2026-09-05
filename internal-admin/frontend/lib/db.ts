@@ -1,6 +1,9 @@
 import "server-only";
 import { db } from "./supabase";
-import type { Lead, LeadStage, OnboardedCompany, Plan, WaitlistEntry } from "./types";
+import type {
+  GameTemplate, Lead, LeadStage, OnboardedCompany, Plan, RubricCriterion,
+  Session, SessionStatus, SandboxHealth, TaskVariant, TemplateStatus, WaitlistEntry,
+} from "./types";
 import type { RawLead } from "./icp";
 
 // Data access for the Tracker. Every read returns [] when Supabase isn't wired
@@ -135,6 +138,95 @@ export async function listOnboarded(): Promise<OnboardedCompany[]> {
     monthlyCost: Number(r.monthly_cost), status: r.status, credentialsSentAt: r.credentials_sent_at ?? null,
     createdAt: r.created_at,
   }));
+}
+
+// ── Shared product tables (0002_product.sql) ────────────────────────────────
+// The Assessment/Game Library — internal-admin authors, candidate app consumes.
+
+function toTemplate(r: any): GameTemplate {
+  return {
+    id: r.id,
+    name: r.name,
+    taskVariant: r.task_variant as TaskVariant,
+    repoTemplate: r.repo_template ?? "",
+    techStack: r.tech_stack ?? [],
+    durationMin: r.duration_min ?? 60,
+    interviewerPrompt: r.interviewer_prompt ?? "",
+    rubric: (r.rubric ?? []) as RubricCriterion[],
+    status: r.status as TemplateStatus,
+    usedByCompanies: r.used_by_companies ?? 0,
+    createdAt: r.created_at,
+  };
+}
+
+export async function listTemplates(): Promise<GameTemplate[]> {
+  const c = db();
+  if (!c) return [];
+  const { data } = await c.from("game_templates").select("*").order("created_at", { ascending: false });
+  return (data ?? []).map(toTemplate);
+}
+
+export async function createTemplate(t: {
+  name: string; taskVariant: TaskVariant; repoTemplate: string; techStack: string[];
+  durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
+}): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { error } = await c.from("game_templates").insert({
+    name: t.name, task_variant: t.taskVariant, repo_template: t.repoTemplate, tech_stack: t.techStack,
+    duration_min: t.durationMin, interviewer_prompt: t.interviewerPrompt, rubric: t.rubric, status: t.status,
+  });
+  if (error) throw error;
+}
+
+export async function setTemplateStatus(id: string, status: TemplateStatus): Promise<void> {
+  const c = db();
+  if (!c) return;
+  const { error } = await c.from("game_templates").update({ status }).eq("id", id);
+  if (error) throw error;
+}
+
+// Global Session Monitor — reads what the candidate app writes (with company +
+// template names joined in).
+function toSession(r: any): Session {
+  return {
+    id: r.id,
+    candidateName: r.candidate_name ?? "Candidate",
+    companyName: r.companies?.name ?? "—",
+    templateName: r.game_templates?.name ?? "—",
+    status: r.status as SessionStatus,
+    sandboxHealth: r.sandbox_health as SandboxHealth,
+    progressPct: r.progress_pct ?? 0,
+    durationMin: r.duration_min ?? 60,
+    elapsedMin: r.elapsed_min ?? 0,
+    startedAt: r.started_at,
+  };
+}
+
+export async function listSessions(): Promise<Session[]> {
+  const c = db();
+  if (!c) return [];
+  const { data } = await c
+    .from("sessions")
+    .select("*, companies(name), game_templates(name)")
+    .order("started_at", { ascending: false });
+  return (data ?? []).map(toSession);
+}
+
+// Support overrides (PRD §1.11): reset a stuck sandbox, re-trigger evaluation.
+export async function setSessionState(
+  id: string,
+  patch: { status?: SessionStatus; sandboxHealth?: SandboxHealth; progressPct?: number; elapsedMin?: number },
+): Promise<void> {
+  const c = db();
+  if (!c) return;
+  const row: Record<string, unknown> = {};
+  if (patch.status !== undefined) row.status = patch.status;
+  if (patch.sandboxHealth !== undefined) row.sandbox_health = patch.sandboxHealth;
+  if (patch.progressPct !== undefined) row.progress_pct = patch.progressPct;
+  if (patch.elapsedMin !== undefined) row.elapsed_min = patch.elapsedMin;
+  const { error } = await c.from("sessions").update(row).eq("id", id);
+  if (error) throw error;
 }
 
 export async function addOnboarded(e: {
