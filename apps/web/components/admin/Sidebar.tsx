@@ -5,6 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 
 const nav = [
   { href: "/admin", label: "Overview", icon: "◆" },
+  { href: "/admin/tracker", label: "Tracker", icon: "◎" },
+  { href: "/admin/waitlist", label: "Waitlist", icon: "☰" },
+  { href: "/admin/onboarding", label: "Onboarding", icon: "✦" },
+  { href: "/admin/costs", label: "Costs", icon: "$" },
   { href: "/admin/companies", label: "Companies", icon: "▦" },
   { href: "/admin/library", label: "Game Library", icon: "◈" },
   { href: "/admin/sessions", label: "Sessions", icon: "◉" },

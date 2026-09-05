@@ -26,6 +26,11 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# This root ignore file is Python-oriented, but apps/web is a JS/Next app whose
+# source lives in apps/web/lib — the `lib/` rule above must not swallow it.
+!apps/web/lib/
+!apps/web/lib/**
+
 # PyInstaller
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
