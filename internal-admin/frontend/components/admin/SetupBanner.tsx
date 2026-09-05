@@ -10,7 +10,7 @@ export function SetupBanner({ needsEmail = false }: { needsEmail?: boolean }) {
       <div className="text-sm font-semibold text-[#b45309]">Backend not connected yet</div>
       <div className="mt-1 text-sm text-dim">
         Set the following env vars (officemindfries account) to go live: {missing.join(" · ")}. See{" "}
-        <span className="mono">apps/web/.env.example</span> and <span className="mono">TRACKER_SETUP.md</span>.
+        <span className="mono">internal-admin/frontend/.env.example</span> and <span className="mono">TRACKER_SETUP.md</span>.
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const nextConfig: NextConfig = {
   // Pin the workspace root to this app so Next doesn't pick up lockfiles
-  // higher up the tree (the repo is a monorepo: apps/web, later apps/api).
+  // higher up the tree (its own top-level app alongside candidate/).
   turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
 };
 

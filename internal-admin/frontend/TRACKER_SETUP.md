@@ -22,7 +22,7 @@ connected" banner — nothing crashes.
 5. **Webhooks** → add endpoint `https://<your-app>/api/webhooks/resend?token=<RESEND_WEBHOOK_SECRET>`, subscribe to `email.delivered/opened/clicked/bounced`. This is what fills open/click tracking.
 
 ## 3. Vercel (hosting + daily cron)
-1. Import this repo into Vercel as **officemindfries@gmail.com**; set the project root to `apps/web`.
+1. Import this repo into Vercel as **officemindfries@gmail.com**; set the project root to `internal-admin/frontend`.
 2. Add all env vars from [`.env.example`](.env.example) (Settings → Environment Variables). Generate `CRON_SECRET` and `RESEND_WEBHOOK_SECRET` as random strings.
 3. Deploy. `vercel.json` registers the daily crawl at 08:00 UTC (`/api/cron/discover`) automatically.
 
