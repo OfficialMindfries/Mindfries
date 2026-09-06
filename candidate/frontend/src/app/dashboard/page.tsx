@@ -6,25 +6,27 @@ import { AssessmentRail } from "@/components/dashboard/AssessmentRail";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { SideRail } from "@/components/dashboard/SideRail";
 import { candidate } from "@/lib/dashboard/data";
+import { listAvailableAssessments } from "@/lib/db";
+import { supabaseReady } from "@/lib/supabase";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
   description: "Your assessments, sessions and evidence reports.",
 };
 
+export const dynamic = "force-dynamic";
+
 /**
  * The candidate's home, outside the workspace.
  *
- * Shaped after Eightfold — top bar, a warm greeting, a row of counters, then
- * sections of cards — because that layout puts the state of things in the
- * first screenful without a wall of tabs. What's borrowed from the other two
- * references is noted in the component that borrows it.
- *
- * Everything is static sample data (see lib/dashboard/data.ts). There's no
- * backend to ask, and inventing a loading state for a fetch that doesn't
- * exist would be a lie in the shape of a feature.
+ * Assessments come from the shared Supabase (published games authored in the
+ * internal-admin) once the backend is connected; otherwise the rail falls back
+ * to sample data. Everything else is still sample data (lib/dashboard/data.ts).
  */
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  // undefined → AssessmentRail uses its mock fallback (pre-backend).
+  const items = supabaseReady() ? await listAvailableAssessments() : undefined;
+
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
       <DashboardNav />
@@ -50,14 +52,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          {/* `min-w-0` is load-bearing: a grid item defaults to `min-width:
-              auto`, so the assessment rail's row of fixed-width cards would
-              stretch this column past the viewport and give the whole page a
-              horizontal scrollbar — the rail is meant to be the only thing
-              that scrolls sideways. */}
           <div className="min-w-0 space-y-8">
             <SetupCard />
-            <AssessmentRail />
+            <AssessmentRail items={items} />
             <ActivityFeed />
           </div>
           <SideRail />

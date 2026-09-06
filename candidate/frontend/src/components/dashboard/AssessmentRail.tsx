@@ -1,36 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import clsx from "clsx";
-import { assessments, statusLabels, type Assessment, type AssessmentStatus } from "@/lib/dashboard/data";
+import { assessments as mock, statusLabels, type Assessment, type AssessmentStatus } from "@/lib/dashboard/data";
+import { startAssessment } from "@/app/dashboard/actions";
 
 /**
  * Eightfold's "Recommended jobs" carousel, rebuilt for assessments.
  *
- * Two things theirs gets wrong that are fixed here. Their arrows are always
- * enabled, so you keep clicking at the end of the row and nothing happens —
- * these disable at both ends, driven by the scroller's real position rather
- * than a counter, so a trackpad swipe keeps them honest too. And their cards
- * scroll under the arrows with no snapping; these snap, so a card never comes
- * to rest half-cut.
- *
- * The rail is a plain scroll container, so it still works without JavaScript
- * and on touch: the buttons are an enhancement over scrolling, not the only
- * way to move.
+ * `items` are the candidate's real assessments once the backend is connected;
+ * it falls back to sample data so the rail still renders pre-wiring. "Start
+ * assessment" creates a live session (seen in the internal-admin monitor) and
+ * enters the workspace.
  */
 
-/** See `measure` — the rail never rests on an exact 0 or maximum. */
 const EDGE_SLACK = 8;
-
-/** Matches the `gap-3` between cards; used to page by exactly one card. */
 const GAP = 12;
 
-/**
- * The only colours here that aren't from the brand palette. Status has to be
- * distinguishable at a glance, and five shades of the same blue would not be.
- * Amber means the ball is in your court; green means it's out of your hands.
- */
 const STATUS_STYLE: Record<AssessmentStatus, { dot: string; chip: string }> = {
   invited: { dot: "bg-[#4A7FA7]", chip: "bg-[#B3CFE5]/40 text-[#1A3D63]" },
   "in-progress": { dot: "bg-[#C98A2E]", chip: "bg-[#C98A2E]/15 text-[#8A5D14]" },
@@ -45,32 +32,17 @@ const ACTION: Record<AssessmentStatus, string | null> = {
   closed: null,
 };
 
-export function AssessmentRail() {
+export function AssessmentRail({ items = mock }: { items?: Assessment[] }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [atStart, setAtStart] = useState(true);
   const [atEnd, setAtEnd] = useState(false);
+  const [pending, start] = useTransition();
 
-  /**
-   * Updates the arrows from a scroll position — the element's own by default,
-   * or a position we're about to move it to.
-   *
-   * Taking the position as an argument rather than always reading the element
-   * is what keeps the arrows correct when a `scroll` event doesn't arrive.
-   * That isn't hypothetical: programmatic scrolls in the Chromium build this
-   * was tested against fire no scroll event at all, so a version that only
-   * listened would leave both arrows stuck in their initial state forever.
-   */
   const measure = useCallback((position?: number) => {
     const element = scroller.current;
     if (!element) return;
     const scrollLeft = position ?? element.scrollLeft;
     const max = element.scrollWidth - element.clientWidth;
-    // The rail never rests on an exact 0 or an exact maximum. Scroll snapping
-    // aligns the first card to its snap edge, which is inset by the scroller's
-    // own padding, so "fully left" measures as 4px here; fractional layout
-    // widths do the same at the other end. Comparing to 0 and max exactly
-    // leaves both arrows permanently enabled — the bug this whole component
-    // exists to avoid — so both ends get a few pixels of slack.
     setAtStart(scrollLeft <= EDGE_SLACK);
     setAtEnd(scrollLeft >= max - EDGE_SLACK);
   }, []);
@@ -79,10 +51,6 @@ export function AssessmentRail() {
     measure();
     const element = scroller.current;
     if (!element) return;
-    // Re-measure on resize: how much of the rail overflows depends on how wide
-    // the column is, so a narrower window can put the rail back in range of
-    // both arrows. `() => measure()` rather than `measure`, so the observer's
-    // entry array is never passed in as a scroll position.
     const observer = new ResizeObserver(() => measure());
     observer.observe(element);
     return () => observer.disconnect();
@@ -91,18 +59,10 @@ export function AssessmentRail() {
   const page = (direction: -1 | 1) => {
     const element = scroller.current;
     if (!element) return;
-    // Scroll by a card's width rather than the full viewport, so the card you
-    // were reading stays on screen as an anchor.
     const card = element.querySelector("article");
     const step = card ? card.clientWidth + GAP : element.clientWidth * 0.8;
     const max = element.scrollWidth - element.clientWidth;
     const target = Math.max(0, Math.min(max, element.scrollLeft + direction * step));
-
-    // Assigned, not `scrollTo({ behavior: "smooth" })`. Smooth scrolling is a
-    // no-op in the Chromium build this was tested against — both the JS option
-    // and the CSS property — and a paging button that silently does nothing is
-    // a worse outcome than one that pages without animating. Restore the
-    // animation if you can verify it moves in the browsers you care about.
     element.scrollLeft = target;
     measure(target);
   };
@@ -112,7 +72,7 @@ export function AssessmentRail() {
       <div className="mb-3 flex items-center gap-3">
         <h2 className="text-base font-semibold tracking-tight text-[#0A1931]">Your assessments</h2>
         <span className="rounded-full bg-[#B3CFE5]/40 px-2 py-0.5 text-[11px] font-medium text-[#1A3D63] tabular-nums">
-          {assessments.length}
+          {items.length}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <RailButton label="Scroll left" disabled={atStart} onClick={() => page(-1)}>
@@ -129,9 +89,17 @@ export function AssessmentRail() {
         onScroll={() => measure()}
         className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {assessments.map((assessment) => (
-          <AssessmentCard key={assessment.id} assessment={assessment} />
+        {items.map((assessment) => (
+          <AssessmentCard
+            key={assessment.id}
+            assessment={assessment}
+            pending={pending}
+            onStart={() => start(() => startAssessment(assessment.id))}
+          />
         ))}
+        {items.length === 0 && (
+          <p className="px-1 py-6 text-sm text-[#4A7FA7]">No assessments yet — check back once you&apos;re invited.</p>
+        )}
       </div>
     </section>
   );
@@ -166,7 +134,15 @@ function RailButton({
   );
 }
 
-function AssessmentCard({ assessment }: { assessment: Assessment }) {
+function AssessmentCard({
+  assessment,
+  onStart,
+  pending,
+}: {
+  assessment: Assessment;
+  onStart: () => void;
+  pending: boolean;
+}) {
   const style = STATUS_STYLE[assessment.status];
   const action = ACTION[assessment.status];
 
@@ -203,10 +179,6 @@ function AssessmentCard({ assessment }: { assessment: Assessment }) {
         ))}
       </div>
 
-      {/* `mt-auto` pins this block to the bottom of the card. Cards in a flex
-          row already stretch to a shared height, but a role title that wraps
-          to two lines would otherwise push its own CTA down a line relative
-          to its neighbours — the buttons have to sit on one line. */}
       <div className="mt-auto pt-4">
         <div className="flex items-center gap-2 border-t border-[#B3CFE5]/70 pt-3 text-xs">
           <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", style.dot)} />
@@ -221,14 +193,16 @@ function AssessmentCard({ assessment }: { assessment: Assessment }) {
         {action && (
           <button
             type="button"
+            onClick={assessment.status === "invited" ? onStart : undefined}
+            disabled={assessment.status === "invited" && pending}
             className={clsx(
-              "mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-opacity hover:opacity-90",
+              "mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50",
               assessment.status === "submitted"
                 ? "border border-[#B3CFE5] text-[#1A3D63]"
                 : "bg-[#4A7FA7] text-[#F6FAFD]"
             )}
           >
-            {action}
+            {assessment.status === "invited" && pending ? "Starting…" : action}
             <ArrowRight size={13} />
           </button>
         )}

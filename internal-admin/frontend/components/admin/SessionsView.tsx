@@ -1,35 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { sessions as seed } from "@/lib/mock-data";
-import type { Session, SessionStatus } from "@/lib/types";
+import { useState, useTransition } from "react";
+import type { Session } from "@/lib/types";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { healthTone, sessionTone } from "@/lib/format";
+import { resetSession, retriggerEval } from "@/app/admin/actions";
 
 type Filter = "all" | "live" | "attention";
-
 const needsAttention = (s: Session) => s.status === "stuck" || s.status === "failed";
 
-export default function SessionsPage() {
-  const [rows, setRows] = useState<Session[]>(seed);
+export function SessionsView({ initial }: { initial: Session[] }) {
+  const [rows, setRows] = useState<Session[]>(initial);
   const [filter, setFilter] = useState<Filter>("all");
+  const [pending, start] = useTransition();
 
-  function resetSession(id: string) {
-    // Support override: kick the sandbox back to a healthy live run (PRD §1.11).
-    setRows((r) =>
-      r.map((s) =>
-        s.id === id ? { ...s, status: "live" as SessionStatus, sandboxHealth: "healthy", elapsedMin: 0, progressPct: 0 } : s,
-      ),
-    );
+  function doReset(id: string) {
+    setRows((r) => r.map((s) => (s.id === id ? { ...s, status: "live", sandboxHealth: "healthy", elapsedMin: 0, progressPct: 0 } : s)));
+    start(async () => { await resetSession(id); });
   }
-
-  function retriggerEval(id: string) {
-    // Support override: manually re-run the evaluation pipeline for this session.
-    setRows((r) => r.map((s) => (s.id === id ? { ...s, status: "evaluating" as SessionStatus } : s)));
+  function doRetrigger(id: string) {
+    setRows((r) => r.map((s) => (s.id === id ? { ...s, status: "evaluating" } : s)));
+    start(async () => { await retriggerEval(id); });
   }
 
   const shown = rows.filter((s) => (filter === "live" ? s.status === "live" : filter === "attention" ? needsAttention(s) : true));
-
   const live = rows.filter((s) => s.status === "live").length;
   const attention = rows.filter(needsAttention).length;
 
@@ -42,8 +36,8 @@ export default function SessionsPage() {
   return (
     <div className="space-y-8">
       <PageHeader eyebrow="Global Session Monitor" title="Sessions">
-        Every candidate assessment across all companies, live and past. Reset a stuck sandbox or manually re-trigger
-        evaluation as a support action (PRD §2.1).
+        Every candidate assessment across all companies, live and past — written by the candidate app as sessions run.
+        Reset a stuck sandbox or re-trigger evaluation as a support action.
       </PageHeader>
 
       <div className="grid grid-cols-3 gap-4">
@@ -87,9 +81,7 @@ export default function SessionsPage() {
                   <td className="px-5 py-4 text-dim">{s.companyName}</td>
                   <td className="px-5 py-4 text-dim">{s.templateName}</td>
                   <td className="px-5 py-4">
-                    <Pill tone={sessionTone[s.status]} dot={s.status === "live"}>
-                      {s.status}
-                    </Pill>
+                    <Pill tone={sessionTone[s.status]} dot={s.status === "live"}>{s.status}</Pill>
                   </td>
                   <td className="px-5 py-4">
                     <Pill tone={healthTone[s.sandboxHealth]}>{s.sandboxHealth}</Pill>
@@ -99,26 +91,18 @@ export default function SessionsPage() {
                       <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-2">
                         <div className="h-full rounded-full bg-accent" style={{ width: `${s.progressPct}%` }} />
                       </div>
-                      <span className="mono text-xs text-dim">
-                        {s.elapsedMin}/{s.durationMin}m
-                      </span>
+                      <span className="mono text-xs text-dim">{s.elapsedMin}/{s.durationMin}m</span>
                     </div>
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-1.5">
                       {needsAttention(s) && (
-                        <button
-                          onClick={() => resetSession(s.id)}
-                          className="rounded-lg border border-hair px-2.5 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink"
-                        >
+                        <button onClick={() => doReset(s.id)} disabled={pending} className="rounded-lg border border-hair px-2.5 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink disabled:opacity-40">
                           Reset
                         </button>
                       )}
                       {(needsAttention(s) || s.status === "submitted" || s.status === "completed") && (
-                        <button
-                          onClick={() => retriggerEval(s.id)}
-                          className="rounded-lg border border-hair px-2.5 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink"
-                        >
+                        <button onClick={() => doRetrigger(s.id)} disabled={pending} className="rounded-lg border border-hair px-2.5 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink disabled:opacity-40">
                           Re-trigger eval
                         </button>
                       )}
@@ -129,9 +113,7 @@ export default function SessionsPage() {
               ))}
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-dim">
-                    No sessions in this view.
-                  </td>
+                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-dim">No sessions in this view.</td>
                 </tr>
               )}
             </tbody>
