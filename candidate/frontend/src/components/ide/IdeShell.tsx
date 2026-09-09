@@ -13,7 +13,9 @@ import { ChatPanel } from "./ChatPanel";
 import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
 import { EndSessionDialog, SessionEnded } from "./EndSession";
-import { useIdeTheme } from "@/lib/ide/theme";
+import { HeaderPanel, SubmitConfirmDialog } from "./HeaderPanel";
+import { TaskDescriptionPanel, MOCK_TASK_MARKDOWN } from "./TaskDescriptionPanel";
+import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
 import { addNode, collectFilePaths, findNode, moveNode, removeNode } from "@/lib/ide/tree";
@@ -109,6 +111,12 @@ export function IdeShell() {
   // `ended` swaps the workspace for the closing screen.
   const [ending, setEnding] = useState<InstalledPackage[] | null>(null);
   const [ended, setEnded] = useState<{ deleted: boolean } | null>(null);
+
+  // Submit flow — the header's Submit button opens a confirmation dialog,
+  // confirming replaces the workspace with a submitted screen (same pattern
+  // as EndSession, except this one is "work submitted" not "session ended").
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
 
   const openFile = (path: string) => {
@@ -391,6 +399,9 @@ export function IdeShell() {
     vfsRemove(path, true);
   };
 
+  // Submission replaces the workspace the same way ending does.
+  if (submitted) return <SubmittedScreen theme={theme} />;
+
   // Replaces the workspace outright rather than overlaying it: the session is
   // over, so there's nothing behind the screen worth showing. It also means
   // the proctoring gate can't reappear over the top once the camera is
@@ -405,21 +416,30 @@ export function IdeShell() {
   // rounded shape instead of poking out past the corners.
   return (
     <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.panelBg, palette.text)}>
+      <HeaderPanel
+        theme={theme}
+        assessmentName="Frontend Engineering — Auth Bug Fix"
+        durationSeconds={5400}
+        onSubmit={() => setSubmitting(true)}
+      />
       <div className="flex min-h-0 flex-1 gap-1">
         <div
           style={{ width: sidebar.size }}
-          className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
+          className={clsx("flex shrink-0 flex-col overflow-hidden rounded-xl border", palette.border)}
         >
-          <FileExplorer
-            tree={tree}
-            activePath={activePath}
-            theme={theme}
-            onOpenFile={openFile}
-            onCreate={createEntry}
-            onRename={renameEntry}
-            onDelete={deleteEntry}
-            onEndSession={() => setEnding(Object.values(loadManifest()))}
-          />
+          <TaskDescriptionPanel theme={theme} taskMarkdown={MOCK_TASK_MARKDOWN} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <FileExplorer
+              tree={tree}
+              activePath={activePath}
+              theme={theme}
+              onOpenFile={openFile}
+              onCreate={createEntry}
+              onRename={renameEntry}
+              onDelete={deleteEntry}
+              onEndSession={() => setEnding(Object.values(loadManifest()))}
+            />
+          </div>
         </div>
 
         <div
@@ -533,6 +553,18 @@ export function IdeShell() {
           onEnd={endSession}
         />
       )}
+      {submitting && (
+        <SubmitConfirmDialog
+          theme={theme}
+          onCancel={() => setSubmitting(false)}
+          onConfirm={() => {
+            setSubmitting(false);
+            camera.stop();
+            exitFullscreen();
+            setSubmitted(true);
+          }}
+        />
+      )}
       <ProctorGate theme={theme} camera={camera} />
       <ChatLauncher theme={theme} hidden={chatOpen} onClick={() => setChatOpen(true)} />
     </div>
@@ -547,5 +579,28 @@ function omit(obj: FileContents, keys: string[]): FileContents {
 function remapKeys(obj: FileContents, mapping: Map<string, string>): FileContents {
   return Object.fromEntries(
     Object.entries(obj).map(([k, v]) => [mapping.get(k) ?? k, v])
+  );
+}
+
+/**
+ * Full-screen closing state after the candidate confirms submission.
+ * Same pattern as SessionEnded but with a submission-specific message.
+ */
+function SubmittedScreen({ theme }: { theme: IdeTheme }) {
+  const palette = idePalette(theme);
+
+  return (
+    <div className={clsx("flex h-screen w-full items-center justify-center p-6", palette.appBg)}>
+      <div className={clsx("max-w-sm text-center", palette.text)}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- tiny static local SVG */}
+        <img src="/mindfries-logo.svg" alt="" width={36} height={36} className="mx-auto" />
+        <h1 className="mt-4 text-base font-semibold">Work submitted</h1>
+        <p className={clsx("mt-2 text-sm leading-relaxed", palette.textMuted)}>
+          Your code and all session activity have been submitted for evaluation. The hiring team
+          will review your work and get back to you.
+        </p>
+        <p className={clsx("mt-3 text-xs", palette.textMuted)}>You can close this tab now.</p>
+      </div>
+    </div>
   );
 }
