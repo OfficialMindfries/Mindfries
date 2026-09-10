@@ -1,20 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { startSession as dbStart } from "@/lib/db";
-import { supabaseReady } from "@/lib/supabase";
 
-// Candidate clicks "Start assessment" → create a live session (visible in the
-// internal-admin Session Monitor), then drop them into the workspace.
-// ponytail: no candidate auth yet, so the name is a placeholder — wire to the
-// signed-in user when auth lands.
-export async function startAssessment(templateId: string) {
-  if (supabaseReady()) {
-    try {
-      await dbStart(templateId, "Rishi");
-    } catch {
-      // don't block entry to the workspace if the write fails
-    }
-  }
-  redirect("/ide");
+// Candidate clicks "Start assessment" on the dashboard → take them into the
+// onboarding wizard (consent → device check → instructions lobby).
+//
+// The live session is created — and the timer starts — only at the final step
+// of the wizard, when the candidate clicks "Enter Workspace" and is satisfied
+// they're ready. See src/app/onboarding/actions.ts for that server action.
+export async function startAssessment(_templateId: string) {
+  redirect("/onboarding");
 }
