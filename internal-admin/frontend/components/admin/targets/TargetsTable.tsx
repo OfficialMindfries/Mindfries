@@ -244,7 +244,14 @@ export function TargetsTable({
           >
             <input name="owner" list="bulk-owners" placeholder="Assign owner" className="h-8 w-36 rounded-lg border border-hair bg-surface px-2 text-sm" />
             <datalist id="bulk-owners">{owners.map((o) => <option key={o} value={o} />)}</datalist>
-            <button type="submit" disabled={pending} className="h-8 rounded-lg border border-hair bg-surface px-3 text-sm font-semibold hover:border-hair-bright">Assign</button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="btn-wipe h-9 px-4 text-[13px] font-extrabold"
+              style={{ "--btn-bg": "#f0f0f4", "--btn-fg": "var(--color-ink)", "--btn-fill": "var(--color-ink)", "--btn-fg-hover": "#f4f4f7" } as React.CSSProperties}
+            >
+              Assign
+            </button>
           </form>
           <button
             type="button"
@@ -254,7 +261,8 @@ export function TargetsTable({
                 run(() => bulkDeleteTargets([...selected]), "Deleted");
               }
             }}
-            className="h-8 rounded-lg px-3 text-sm font-semibold text-[#d0304c] hover:bg-[#fff0f2]"
+            className="btn-wipe h-9 px-4 text-[13px] font-extrabold"
+            style={{ "--btn-bg": "#fdecef", "--btn-fg": "#a6203c", "--btn-fill": "#d0304c", "--btn-fg-hover": "#ffffff" } as React.CSSProperties}
           >
             Delete
           </button>

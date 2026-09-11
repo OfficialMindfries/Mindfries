@@ -121,3 +121,76 @@ h1, h2, h3 {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
+
+/* ── Buttons ────────────────────────────────────────────────────────────────
+   The fill-from-the-left hover, from the supplied design. Only the mechanic
+   lives here; every colour is set inline per variant in components/ui.tsx as
+   --btn-* custom properties, so a new variant needs no CSS.
+
+   ::before can't be written as an inline style — the style attribute can't
+   reach a pseudo-element — which is why this much is a class.
+
+   z-index 1 on the button makes it a stacking context, so the -1 pseudo-
+   element sits above the button's own background but behind its text. */
+.btn-wipe {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border: unset;
+  border-radius: 15px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  box-shadow: 4px 8px 19px -3px rgba(0, 0, 0, 0.18);
+  transition: color 250ms, box-shadow 250ms, transform 250ms;
+}
+
+.btn-wipe::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  border-radius: 15px;
+  background-color: var(--btn-fill);
+  z-index: -1;
+  transition: width 250ms;
+}
+
+.btn-wipe:hover:not(:disabled) {
+  color: var(--btn-fg-hover);
+}
+
+.btn-wipe:hover:not(:disabled)::before {
+  width: 100%;
+}
+
+.btn-wipe:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 2px 4px 10px -3px rgba(0, 0, 0, 0.22);
+}
+
+/* Keyboard users get the same fill, so hover isn't the only way to see it. */
+.btn-wipe:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  color: var(--btn-fg-hover);
+}
+.btn-wipe:focus-visible::before {
+  width: 100%;
+}
+
+.btn-wipe:disabled {
+  box-shadow: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The sweep is decoration. Anyone who asked for less motion gets the colour
+   change without the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .btn-wipe,
+  .btn-wipe::before {
+    transition: none;
+  }
+}

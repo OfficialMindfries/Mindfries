@@ -54,11 +54,13 @@ export function AddTarget({ owners }: { owners: string[] }) {
 
   return (
     <>
-      {/* Dark pill, as in the table design this sits in. */}
+      {/* The page's main action, in the shared button style: dark at rest,
+          filling violet from the left on hover. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex h-10 items-center gap-2 rounded-full bg-ink px-4 text-sm font-semibold text-white transition hover:bg-ink/85"
+        className="btn-wipe inline-flex h-11 items-center gap-2 px-5 text-sm font-extrabold"
+        style={{ "--btn-bg": "var(--color-ink)", "--btn-fg": "#ffffff", "--btn-fill": "var(--color-accent)", "--btn-fg-hover": "#ffffff" } as React.CSSProperties}
       >
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
         Add target

@@ -182,7 +182,8 @@ export function DeleteTarget({ id, name }: { id: string; name: string }) {
           else toast.error("Couldn't delete it", res.error);
         });
       }}
-      className="rounded-lg px-3 py-2 text-xs font-semibold text-[#f4502f] hover:bg-[#f4502f]/10 disabled:opacity-40"
+      className="btn-wipe px-4 py-2 text-[13px] font-extrabold"
+      style={{ "--btn-bg": "#fdecef", "--btn-fg": "#a6203c", "--btn-fill": "var(--color-accent-2)", "--btn-fg-hover": "#ffffff" } as React.CSSProperties}
     >
       Delete target
     </button>
