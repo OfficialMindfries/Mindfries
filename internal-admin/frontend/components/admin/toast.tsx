@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { CircleAlert, CircleCheck, OctagonAlert, TriangleAlert, X, type LucideIcon } from "lucide-react";
 
 /**
  * Notifications for the admin panel: small cards that pop up in the bottom-
@@ -83,18 +84,43 @@ const subscribe = (l: () => void) => {
 const snapshot = () => toasts;
 const EMPTY: Toast[] = [];
 
-const TONE: Record<ToastTone, { icon: string; ring: string; bar: string }> = {
-  success: { icon: "✓", ring: "bg-[#15a34a]/12 text-[#15a34a]", bar: "bg-[#15a34a]" },
-  error: { icon: "!", ring: "bg-[#f4502f]/12 text-[#f4502f]", bar: "bg-[#f4502f]" },
-  warning: { icon: "!", ring: "bg-[#d97706]/12 text-[#b45309]", bar: "bg-[#d97706]" },
-  info: { icon: "i", ring: "bg-accent-soft text-accent", bar: "bg-accent" },
+// Tinted cards after the supplied design: each tone is its own colour family —
+// a soft wash, a slightly deeper border, an outline icon, a title and body in
+// the tone's dark and mid shades, and a glow of the same colour underneath.
+// The icon shapes differ as well as the colours (circle, triangle, octagon),
+// so the kind of message is readable without relying on colour alone.
+const TONE: Record<ToastTone, { icon: LucideIcon; card: string; title: string; body: string; glyph: string; glow: string }> = {
+  success: {
+    icon: CircleCheck,
+    card: "border-[#bfe6cc] bg-[linear-gradient(135deg,#ecf9f0,#d9f1e2)]",
+    title: "text-[#1c7f37]", body: "text-[#3d9a57]", glyph: "text-[#2a9148]",
+    glow: "shadow-[0_14px_30px_-14px_rgba(42,145,72,0.45)]",
+  },
+  warning: {
+    icon: TriangleAlert,
+    card: "border-[#f1d98f] bg-[linear-gradient(135deg,#fff8e1,#fdedc6)]",
+    title: "text-[#8a6700]", body: "text-[#a8841c]", glyph: "text-[#9c7708]",
+    glow: "shadow-[0_14px_30px_-14px_rgba(196,150,20,0.45)]",
+  },
+  info: {
+    icon: CircleAlert,
+    card: "border-[#bfd2f8] bg-[linear-gradient(135deg,#edf3ff,#dce7fd)]",
+    title: "text-[#2553c4]", body: "text-[#4a72d4]", glyph: "text-[#3263d2]",
+    glow: "shadow-[0_14px_30px_-14px_rgba(50,99,210,0.42)]",
+  },
+  error: {
+    icon: OctagonAlert,
+    card: "border-[#f4c3b9] bg-[linear-gradient(135deg,#fff0ec,#fcdcd4)]",
+    title: "text-[#bf2419]", body: "text-[#cf4a3f]", glyph: "text-[#c92e22]",
+    glow: "shadow-[0_14px_30px_-14px_rgba(201,46,34,0.42)]",
+  },
 };
 
 export function Toaster() {
   const items = useSyncExternalStore(subscribe, snapshot, () => EMPTY);
   return (
     // Two live regions: errors interrupt a screen reader, everything else waits.
-    <div className="pointer-events-none fixed right-5 bottom-5 z-[60] flex w-[360px] max-w-[calc(100vw-2.5rem)] flex-col gap-2">
+    <div className="pointer-events-none fixed right-5 bottom-5 z-[60] flex w-[370px] max-w-[calc(100vw-2.5rem)] flex-col gap-3">
       <div role="alert" className="contents">
         {items.filter((t) => t.tone === "error").map((t) => <ToastCard key={t.id} t={t} />)}
       </div>
@@ -107,6 +133,7 @@ export function Toaster() {
 
 function ToastCard({ t }: { t: Toast }) {
   const tone = TONE[t.tone];
+  const Icon = tone.icon;
   const [paused, setPaused] = useState(false);
   const left = useRef(t.duration);
   const startedAt = useRef(0);
@@ -127,17 +154,18 @@ function ToastCard({ t }: { t: Toast }) {
     <div
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
-      className="pointer-events-auto relative flex gap-3 overflow-hidden rounded-xl border border-hair bg-surface py-3 pr-3 pl-3.5 shadow-[0_12px_32px_-12px_rgba(16,16,24,0.28)] motion-safe:animate-[toast-in_180ms_ease-out]"
+      className={`pointer-events-auto flex items-center gap-3.5 rounded-[18px] border-[1.5px] px-4 py-3.5 motion-safe:animate-[toast-in_180ms_ease-out] ${tone.card} ${tone.glow}`}
     >
-      <span className={`absolute inset-y-0 left-0 w-1 ${tone.bar}`} aria-hidden />
-      <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${tone.ring}`} aria-hidden>
-        {tone.icon}
-      </span>
+      <Icon size={26} strokeWidth={1.9} className={`shrink-0 ${tone.glyph}`} aria-hidden />
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold leading-snug">{t.title}</div>
-        {t.body && <div className="mt-0.5 text-xs leading-relaxed text-dim">{t.body}</div>}
+        <div className={`text-[15px] font-semibold leading-snug ${tone.title}`}>{t.title}</div>
+        {t.body && <div className={`mt-0.5 text-[13px] leading-snug ${tone.body}`}>{t.body}</div>}
         {t.action && (
-          <Link href={t.action.href} onClick={() => dismiss(t.id)} className="mt-1.5 inline-block text-xs font-semibold text-accent hover:underline">
+          <Link
+            href={t.action.href}
+            onClick={() => dismiss(t.id)}
+            className={`mt-1 inline-block text-[13px] font-semibold underline decoration-1 underline-offset-2 ${tone.title}`}
+          >
             {t.action.label} →
           </Link>
         )}
@@ -146,9 +174,9 @@ function ToastCard({ t }: { t: Toast }) {
         type="button"
         onClick={() => dismiss(t.id)}
         aria-label="Dismiss notification"
-        className="-mt-0.5 h-6 w-6 shrink-0 rounded-md text-dim hover:bg-black/5 hover:text-ink"
+        className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition hover:bg-white/60 ${tone.glyph}`}
       >
-        ✕
+        <X size={17} strokeWidth={2.4} />
       </button>
     </div>
   );
