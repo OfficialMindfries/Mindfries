@@ -29,7 +29,14 @@
 }
 
 :root { color-scheme: light; }
-* { border-color: var(--color-hair); }
+/* The default border colour, in the base layer on purpose. Unlayered, this
+   rule outranked every Tailwind utility — styles outside a cascade layer beat
+   styles inside one, whatever their specificity — so no `border-[#…]` colour
+   anywhere in the admin ever applied. In `base`, it's still the default for
+   any border without a colour, and an explicit one wins. */
+@layer base {
+  * { border-color: var(--color-hair); }
+}
 html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 body {
   background: var(--color-bg);
