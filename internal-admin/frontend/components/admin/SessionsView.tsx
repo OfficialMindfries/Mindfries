@@ -35,10 +35,7 @@ export function SessionsView({ initial }: { initial: Session[] }) {
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Global Session Monitor" title="Sessions">
-        Every candidate assessment across all companies, live and past — written by the candidate app as sessions run.
-        Reset a stuck sandbox or re-trigger evaluation as a support action.
-      </PageHeader>
+      <PageHeader eyebrow="Global Session Monitor" title="Sessions" />
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total sessions" value={rows.length} />

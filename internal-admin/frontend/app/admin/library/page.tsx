@@ -2,7 +2,6 @@ import { listTemplates } from "@/lib/db";
 import { templates as mockTemplates } from "@/lib/mock-data";
 import { supabaseReady } from "@/lib/supabase";
 import { LibraryView } from "@/components/admin/LibraryView";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +10,6 @@ export default async function LibraryPage() {
   const initial = supabaseReady() ? await listTemplates() : mockTemplates;
   return (
     <div className="space-y-6">
-      <SetupBanner />
       <LibraryView initial={initial} />
     </div>
   );

@@ -1,7 +1,6 @@
 import { listOnboarded } from "@/lib/db";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import { OnboardForm } from "@/components/admin/OnboardForm";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 import { companyTone, fmtDate, planLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +13,8 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Conversion" title="Onboarding">
-        Turn a replied lead into a paying company: issue workspace credentials (emailed to their admin) and record
-        what they cost us. Feeds the Costs view.
-      </PageHeader>
+      <PageHeader eyebrow="Conversion" title="Onboarding" />
 
-      <SetupBanner needsEmail />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <StatCard label="Onboarded" value={rows.length} />

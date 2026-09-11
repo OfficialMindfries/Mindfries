@@ -5,6 +5,7 @@ import { Button, Field, Input, Select } from "@/components/ui";
 import { planLabel } from "@/lib/format";
 import type { Plan } from "@/lib/types";
 import { onboardCompany } from "@/app/admin/actions";
+import { toast } from "@/components/admin/toast";
 
 // `initial` comes from a target's "Onboard →" link: the company and the person
 // most likely to be its admin, plus the target to mark won once this succeeds.
@@ -15,16 +16,15 @@ export function OnboardForm({ initial }: { initial?: { company?: string; adminEm
   const [plan, setPlan] = useState<Plan>("starter");
   const [monthlyCost, setMonthlyCost] = useState(0);
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function submit() {
     start(async () => {
       const res = await onboardCompany({ company, adminEmail, plan, monthlyCost, targetId });
       if (res.ok) {
-        setMsg({ ok: true, text: `Workspace created — credentials emailed to ${adminEmail}.` });
+        toast.success("Workspace created", `Credentials emailed to ${adminEmail}.`);
         setCompany(""); setAdminEmail(""); setPlan("starter"); setMonthlyCost(0); setTargetId(undefined);
       } else {
-        setMsg({ ok: false, text: res.error });
+        toast.error("Couldn't onboard the company", res.error);
       }
     });
   }
@@ -35,11 +35,6 @@ export function OnboardForm({ initial }: { initial?: { company?: string; adminEm
       {targetId && (
         <div className="mb-4 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">
           From a target — onboarding it marks the target as won.
-        </div>
-      )}
-      {msg && (
-        <div className={`mb-4 rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-[#15a34a]/10 text-[#15a34a]" : "bg-[#f4502f]/10 text-[#f4502f]"}`}>
-          {msg.text}
         </div>
       )}
       <div className="space-y-4">

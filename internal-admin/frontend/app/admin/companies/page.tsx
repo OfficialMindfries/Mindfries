@@ -78,10 +78,7 @@ export default function CompaniesPage() {
         eyebrow="Company Onboarding"
         title="Companies"
         action={<Button onClick={() => setOpen(true)}>+ Onboard company</Button>}
-      >
-        Create a company account, set its plan, assign its team, and provision the default assessment templates it
-        starts with (PRD §1.11).
-      </PageHeader>
+      />
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total companies" value={rows.length} />

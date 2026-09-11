@@ -7,46 +7,45 @@ import { deleteTarget, updateTarget } from "@/app/admin/targets/actions";
 import { STAGES, dueLabel } from "@/lib/targets-rules";
 import type { TargetCompany, TargetPriority, TargetSource, TargetStage } from "@/lib/types";
 import { sourceLabel } from "./shared";
+import { toast } from "../toast";
 
 type Save = Parameters<typeof updateTarget>[1];
 
-/** One save, one pending flag, one error line — shared by every card below. */
+/**
+ * One save and one pending flag, shared by every card below. The outcome is a
+ * notification in the corner — the same for every card — rather than each
+ * card growing its own "Saved" label and red error line.
+ */
 function useSave(id: string) {
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const save = (patch: Save, after?: () => void) => {
-    setError(null);
-    setSaved(false);
+  const save = (patch: Save, done: string, after?: () => void) => {
     start(async () => {
       const res = await updateTarget(id, patch);
       if (res.ok) {
-        setSaved(true);
+        toast.success(done);
         after?.();
-      } else setError(res.error);
+      } else toast.error("Couldn't save that", res.error);
     });
   };
-  return { pending, error, saved, save };
+  return { pending, save };
 }
 
 const card = "hair-card p-5";
 const cardTitle = "mb-3 text-sm font-semibold";
-const errorLine = (e: string | null) => e && <div className="mt-2 text-xs font-semibold text-[#f4502f]">{e}</div>;
 
 export function StageSelect({ target }: { target: TargetCompany }) {
-  const { pending, error, save } = useSave(target.id);
+  const { pending, save } = useSave(target.id);
   return (
     <div>
       <Select
         value={target.stage}
         disabled={pending}
-        onChange={(e) => save({ stage: e.target.value as TargetStage })}
+        onChange={(e) => save({ stage: e.target.value as TargetStage }, `Moved to ${STAGES.find((s) => s.key === e.target.value)?.label}`)}
         aria-label="Stage"
         className="w-auto font-semibold"
       >
         {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
       </Select>
-      {errorLine(error)}
     </div>
   );
 }
@@ -58,7 +57,7 @@ export function StageSelect({ target }: { target: TargetCompany }) {
  * what comes after it.
  */
 export function NextStepCard({ target, today }: { target: TargetCompany; today: string }) {
-  const { pending, error, save } = useSave(target.id);
+  const { pending, save } = useSave(target.id);
   const [action, setAction] = useState(target.nextAction ?? "");
   const [due, setDue] = useState(target.nextActionDue ?? "");
   const dirty = action !== (target.nextAction ?? "") || due !== (target.nextActionDue ?? "");
@@ -79,14 +78,14 @@ export function NextStepCard({ target, today }: { target: TargetCompany; today: 
         <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Due date" />
       </div>
       <div className="mt-3 flex gap-2">
-        <Button onClick={() => save({ nextAction: action, nextActionDue: due })} disabled={pending || !dirty} className="flex-1">
+        <Button onClick={() => save({ nextAction: action, nextActionDue: due }, "Next step saved")} disabled={pending || !dirty} className="flex-1">
           Save
         </Button>
         {(target.nextAction || target.nextActionDue) && (
           <Button
             variant="ghost"
             disabled={pending}
-            onClick={() => save({ nextAction: "", nextActionDue: "" }, () => { setAction(""); setDue(""); })}
+            onClick={() => save({ nextAction: "", nextActionDue: "" }, "Next step done", () => { setAction(""); setDue(""); })}
           >
             Done
           </Button>
@@ -95,13 +94,12 @@ export function NextStepCard({ target, today }: { target: TargetCompany; today: 
       {nurture && !target.nextActionDue && (
         <div className="mt-2 text-xs text-dim">Set a date so this comes back up instead of being forgotten.</div>
       )}
-      {errorLine(error)}
     </div>
   );
 }
 
 export function DetailsCard({ target, owners }: { target: TargetCompany; owners: string[] }) {
-  const { pending, error, saved, save } = useSave(target.id);
+  const { pending, save } = useSave(target.id);
   const [form, setForm] = useState({
     name: target.name,
     website: target.website ?? "",
@@ -139,16 +137,14 @@ export function DetailsCard({ target, owners }: { target: TargetCompany; owners:
         </Field>
       </div>
       <div className="mt-3 flex items-center gap-3">
-        <Button onClick={() => save(form)} disabled={pending || !dirty}>Save details</Button>
-        {saved && !dirty && <span className="text-xs text-dim">Saved</span>}
+        <Button onClick={() => save(form, "Details saved")} disabled={pending || !dirty}>Save details</Button>
       </div>
-      {errorLine(error)}
     </div>
   );
 }
 
 export function NotesCard({ target }: { target: TargetCompany }) {
-  const { pending, error, saved, save } = useSave(target.id);
+  const { pending, save } = useSave(target.id);
   const [why, setWhy] = useState(target.whyTarget);
   const [notes, setNotes] = useState(target.notes);
   const dirty = why !== target.whyTarget || notes !== target.notes;
@@ -165,10 +161,8 @@ export function NotesCard({ target }: { target: TargetCompany }) {
         </Field>
       </div>
       <div className="mt-3 flex items-center gap-3">
-        <Button onClick={() => save({ whyTarget: why, notes })} disabled={pending || !dirty}>Save notes</Button>
-        {saved && !dirty && <span className="text-xs text-dim">Saved</span>}
+        <Button onClick={() => save({ whyTarget: why, notes }, "Notes saved")} disabled={pending || !dirty}>Save notes</Button>
       </div>
-      {errorLine(error)}
     </div>
   );
 }
@@ -185,7 +179,7 @@ export function DeleteTarget({ id, name }: { id: string; name: string }) {
         start(async () => {
           const res = await deleteTarget(id);
           if (res.ok) router.push("/admin/targets");
-          else window.alert(res.error);
+          else toast.error("Couldn't delete it", res.error);
         });
       }}
       className="rounded-lg px-3 py-2 text-xs font-semibold text-[#f4502f] hover:bg-[#f4502f]/10 disabled:opacity-40"

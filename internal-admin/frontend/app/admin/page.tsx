@@ -13,10 +13,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Mindfries Ops" title="Overview">
-        Everything the Mindfries team runs — company onboarding, the shared assessment library, and every candidate
-        session across all companies, in one place.
-      </PageHeader>
+      <PageHeader eyebrow="Mindfries Ops" title="Overview" />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Active companies" value={activeCompanies} hint={`${onboarding} onboarding`} />

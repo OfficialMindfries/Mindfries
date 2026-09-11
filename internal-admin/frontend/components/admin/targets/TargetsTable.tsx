@@ -7,6 +7,7 @@ import { bulkDeleteTargets, bulkUpdateTargets, deleteTarget, updateTarget } from
 import { STAGES } from "@/lib/targets-rules";
 import type { TargetPriority, TargetStage } from "@/lib/types";
 import { AddTarget } from "./AddTarget";
+import { toast } from "../toast";
 
 /**
  * The Targets list, laid out after the supplied "Vendor Activity History"
@@ -130,7 +131,6 @@ export function TargetsTable({
   const [q, setQ] = useState(params.get("q") ?? "");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pending, start] = useTransition();
-  const [notice, setNotice] = useState<string | null>(null);
 
   // Selection is per visible page. Derived during render rather than pruned in
   // an effect: rows that left the page (a new filter, a deletion, the next
@@ -160,12 +160,11 @@ export function TargetsTable({
   };
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, done?: string) => {
-    setNotice(null);
     start(async () => {
       const res = await fn();
-      if (!res.ok) setNotice(res.error ?? "Something went wrong");
+      if (!res.ok) toast.error("That didn't go through", res.error ?? "Something went wrong");
       else {
-        if (done) setNotice(done);
+        if (done) toast.success(done);
         setSelected(new Set());
       }
     });
@@ -262,7 +261,6 @@ export function TargetsTable({
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-sm text-dim hover:text-ink">Clear</button>
         </div>
       )}
-      {notice && <div className="border-t border-hair bg-surface-2 px-6 py-2 text-sm text-dim">{notice}</div>}
 
       {/* Table */}
       <div className="overflow-x-auto">

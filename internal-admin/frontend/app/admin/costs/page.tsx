@@ -1,6 +1,5 @@
 import { listOnboarded } from "@/lib/db";
 import { PageHeader, StatCard } from "@/components/ui";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 import { fmtMoney, planLabel, planPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,11 +18,7 @@ export default async function CostsPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Unit Economics" title="Company Costs">
-        What each onboarded company bills us (plan) versus what it costs us to run (sandbox/compute), and the margin.
-      </PageHeader>
-
-      <SetupBanner />
+      <PageHeader eyebrow="Unit Economics" title="Company Costs" />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <StatCard label="MRR" value={fmtMoney(mrr)} hint="Sum of plan prices" />

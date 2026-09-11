@@ -5,6 +5,7 @@ import { Button, Input, Select } from "@/components/ui";
 import { addContact, setDoNotContact } from "@/app/admin/targets/actions";
 import type { ContactPersona, ContactWarmth, TargetContact } from "@/lib/types";
 import { personaLabel, warmthLabel } from "./shared";
+import { toast } from "../toast";
 
 const blank = { name: "", role: "", email: "", linkedinUrl: "", persona: "decision_maker" as ContactPersona, warmth: "cold" as ContactWarmth };
 
@@ -21,24 +22,24 @@ export function Contacts({ targetId, contacts }: { targetId: string; contacts: T
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blank);
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   const add = () => {
-    setError(null);
     start(async () => {
       const res = await addContact(targetId, form);
       if (res.ok) {
+        toast.success("Person added", form.name.trim());
         setForm(blank);
         setAdding(false);
-      } else setError(res.error);
+      } else toast.error("Couldn't add them", res.error);
     });
   };
 
   const flag = (c: TargetContact) => {
-    setError(null);
     start(async () => {
       const res = await setDoNotContact(targetId, c.id, !c.doNotContact);
-      if (!res.ok) setError(res.error);
+      if (!res.ok) toast.error("Couldn't update them", res.error);
+      else if (!c.doNotContact) toast.info(`${c.name} marked do-not-contact`, "Outreach to them can no longer be logged.");
+      else toast.info(`${c.name} can be contacted again`);
     });
   };
 
@@ -105,11 +106,10 @@ export function Contacts({ targetId, contacts }: { targetId: string; contacts: T
           </div>
           <div className="flex gap-2">
             <Button onClick={add} disabled={pending || !form.name.trim()} className="flex-1">{pending ? "Adding…" : "Add person"}</Button>
-            <Button variant="ghost" onClick={() => { setAdding(false); setForm(blank); setError(null); }}>Cancel</Button>
+            <Button variant="ghost" onClick={() => { setAdding(false); setForm(blank); }}>Cancel</Button>
           </div>
         </div>
       )}
-      {error && <div className="mt-2 text-xs font-semibold text-[#f4502f]">{error}</div>}
     </div>
   );
 }

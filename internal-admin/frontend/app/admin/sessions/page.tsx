@@ -2,7 +2,6 @@ import { listSessions } from "@/lib/db";
 import { sessions as mockSessions } from "@/lib/mock-data";
 import { supabaseReady } from "@/lib/supabase";
 import { SessionsView } from "@/components/admin/SessionsView";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +10,6 @@ export default async function SessionsPage() {
   const initial = supabaseReady() ? await listSessions() : mockSessions;
   return (
     <div className="space-y-6">
-      <SetupBanner />
       <SessionsView initial={initial} />
     </div>
   );

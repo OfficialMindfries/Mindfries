@@ -5,6 +5,7 @@ import type { GameTemplate, RubricCriterion, TaskVariant } from "@/lib/types";
 import { Button, Chip, Field, Input, Modal, PageHeader, Pill, Select, StatCard, Textarea } from "@/components/ui";
 import { fmtDate, taskVariantLabel } from "@/lib/format";
 import { createGameTemplate, toggleTemplateStatus } from "@/app/admin/actions";
+import { toast } from "@/components/admin/toast";
 
 const variantTone: Record<TaskVariant, "violet" | "coral" | "amber" | "green"> = {
   bug_fix: "coral",
@@ -24,7 +25,6 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
   const [rows, setRows] = useState<GameTemplate[]>(initial);
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
 
   // author form
   const [name, setName] = useState("");
@@ -58,10 +58,10 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
       rubric,
       status: (publishNow ? "published" : "draft") as GameTemplate["status"],
     };
-    setErr(null);
     start(async () => {
       const res = await createGameTemplate(input);
-      if (!res.ok) { setErr(res.error); return; }
+      if (!res.ok) { toast.error("Couldn't save the game", res.error); return; }
+      toast.success(input.status === "published" ? "Published to the library" : "Draft saved", input.name);
       // optimistic — the persisted row also arrives on next server render
       setRows((r) => [{ ...input, id: crypto.randomUUID(), usedByCompanies: 0, createdAt: new Date().toISOString().slice(0, 10) }, ...r]);
       reset();
@@ -83,10 +83,7 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
         eyebrow="Assessment / Game Library"
         title="Game Library"
         action={<Button onClick={() => setOpen(true)}>+ Author game</Button>}
-      >
-        Mindfries centrally authors the base repository templates, task variants, interviewer prompts, and default
-        rubrics that every company picks from. Published games appear to candidates in the candidate app.
-      </PageHeader>
+      />
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total games" value={rows.length} />
@@ -154,7 +151,6 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
         }
       >
         <div className="space-y-4">
-          {err && <div className="rounded-lg bg-[#f4502f]/10 px-3 py-2 text-sm text-[#f4502f]">{err}</div>}
           <Field label="Game name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Auth Bug Hunt" />
           </Field>

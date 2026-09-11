@@ -1,6 +1,5 @@
 import { listWaitlist } from "@/lib/db";
 import { PageHeader, StatCard } from "@/components/ui";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -11,12 +10,8 @@ export default async function WaitlistPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Inbound" title="Waitlist">
-        People who clicked “Join the waitlist” on the site and emailed us. Public form lives at{" "}
-        <span className="mono">/waitlist</span>; each signup pings officemindfries@gmail.com.
-      </PageHeader>
+      <PageHeader eyebrow="Inbound" title="Waitlist" />
 
-      <SetupBanner needsEmail />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <StatCard label="Total signups" value={entries.length} />

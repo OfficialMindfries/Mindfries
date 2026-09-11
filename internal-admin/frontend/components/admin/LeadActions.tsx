@@ -8,6 +8,7 @@ import { renderEmail, guessContactEmail, type EmailTemplate } from "@/lib/email-
 import type { Lead } from "@/lib/types";
 import { sendLeadEmail, changeLeadStage } from "@/app/admin/actions";
 import { promoteLead } from "@/app/admin/targets/actions";
+import { toast } from "@/components/admin/toast";
 
 export function LeadActions({ lead, targetId }: { lead: Lead; targetId?: string }) {
   const router = useRouter();
@@ -16,14 +17,12 @@ export function LeadActions({ lead, targetId }: { lead: Lead; targetId?: string 
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [pending, start] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
 
   function openCompose(template: EmailTemplate) {
     const r = renderEmail(template, lead);
     setTo(guessContactEmail(lead));
     setSubject(r.subject);
     setBody(r.body);
-    setErr(null);
     setOpen(template);
   }
 
@@ -31,8 +30,10 @@ export function LeadActions({ lead, targetId }: { lead: Lead; targetId?: string 
     if (!open) return;
     start(async () => {
       const res = await sendLeadEmail({ leadId: lead.id, template: open, to, subject, body });
-      if (res.ok) setOpen(null);
-      else setErr(res.error);
+      if (res.ok) {
+        setOpen(null);
+        toast.success("Email sent", `To ${to}.`);
+      } else toast.error("Email not sent", res.error);
     });
   }
 
@@ -44,11 +45,10 @@ export function LeadActions({ lead, targetId }: { lead: Lead; targetId?: string 
 
   // Worth working by hand: turn the crawled lead into a target and open it.
   function promote() {
-    setErr(null);
     start(async () => {
       const res = await promoteLead(lead.id);
       if (res.ok) router.push(`/admin/targets/${res.id}`);
-      else window.alert(res.error);
+      else toast.error("Couldn't make it a target", res.error);
     });
   }
 
@@ -89,7 +89,6 @@ export function LeadActions({ lead, targetId }: { lead: Lead; targetId?: string 
         }
       >
         <div className="space-y-4">
-          {err && <div className="rounded-lg bg-[#f4502f]/10 px-3 py-2 text-sm text-[#f4502f]">{err}</div>}
           <Field label="To" hint={lead.contactEmail ? undefined : "Best-guess address — edit to the right contact."}>
             <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="hello@company.com" />
           </Field>

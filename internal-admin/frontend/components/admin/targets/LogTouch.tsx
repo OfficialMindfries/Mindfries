@@ -7,6 +7,7 @@ import { channelLabel } from "@/lib/targets-rules";
 import type { TargetContact, TouchChannel, TouchDirection, TouchOutcome } from "@/lib/types";
 import { outcomeLabel } from "./shared";
 import { useActor } from "./useActor";
+import { toast } from "../toast";
 
 const CHANNELS: TouchChannel[] = ["email", "linkedin", "call", "meeting", "intro", "event", "note"];
 
@@ -38,7 +39,6 @@ export function LogTouch({
   const [stepAction, setStepAction] = useState<string | null>(null); // null = use the suggestion
   const [stepDue, setStepDue] = useState(followUpDue);
   const [pending, start] = useTransition();
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const note = channel === "note";
   const outbound = !note && direction === "outbound";
@@ -51,7 +51,6 @@ export function LogTouch({
   const settingStep = note ? false : (stepChoice ?? outbound);
 
   const submit = () => {
-    setMessage(null);
     start(async () => {
       const res = await logTouch(targetId, {
         channel,
@@ -68,8 +67,8 @@ export function LogTouch({
         setWhen("");
         setStepAction(null);
         setStepChoice(null);
-        setMessage({ ok: true, text: note ? "Note added." : "Logged." });
-      } else setMessage({ ok: false, text: res.error });
+        toast.success(note ? "Note added" : "Touch logged");
+      } else toast.error(note ? "Note not added" : "Touch not logged", res.error);
     });
   };
 
@@ -175,9 +174,6 @@ export function LogTouch({
         <Button onClick={submit} disabled={pending || blocked || (note && !summary.trim())}>
           {pending ? "Saving…" : note ? "Add note" : "Log touch"}
         </Button>
-        {message && (
-          <span className={`text-sm ${message.ok ? "text-[#15a34a]" : "font-semibold text-[#f4502f]"}`}>{message.text}</span>
-        )}
       </div>
     </div>
   );

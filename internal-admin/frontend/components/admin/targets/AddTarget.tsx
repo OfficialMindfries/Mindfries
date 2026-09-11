@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button, Field, Input, Modal, Select, Textarea } from "@/components/ui";
@@ -8,6 +7,7 @@ import { createTarget } from "@/app/admin/targets/actions";
 import type { ContactPersona, TargetPriority, TargetSource } from "@/lib/types";
 import { personaLabel, sourceLabel } from "./shared";
 import { useActor } from "./useActor";
+import { toast } from "../toast";
 
 /**
  * "+ Add target". Captures what's worth knowing on day one — the company, why
@@ -19,7 +19,6 @@ export function AddTarget({ owners }: { owners: string[] }) {
   const [actor] = useActor();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
-  const [error, setError] = useState<{ text: string; link?: string } | null>(null);
 
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
@@ -32,21 +31,21 @@ export function AddTarget({ owners }: { owners: string[] }) {
   function reset() {
     setName(""); setWebsite(""); setPriority("B"); setSource("other"); setOwner(null); setWhy("");
     setPerson({ name: "", role: "", email: "", linkedinUrl: "", persona: "decision_maker" });
-    setError(null);
   }
 
   function submit() {
-    setError(null);
     start(async () => {
       const res = await createTarget({
         name, website, priority, source, owner: owner ?? actor, whyTarget: why,
         contact: person.name.trim() ? person : null,
       });
       if (!res.ok) {
-        const link = res.duplicate?.kind === "target" ? `/admin/targets/${res.duplicate.id}` : undefined;
-        setError({ text: res.error, link });
+        // A duplicate target comes with a way straight to the one that exists.
+        const action = res.duplicate?.kind === "target" ? { label: "Open it", href: `/admin/targets/${res.duplicate.id}` } : undefined;
+        toast.error("Target not added", res.error, { action });
         return;
       }
+      toast.success("Target added", res.linkedLead ? `Linked to the Tracker lead for ${res.linkedLead}.` : name.trim());
       reset();
       setOpen(false);
       router.push(`/admin/targets/${res.id}`);
@@ -76,12 +75,6 @@ export function AddTarget({ owners }: { owners: string[] }) {
         }
       >
         <div className="space-y-4">
-          {error && (
-            <div className="rounded-lg bg-[#f4502f]/10 px-3 py-2 text-sm text-[#f4502f]">
-              {error.text}{" "}
-              {error.link && <Link href={error.link} className="font-semibold underline">Open it →</Link>}
-            </div>
-          )}
           <div className="grid grid-cols-2 gap-4">
             <Field label="Company">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Razorpay" autoFocus />
