@@ -7,6 +7,15 @@
 
 import type { Company, GameTemplate, RubricCriterion, Session } from "./types";
 
+/**
+ * The moment this sample snapshot represents — just after its latest event.
+ * Anything that measures "today" or "this month" against the sample measures
+ * from here, not from the real clock: measured from now, every trend would
+ * read zero as the fixtures age, which would be a wrong answer about data
+ * that was never live anyway. Real data measures from now.
+ */
+export const SAMPLE_AS_OF = "2026-08-29T09:30:00Z";
+
 const standardRubric = (): RubricCriterion[] => [
   { id: "r1", label: "Technical correctness", weight: 35 },
   { id: "r2", label: "Engineering workflow", weight: 25 },
