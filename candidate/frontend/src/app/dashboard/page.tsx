@@ -1,32 +1,31 @@
 import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
-import { StatTiles } from "@/components/dashboard/StatTiles";
 import { SetupCard } from "@/components/dashboard/SetupCard";
-import { AssessmentRail } from "@/components/dashboard/AssessmentRail";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { SideRail } from "@/components/dashboard/SideRail";
 import { candidate } from "@/lib/dashboard/data";
-import { listAvailableAssessments } from "@/lib/db";
-import { supabaseReady } from "@/lib/supabase";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
   description: "Your assessments, sessions and evidence reports.",
 };
 
-export const dynamic = "force-dynamic";
-
 /**
  * The candidate's home, outside the workspace.
  *
- * Assessments come from the shared Supabase (published games authored in the
- * internal-admin) once the backend is connected; otherwise the rail falls back
- * to sample data. Everything else is still sample data (lib/dashboard/data.ts).
+ * The stat tiles and the assessment carousel have been taken out, to be
+ * redesigned as sticky notes. What they drew on is still in place for that:
+ *
+ * - `listAvailableAssessments()` in `lib/db.ts` — the candidate's real
+ *   assessments from the shared Supabase, when it's configured. The page no
+ *   longer calls it, so it's static again; re-adding the call means re-adding
+ *   `export const dynamic = "force-dynamic"` with it.
+ * - `startAssessment` in `app/dashboard/actions.ts` — the only way from here
+ *   into `/onboarding`. Until the notes land, nothing on this page reaches it.
+ * - `stats` and `assessments` in `lib/dashboard/data.ts` — the sample data
+ *   both sections fell back to.
  */
-export default async function DashboardPage() {
-  // undefined → AssessmentRail uses its mock fallback (pre-backend).
-  const items = supabaseReady() ? await listAvailableAssessments() : undefined;
-
+export default function DashboardPage() {
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
       <DashboardNav />
@@ -47,14 +46,11 @@ export default async function DashboardPage() {
           </a>
         </div>
 
-        <div className="mt-6">
-          <StatTiles />
-        </div>
-
         <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          {/* `min-w-0` stops a grid item's default `min-width: auto` from
+              letting wide content stretch this column past the viewport. */}
           <div className="min-w-0 space-y-8">
             <SetupCard />
-            <AssessmentRail items={items} />
             <ActivityFeed />
           </div>
           <SideRail />
