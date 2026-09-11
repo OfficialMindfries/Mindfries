@@ -1,6 +1,6 @@
 // Run: npx --yes tsx lib/overview.test.mts
 import assert from "node:assert/strict";
-import { ago, countWithin, cumulative, DAY, HOUR, perBucket, sparkPaths, WEEK } from "./overview.ts";
+import { ago, countWithin, cumulative, cumulativeSum, DAY, HOUR, perBucket, sparkPaths, WEEK } from "./overview.ts";
 
 const asOf = new Date("2026-08-29T09:30:00Z");
 
@@ -11,6 +11,11 @@ assert.equal(c.length, 12);
 assert.equal(c[c.length - 1], 3, "ends at everything that has happened by asOf");
 assert.ok(c.every((v, i) => i === 0 || v >= c[i - 1]), "never falls");
 assert.equal(cumulative(["2026-09-01"], asOf, 4, WEEK).at(-1), 0, "a date after asOf isn't counted");
+
+// cumulativeSum: adds values, not items.
+const money = cumulativeSum([{ date: "2026-06-01", value: 99 }, { date: "2026-08-20", value: 399 }, { date: "2026-09-10", value: 1500 }], asOf, 4, WEEK);
+assert.equal(money.at(-1), 498, "99 + 399; the September company isn't onboarded yet as of Aug 29");
+assert.equal(money[0], 99, "four weeks earlier only the June company counted");
 
 // perBucket: counts land in the right hour, and the window's edges are exact.
 const starts = ["2026-08-29T09:25:00Z", "2026-08-29T09:02:00Z", "2026-08-29T08:35:00Z", "2026-08-29T08:10:00Z", "2026-08-28T14:12:00Z"];

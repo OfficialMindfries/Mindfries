@@ -1,5 +1,8 @@
 import { listLeads } from "@/lib/db";
-import { PageHeader, Pill, StatCard, Chip } from "@/components/ui";
+import { Percent, Radar, Reply, Rocket, Send } from "lucide-react";
+import { PageHeader, Pill, Chip } from "@/components/ui";
+import { MetricCard, MetricGrid, Panel, flat } from "@/components/admin/cards";
+import { countWithin, DAY, perBucket, WEEK } from "@/lib/overview";
 import { LeadActions } from "@/components/admin/LeadActions";
 import { fmtDate, leadStageLabel, leadStageTone } from "@/lib/format";
 import { targetsStore } from "@/lib/targets-store";
@@ -19,23 +22,38 @@ export default async function TrackerPage() {
   const onboarded = leads.filter((l) => l.stage === "onboarded").length;
   const replyRate = emailed ? Math.round((replied / emailed) * 100) : 0;
 
+  // Real data, measured from now. The crawler runs daily, so activity is
+  // shown per day over the last two weeks.
+  const now = new Date();
+  const foundThisWeek = countWithin(leads.map((l) => l.createdAt), now, WEEK);
+  const emailDates = leads.map((l) => l.lastEmailedAt).filter((d): d is string => !!d);
+  const emailedThisWeek = countWithin(emailDates, now, WEEK);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader eyebrow="Outbound Growth" title="Company Tracker" />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <StatCard label="Found" value={leads.length} />
-        <StatCard label="Emailed" value={emailed} />
-        <StatCard label="Replied" value={replied} />
-        <StatCard label="Reply rate" value={`${replyRate}%`} />
-        <StatCard label="Onboarded" value={onboarded} />
-      </div>
+      <MetricGrid columns={5}>
+        <MetricCard
+          id="found" label="Found" value={leads.length} icon={Radar} tone="violet"
+          trend={foundThisWeek ? { text: `+${foundThisWeek} this week`, direction: "up", good: true } : flat("None this week")}
+          series={perBucket(leads.map((l) => l.createdAt), now, 14, DAY)} seriesLabel="Companies found per day, last 14 days"
+        />
+        <MetricCard
+          id="emailed" label="Emailed" value={emailed} icon={Send} tone="blue"
+          trend={emailedThisWeek ? { text: `${emailedThisWeek} this week`, direction: "up", good: true } : flat("None this week")}
+          series={perBucket(emailDates, now, 14, DAY)} seriesLabel="Companies emailed per day, last 14 days"
+        />
+        <MetricCard id="replied" label="Replied" value={replied} icon={Reply} tone="green" trend={flat(`of ${emailed} emailed`)} />
+        <MetricCard id="rate" label="Reply rate" value={`${replyRate}%`} icon={Percent} tone="teal" trend={flat(emailed ? "of companies emailed" : "Nothing sent yet")} />
+        <MetricCard id="onboarded" label="Onboarded" value={onboarded} icon={Rocket} tone="amber" trend={flat("won from the tracker")} />
+      </MetricGrid>
 
-      <div className="hair-card overflow-hidden">
+      <Panel title="Companies found" count={`${leads.length} total`} subtitle="Hiring engineers right now, ranked by how well they fit.">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
+              <tr className="border-b border-hair bg-[#fafafc] text-left text-[13px] font-semibold text-ink">
                 <th className="px-5 py-3 font-semibold">Score</th>
                 <th className="px-5 py-3 font-semibold">Company</th>
                 <th className="px-5 py-3 font-semibold">Hiring for</th>
@@ -91,7 +109,7 @@ export default async function TrackerPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

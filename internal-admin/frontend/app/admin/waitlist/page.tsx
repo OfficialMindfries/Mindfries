@@ -1,5 +1,10 @@
 import { listWaitlist } from "@/lib/db";
-import { PageHeader, StatCard } from "@/components/ui";
+import { Building2, CalendarDays, UserPlus } from "lucide-react";
+import { PageHeader } from "@/components/ui";
+import { MetricCard, MetricGrid, Panel, flat } from "@/components/admin/cards";
+import { countWithin, cumulative, DAY, perBucket, WEEK } from "@/lib/overview";
+import { todayIn } from "@/lib/targets-rules";
+import { TEAM_TZ } from "@/lib/team-time";
 import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -8,22 +13,49 @@ export default async function WaitlistPage() {
   const entries = await listWaitlist();
   const withCompany = entries.filter((e) => e.company).length;
 
+  // "This month" is the calendar month in the team's timezone, compared with
+  // the one before it.
+  const now = new Date();
+  const monthOf = (iso: string) => todayIn(TEAM_TZ, new Date(iso)).slice(0, 7);
+  const thisMonth = todayIn(TEAM_TZ, now).slice(0, 7);
+  const prev = new Date(`${thisMonth}-01T12:00:00Z`);
+  prev.setUTCMonth(prev.getUTCMonth() - 1);
+  const lastMonth = prev.toISOString().slice(0, 7);
+  const signupsThisMonth = entries.filter((e) => monthOf(e.createdAt) === thisMonth).length;
+  const signupsLastMonth = entries.filter((e) => monthOf(e.createdAt) === lastMonth).length;
+  const newThisWeek = countWithin(entries.map((e) => e.createdAt), now, WEEK);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader eyebrow="Inbound" title="Waitlist" />
 
+      <MetricGrid columns={3}>
+        <MetricCard
+          id="signups" label="Total signups" value={entries.length} icon={UserPlus} tone="violet"
+          trend={newThisWeek ? { text: `+${newThisWeek} this week`, direction: "up", good: true } : flat("None this week")}
+          series={cumulative(entries.map((e) => e.createdAt), now, 12, WEEK)} seriesLabel="Signups, running total over the last 12 weeks"
+        />
+        <MetricCard
+          id="company" label="With a company" value={withCompany} icon={Building2} tone="blue"
+          trend={flat(entries.length ? `${Math.round((withCompany / entries.length) * 100)}% of signups` : "No signups yet")}
+          series={cumulative(entries.filter((e) => e.company).map((e) => e.createdAt), now, 12, WEEK)} seriesLabel="Signups with a company, running total over the last 12 weeks"
+        />
+        <MetricCard
+          id="month" label="This month" value={signupsThisMonth} icon={CalendarDays} tone="green"
+          trend={
+            signupsThisMonth === signupsLastMonth
+              ? flat("Same as last month")
+              : { text: `${signupsLastMonth} last month`, direction: signupsThisMonth > signupsLastMonth ? "up" : "down", good: signupsThisMonth > signupsLastMonth }
+          }
+          series={perBucket(entries.map((e) => e.createdAt), now, 30, DAY)} seriesLabel="Signups per day, last 30 days"
+        />
+      </MetricGrid>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <StatCard label="Total signups" value={entries.length} />
-        <StatCard label="With company" value={withCompany} />
-        <StatCard label="This month" value={entries.filter((e) => e.createdAt.slice(0, 7) === new Date().toISOString().slice(0, 7)).length} />
-      </div>
-
-      <div className="hair-card overflow-hidden">
+      <Panel title="Signups" count={`${entries.length} total`} subtitle="People who joined from the public waitlist page.">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
+              <tr className="border-b border-hair bg-[#fafafc] text-left text-[13px] font-semibold text-ink">
                 <th className="px-5 py-3 font-semibold">Name</th>
                 <th className="px-5 py-3 font-semibold">Email</th>
                 <th className="px-5 py-3 font-semibold">Company</th>
@@ -53,7 +85,7 @@ export default async function WaitlistPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

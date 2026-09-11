@@ -26,6 +26,18 @@ export function cumulative(dates: string[], asOf: Date, points: number, step: nu
 }
 
 /**
+ * Like `cumulative`, but adds up a value per item instead of counting items —
+ * "monthly revenue from every company onboarded by then".
+ */
+export function cumulativeSum(items: { date: string; value: number }[], asOf: Date, points: number, step: number): number[] {
+  const parsed = items.map((i) => ({ t: Date.parse(i.date), v: i.value })).filter((i) => !Number.isNaN(i.t));
+  return Array.from({ length: points }, (_, k) => {
+    const at = asOf.getTime() - (points - 1 - k) * step;
+    return parsed.reduce((sum, i) => (i.t <= at ? sum + i.v : sum), 0);
+  });
+}
+
+/**
  * How many of `dates` fell in each of `points` consecutive buckets of `step`,
  * the last one ending at `asOf`. The right shape for activity: "session
  * starts per hour".

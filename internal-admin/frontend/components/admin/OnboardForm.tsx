@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button, Field, Input, Select } from "@/components/ui";
+import { Panel } from "@/components/admin/cards";
 import { planLabel } from "@/lib/format";
 import type { Plan } from "@/lib/types";
 import { onboardCompany } from "@/app/admin/actions";
@@ -30,8 +31,8 @@ export function OnboardForm({ initial }: { initial?: { company?: string; adminEm
   }
 
   return (
-    <div className="hair-card p-5">
-      <div className="mb-4 text-sm font-semibold">Onboard a company</div>
+    <Panel title="Onboard a company" subtitle="Creates their workspace and emails the admin their sign-in.">
+      <div className="px-6 py-5">
       {targetId && (
         <div className="mb-4 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">
           From a target — onboarding it marks the target as won.
@@ -56,6 +57,7 @@ export function OnboardForm({ initial }: { initial?: { company?: string; adminEm
           {pending ? "Creating…" : "Create & email credentials"}
         </Button>
       </div>
-    </div>
+      </div>
+    </Panel>
   );
 }

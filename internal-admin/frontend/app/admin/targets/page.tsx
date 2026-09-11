@@ -1,5 +1,7 @@
-import Link from "next/link";
-import { PageHeader, StatCard } from "@/components/ui";
+import { CalendarClock, Crosshair, MessagesSquare, Snowflake, Trophy } from "lucide-react";
+import { PageHeader } from "@/components/ui";
+import { MetricCard, MetricGrid, flat } from "@/components/admin/cards";
+import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { TargetsTable, type TargetRow } from "@/components/admin/targets/TargetsTable";
 import { targetsStore } from "@/lib/targets-store";
 import {
@@ -120,21 +122,26 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
   const rows = ordered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((t) => toRow(t, today));
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader eyebrow="Account-based outreach" title="Targets" />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <StatCard label="Being worked" value={targets.filter((t) => ACTIVE.includes(t.stage)).length} hint={`${stageCounts.nurture} nurturing`} />
-        {/* The two cards worth acting on are links straight to that view. */}
-        <Link href="/admin/targets?view=due" className="block rounded-[inherit] transition hover:-translate-y-0.5">
-          <StatCard label="Due now →" value={dueNow.length} hint={overdue.length ? `${overdue.length} overdue` : "nothing overdue"} />
-        </Link>
-        <StatCard label="In conversation" value={targets.filter((t) => ENGAGED.includes(t.stage)).length} hint="replied, meeting, demo, pilot" />
-        <StatCard label="Won" value={stageCounts.won} hint={`${stageCounts.lost} lost`} />
-        <Link href="/admin/targets?view=cold" className="block rounded-[inherit] transition hover:-translate-y-0.5">
-          <StatCard label="Going cold →" value={cold.length} hint="no touch in 14 days" />
-        </Link>
-      </div>
+      <MetricGrid columns={5}>
+        <MetricCard
+          id="worked" label="Being worked" value={targets.filter((t) => ACTIVE.includes(t.stage)).length} icon={Crosshair} tone="violet"
+          trend={(() => { const n = countWithin(targets.map((t) => t.createdAt), new Date(), 30 * DAY); return n ? { text: `+${n} this month`, direction: "up" as const, good: true } : flat(`${stageCounts.nurture} nurturing`); })()}
+          series={cumulative(targets.filter((t) => ACTIVE.includes(t.stage)).map((t) => t.createdAt), new Date(), 12, WEEK)} seriesLabel="Targets being worked, running total over the last 12 weeks"
+        />
+        <MetricCard
+          id="due" label="Due now" value={dueNow.length} icon={CalendarClock} tone="amber" href="/admin/targets?view=due"
+          trend={overdue.length ? { text: `${overdue.length} overdue`, direction: "up", good: false } : flat("Nothing overdue")}
+        />
+        <MetricCard id="talking" label="In conversation" value={targets.filter((t) => ENGAGED.includes(t.stage)).length} icon={MessagesSquare} tone="blue" trend={flat("Replied, meeting, demo, pilot")} />
+        <MetricCard id="won" label="Won" value={stageCounts.won} icon={Trophy} tone="green" trend={flat(`${stageCounts.lost} lost`)} />
+        <MetricCard
+          id="cold" label="Going cold" value={cold.length} icon={Snowflake} tone="teal" href="/admin/targets?view=cold"
+          trend={cold.length ? { text: "No touch in 14 days", direction: "up", good: false } : flat("None going cold")}
+        />
+      </MetricGrid>
 
       <TargetsTable
           rows={rows}
