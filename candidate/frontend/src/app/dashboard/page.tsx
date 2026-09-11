@@ -47,7 +47,8 @@ export default async function DashboardPage() {
           </div>
           <a
             href="/ide"
-            className="inline-flex items-center gap-2 rounded-lg bg-[#4A7FA7] px-4 py-2.5 text-[13px] font-medium text-[#F6FAFD] transition-opacity hover:opacity-90"
+            className="btn-wipe inline-flex items-center justify-center gap-2 px-5 py-2.5 text-[13px] font-semibold"
+            style={{ "--btn-bg": "#4A7FA7", "--btn-fg": "#F6FAFD", "--btn-fill": "#1A3D63", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
           >
             Open the workspace
           </a>

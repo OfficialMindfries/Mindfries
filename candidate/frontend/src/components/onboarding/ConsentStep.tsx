@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ShieldCheck, Eye, Clock, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 const SIGNALS = [
   { icon: "🗂️", label: "Repository navigation", detail: "Which files you explore and in what order" },
@@ -126,16 +127,10 @@ export function ConsentStep({ onContinue }: ConsentStepProps) {
 
       {/* CTA */}
       <div className="flex justify-end">
-        <button
-          id="consent-continue"
-          type="button"
-          disabled={!agreed}
-          onClick={onContinue}
-          className="flex items-center gap-2 rounded-lg bg-[#1A3D63] px-5 py-2.5 text-sm font-medium text-[#F6FAFD] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        <Button id="consent-continue" type="button" disabled={!agreed} onClick={onContinue}>
           Continue
           <ArrowRight size={15} />
-        </button>
+        </Button>
       </div>
     </div>
   );
