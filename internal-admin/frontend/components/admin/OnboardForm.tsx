@@ -6,9 +6,12 @@ import { planLabel } from "@/lib/format";
 import type { Plan } from "@/lib/types";
 import { onboardCompany } from "@/app/admin/actions";
 
-export function OnboardForm() {
-  const [company, setCompany] = useState("");
-  const [adminEmail, setAdminEmail] = useState("");
+// `initial` comes from a target's "Onboard →" link: the company and the person
+// most likely to be its admin, plus the target to mark won once this succeeds.
+export function OnboardForm({ initial }: { initial?: { company?: string; adminEmail?: string; targetId?: string } }) {
+  const [company, setCompany] = useState(initial?.company ?? "");
+  const [adminEmail, setAdminEmail] = useState(initial?.adminEmail ?? "");
+  const [targetId, setTargetId] = useState(initial?.targetId);
   const [plan, setPlan] = useState<Plan>("starter");
   const [monthlyCost, setMonthlyCost] = useState(0);
   const [pending, start] = useTransition();
@@ -16,10 +19,10 @@ export function OnboardForm() {
 
   function submit() {
     start(async () => {
-      const res = await onboardCompany({ company, adminEmail, plan, monthlyCost });
+      const res = await onboardCompany({ company, adminEmail, plan, monthlyCost, targetId });
       if (res.ok) {
         setMsg({ ok: true, text: `Workspace created — credentials emailed to ${adminEmail}.` });
-        setCompany(""); setAdminEmail(""); setPlan("starter"); setMonthlyCost(0);
+        setCompany(""); setAdminEmail(""); setPlan("starter"); setMonthlyCost(0); setTargetId(undefined);
       } else {
         setMsg({ ok: false, text: res.error });
       }
@@ -29,6 +32,11 @@ export function OnboardForm() {
   return (
     <div className="hair-card p-5">
       <div className="mb-4 text-sm font-semibold">Onboard a company</div>
+      {targetId && (
+        <div className="mb-4 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent">
+          From a target — onboarding it marks the target as won.
+        </div>
+      )}
       {msg && (
         <div className={`mb-4 rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-[#15a34a]/10 text-[#15a34a]" : "bg-[#f4502f]/10 text-[#f4502f]"}`}>
           {msg.text}

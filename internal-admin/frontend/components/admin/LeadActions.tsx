@@ -1,12 +1,16 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button, Field, Input, Modal, Textarea } from "@/components/ui";
 import { renderEmail, guessContactEmail, type EmailTemplate } from "@/lib/email-templates";
 import type { Lead } from "@/lib/types";
 import { sendLeadEmail, changeLeadStage } from "@/app/admin/actions";
+import { promoteLead } from "@/app/admin/targets/actions";
 
-export function LeadActions({ lead }: { lead: Lead }) {
+export function LeadActions({ lead, targetId }: { lead: Lead; targetId?: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState<EmailTemplate | null>(null);
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
@@ -38,11 +42,26 @@ export function LeadActions({ lead }: { lead: Lead }) {
     });
   }
 
+  // Worth working by hand: turn the crawled lead into a target and open it.
+  function promote() {
+    setErr(null);
+    start(async () => {
+      const res = await promoteLead(lead.id);
+      if (res.ok) router.push(`/admin/targets/${res.id}`);
+      else window.alert(res.error);
+    });
+  }
+
   const emailed = lead.stage !== "new";
   const btn = "rounded-lg border border-hair px-2.5 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink disabled:opacity-40";
 
   return (
     <div className="flex justify-end gap-1.5">
+      {targetId ? (
+        <Link href={`/admin/targets/${targetId}`} className={btn} title="Already a target">Target ↗</Link>
+      ) : (
+        <button onClick={promote} disabled={pending} className={btn} title="Work this company by hand in Targets">→ Target</button>
+      )}
       {!emailed && (
         <button onClick={() => openCompose("demo")} disabled={pending} className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-40">
           Email demo

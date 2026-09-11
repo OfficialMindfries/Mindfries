@@ -3,11 +3,17 @@ import { PageHeader, Pill, StatCard, Chip } from "@/components/ui";
 import { LeadActions } from "@/components/admin/LeadActions";
 import { SetupBanner } from "@/components/admin/SetupBanner";
 import { fmtDate, leadStageLabel, leadStageTone } from "@/lib/format";
+import { targetsStore } from "@/lib/targets-store";
+import { companyKey } from "@/lib/targets-rules";
 
 export const dynamic = "force-dynamic";
 
 export default async function TrackerPage() {
-  const leads = await listLeads();
+  const [leads, targets] = await Promise.all([listLeads(), targetsStore().listTargets()]);
+  // A lead is "already a target" if a target links to it, or is the same
+  // company by name — so the button opens it instead of offering a duplicate.
+  const targetFor = (leadId: string, company: string) =>
+    targets.find((t) => t.leadId === leadId)?.id ?? targets.find((t) => companyKey(t.name) === companyKey(company))?.id;
 
   const emailed = leads.filter((l) => l.stage !== "new").length;
   const replied = leads.filter((l) => l.repliedCount! > 0 || ["replied", "demo", "poc", "onboarded"].includes(l.stage)).length;
@@ -76,7 +82,7 @@ export default async function TrackerPage() {
                   </td>
                   <td className="px-5 py-4 text-dim">{fmtDate(l.createdAt)}</td>
                   <td className="px-5 py-4">
-                    <LeadActions lead={l} />
+                    <LeadActions lead={l} targetId={targetFor(l.id, l.company)} />
                   </td>
                 </tr>
               ))}

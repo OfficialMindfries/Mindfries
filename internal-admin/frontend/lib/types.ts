@@ -135,3 +135,70 @@ export interface Session {
   elapsedMin: number;
   startedAt: string; // ISO datetime
 }
+
+// ── Targets (0003_targets.sql) ──────────────────────────────────────────────
+// Hand-picked companies worked by hand, across several people and channels.
+
+export type TargetStage =
+  | "researching"
+  | "contacted"
+  | "conversation"
+  | "meeting"
+  | "demo"
+  | "pilot"
+  | "won"
+  | "lost"
+  | "nurture";
+export type TargetPriority = "A" | "B" | "C";
+export type TargetSource = "warm_intro" | "event" | "linkedin" | "referral" | "tracker" | "other";
+export type ContactPersona = "decision_maker" | "champion" | "influencer" | "recruiter" | "other";
+export type ContactWarmth = "cold" | "warm" | "intro";
+export type TouchChannel = "email" | "linkedin" | "call" | "meeting" | "intro" | "event" | "note";
+export type TouchDirection = "outbound" | "inbound";
+export type TouchOutcome = "replied" | "meeting_booked" | "declined";
+
+export interface TargetCompany {
+  id: string;
+  name: string;
+  website: string | null;
+  priority: TargetPriority;
+  stage: TargetStage;
+  whyTarget: string;
+  notes: string;
+  source: TargetSource;
+  owner: string | null;
+  nextAction: string | null;
+  nextActionDue: string | null; // YYYY-MM-DD; for "nurture", when to revisit
+  lastTouchAt: string | null; // ISO datetime of the latest real touch
+  lastTouchSummary: string | null;
+  leadId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TargetContact {
+  id: string;
+  targetId: string;
+  name: string;
+  role: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+  persona: ContactPersona;
+  warmth: ContactWarmth;
+  doNotContact: boolean;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface TargetActivity {
+  id: string;
+  targetId: string;
+  contactId: string | null;
+  channel: TouchChannel;
+  direction: TouchDirection | null; // null for notes
+  outcome: TouchOutcome | null; // inbound only
+  summary: string;
+  happenedAt: string; // ISO datetime
+  by: string | null;
+  createdAt: string;
+}

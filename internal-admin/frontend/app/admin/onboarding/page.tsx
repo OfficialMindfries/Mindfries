@@ -6,7 +6,10 @@ import { companyTone, fmtDate, planLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function OnboardingPage() {
+type Prefill = { company?: string; adminEmail?: string; targetId?: string };
+
+export default async function OnboardingPage({ searchParams }: { searchParams: Promise<Prefill> }) {
+  const prefill = await searchParams;
   const rows = await listOnboarded();
 
   return (
@@ -24,7 +27,8 @@ export default async function OnboardingPage() {
         <StatCard label="Credentials sent" value={rows.filter((r) => r.credentialsSentAt).length} />
       </div>
 
-      <OnboardForm />
+      {/* Keyed so arriving from a different target re-seeds the form. */}
+      <OnboardForm key={prefill.targetId ?? "blank"} initial={prefill} />
 
       <div className="hair-card overflow-hidden">
         <div className="overflow-x-auto">
