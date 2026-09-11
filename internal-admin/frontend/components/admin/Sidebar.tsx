@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Building2, CircleDollarSign, Crosshair, LayoutDashboard, LibraryBig, LogOut, MonitorPlay, Radar, Rocket,
   UserPlus, type LucideIcon,
 } from "lucide-react";
+import { signOut } from "@/app/login/actions";
 
 /**
  * The admin's left rail.
@@ -18,6 +19,12 @@ import {
  */
 
 type Item = { href: string; label: string; icon: LucideIcon };
+
+/** "Chandan Giri" → "CG"; a single name → its first two letters. */
+function initials(name: string): string {
+  const w = name.trim().split(/\s+/).filter(Boolean);
+  return ((w[0]?.[0] ?? "?") + (w[1]?.[0] ?? w[0]?.[1] ?? "")).toUpperCase();
+}
 
 const SECTIONS: { title: string | null; items: Item[] }[] = [
   { title: null, items: [{ href: "/admin", label: "Overview", icon: LayoutDashboard }] },
@@ -41,9 +48,8 @@ const SECTIONS: { title: string | null; items: Item[] }[] = [
   },
 ];
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: { name: string; email: string; role: string; root: boolean } }) {
   const path = usePathname();
-  const router = useRouter();
   const isActive = (href: string) => (href === "/admin" ? path === "/admin" : path.startsWith(href));
 
   return (
@@ -100,20 +106,27 @@ export function Sidebar() {
 
       <div className="border-t border-hair p-3">
         <div className="flex items-center gap-3 rounded-xl px-2.5 py-2">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-bold text-accent">DS</div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">Disha Sahu</div>
-            <div className="truncate text-xs text-dim">Mindfries Ops · Admin</div>
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-bold text-accent">
+            {initials(user.name)}
           </div>
-          <button
-            type="button"
-            onClick={() => router.push("/login")}
-            title="Sign out"
-            aria-label="Sign out"
-            className="grid h-8 w-8 place-items-center rounded-lg text-dim transition hover:bg-black/[0.05] hover:text-ink"
-          >
-            <LogOut size={16} strokeWidth={2.1} />
-          </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">{user.name}</div>
+            <div className="truncate text-xs text-dim" title={user.email}>
+              {user.email}
+            </div>
+          </div>
+          {/* A real sign-out: the server clears the cookie. Navigating to
+              /login on its own would leave the session valid. */}
+          <form action={signOut}>
+            <button
+              type="submit"
+              title="Sign out"
+              aria-label="Sign out"
+              className="grid h-8 w-8 place-items-center rounded-lg text-dim transition hover:bg-black/[0.05] hover:text-ink"
+            >
+              <LogOut size={16} strokeWidth={2.1} />
+            </button>
+          </form>
         </div>
       </div>
     </aside>

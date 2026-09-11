@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate": "tsx scripts/migrate.mts"
+    "migrate": "tsx scripts/migrate.mts",
+    "admin": "tsx scripts/admin.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
@@ -15,7 +16,8 @@
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "resend": "^6.26.0"
+    "resend": "^6.26.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
