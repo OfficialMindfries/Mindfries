@@ -127,8 +127,6 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
         log it here so the whole team can see where every deal stands.
       </PageHeader>
 
-      <StorageNotice mode={store.mode} />
-
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <StatCard label="Being worked" value={targets.filter((t) => ACTIVE.includes(t.stage)).length} hint={`${stageCounts.nurture} nurturing`} />
         {/* The two cards worth acting on are links straight to that view. */}
@@ -153,31 +151,6 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
         stageCounts={stageCounts}
         query={params}
       />
-    </div>
-  );
-}
-
-/** Where the list lives, and the one thing that isn't safe yet. */
-function StorageNotice({ mode }: { mode: "supabase" | "file" }) {
-  return (
-    <div className="hair-card border-l-4 border-l-[#d97706] p-4 text-sm">
-      {mode === "file" ? (
-        <>
-          <div className="font-semibold text-[#b45309]">Saved on this machine only</div>
-          <div className="mt-1 text-dim">
-            Targets are in <span className="mono">internal-admin/frontend/.data/targets.json</span>. To share one
-            list across the team, set <span className="mono">SUPABASE_URL</span> /{" "}
-            <span className="mono">SUPABASE_SERVICE_ROLE_KEY</span> and apply{" "}
-            <span className="mono">supabase/migrations/0003_targets.sql</span>.
-          </div>
-        </>
-      ) : (
-        <div className="font-semibold text-[#b45309]">Shared with the team through Supabase</div>
-      )}
-      <div className="mt-2 text-dim">
-        <strong className="font-semibold text-ink">No login protects this panel yet.</strong> It holds real
-        people&apos;s contact details — keep it local, and don&apos;t deploy it until sign-in is in place.
-      </div>
     </div>
   );
 }
