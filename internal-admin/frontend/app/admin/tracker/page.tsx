@@ -1,7 +1,6 @@
 import { listLeads } from "@/lib/db";
 import { PageHeader, Pill, StatCard, Chip } from "@/components/ui";
 import { LeadActions } from "@/components/admin/LeadActions";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 import { fmtDate, leadStageLabel, leadStageTone } from "@/lib/format";
 import { targetsStore } from "@/lib/targets-store";
 import { companyKey } from "@/lib/targets-rules";
@@ -22,12 +21,7 @@ export default async function TrackerPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Outbound Growth" title="Company Tracker">
-        Companies the daily crawler found hiring engineers — your ICP — ranked by fit. Email a fixed demo template
-        (details auto-filled), move them to POC, and track replies through to onboarding.
-      </PageHeader>
-
-      <SetupBanner needsEmail />
+      <PageHeader eyebrow="Outbound Growth" title="Company Tracker" />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <StatCard label="Found" value={leads.length} />
