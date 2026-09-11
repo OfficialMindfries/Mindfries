@@ -1,4 +1,5 @@
 import { ArrowRight, Check, Video } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
 import { setupSteps } from "@/lib/dashboard/data";
 
@@ -80,13 +81,10 @@ export function SetupCard() {
           <h2 className="text-sm font-semibold text-[#0A1931]">{copy.title}</h2>
           <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#4A7FA7]">{copy.body}</p>
         </div>
-        <button
-          type="button"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#1A3D63] px-4 py-2.5 text-[13px] font-medium text-[#F6FAFD] transition-opacity hover:opacity-90"
-        >
+        <Button type="button" size="sm" className="shrink-0">
           {copy.cta}
           <ArrowRight size={14} />
-        </button>
+        </Button>
       </div>
     </section>
   );

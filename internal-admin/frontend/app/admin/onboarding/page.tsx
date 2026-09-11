@@ -1,36 +1,53 @@
 import { listOnboarded } from "@/lib/db";
-import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { CircleCheck, KeyRound, Rocket } from "lucide-react";
+import { PageHeader, Pill } from "@/components/ui";
+import { MetricCard, MetricGrid, Panel, flat } from "@/components/admin/cards";
+import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { OnboardForm } from "@/components/admin/OnboardForm";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 import { companyTone, fmtDate, planLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function OnboardingPage() {
+type Prefill = { company?: string; adminEmail?: string; targetId?: string };
+
+export default async function OnboardingPage({ searchParams }: { searchParams: Promise<Prefill> }) {
+  const prefill = await searchParams;
   const rows = await listOnboarded();
+  const now = new Date();
+  const active = rows.filter((r) => r.status === "active");
+  const sent = rows.filter((r) => r.credentialsSentAt);
+  const newThisMonth = countWithin(rows.map((r) => r.createdAt), now, 30 * DAY);
 
   return (
-    <div className="space-y-8">
-      <PageHeader eyebrow="Conversion" title="Onboarding">
-        Turn a replied lead into a paying company: issue workspace credentials (emailed to their admin) and record
-        what they cost us. Feeds the Costs view.
-      </PageHeader>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Conversion" title="Onboarding" />
 
-      <SetupBanner needsEmail />
+      <MetricGrid columns={3}>
+        <MetricCard
+          id="onboarded" label="Onboarded" value={rows.length} icon={Rocket} tone="violet"
+          trend={newThisMonth ? { text: `+${newThisMonth} this month`, direction: "up", good: true } : flat("None this month")}
+          series={cumulative(rows.map((r) => r.createdAt), now, 12, WEEK)} seriesLabel="Companies onboarded, running total over the last 12 weeks"
+        />
+        <MetricCard
+          id="active" label="Active" value={active.length} icon={CircleCheck} tone="green"
+          trend={flat(`${rows.length - active.length} paused`)}
+          series={cumulative(active.map((r) => r.createdAt), now, 12, WEEK)} seriesLabel="Active companies, running total over the last 12 weeks"
+        />
+        <MetricCard
+          id="sent" label="Credentials sent" value={sent.length} icon={KeyRound} tone="blue"
+          trend={flat(rows.length === sent.length ? "Every admin has theirs" : `${rows.length - sent.length} not sent`)}
+          series={cumulative(sent.map((r) => r.credentialsSentAt as string), now, 12, WEEK)} seriesLabel="Credentials emailed, running total over the last 12 weeks"
+        />
+      </MetricGrid>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <StatCard label="Onboarded" value={rows.length} />
-        <StatCard label="Active" value={rows.filter((r) => r.status === "active").length} />
-        <StatCard label="Credentials sent" value={rows.filter((r) => r.credentialsSentAt).length} />
-      </div>
+      {/* Keyed so arriving from a different target re-seeds the form. */}
+      <OnboardForm key={prefill.targetId ?? "blank"} initial={prefill} />
 
-      <OnboardForm />
-
-      <div className="hair-card overflow-hidden">
+      <Panel title="Onboarded companies" count={`${rows.length} total`} subtitle="Every company given a workspace, and whether its admin has their sign-in.">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
+              <tr className="border-b border-hair bg-[#fafafc] text-left text-[13px] font-semibold text-ink">
                 <th className="px-5 py-3 font-semibold">Company</th>
                 <th className="px-5 py-3 font-semibold">Admin</th>
                 <th className="px-5 py-3 font-semibold">Plan</th>
@@ -60,7 +77,7 @@ export default async function OnboardingPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

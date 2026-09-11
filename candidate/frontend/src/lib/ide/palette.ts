@@ -19,6 +19,12 @@ export function idePalette(theme: IdeTheme) {
     ? {
         appBg: "bg-[#1A3D63]",
         panelBg: "bg-[#0A1931]",
+        // The gaps between the workspace's cards. Most cards are NAVY_950,
+        // and a canvas in that same colour let them melt into it, leaving
+        // only a hairline border to separate them. This sits exactly halfway
+        // between NAVY_950 and NAVY_800 — a step lighter than the cards, so the
+        // gaps read as gaps, without jumping all the way to NAVY_800.
+        canvas: "bg-[#122B4A]",
         border: "border-[#1A3D63]",
         text: "text-[#F6FAFD]",
         textMuted: "text-[#B3CFE5]/70",
@@ -37,6 +43,7 @@ export function idePalette(theme: IdeTheme) {
     : {
         appBg: "bg-[#F6FAFD]",
         panelBg: "bg-[#B3CFE5]/20",
+        canvas: "bg-[#B3CFE5]/20",
         border: "border-[#B3CFE5]",
         text: "text-[#0A1931]",
         textMuted: "text-[#4A7FA7]",

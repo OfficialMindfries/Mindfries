@@ -2,9 +2,15 @@
 
 import { useState, useTransition } from "react";
 import type { GameTemplate, RubricCriterion, TaskVariant } from "@/lib/types";
-import { Button, Chip, Field, Input, Modal, PageHeader, Pill, Select, StatCard, Textarea } from "@/components/ui";
+import { Box, CircleCheck, PencilLine } from "lucide-react";
+import { Button, Chip, Field, Input, Modal, PageHeader, Pill, Select, Textarea } from "@/components/ui";
+import { MetricCard, MetricGrid, flat } from "@/components/admin/cards";
+import { SampleBadge } from "@/components/admin/SampleBadge";
+import { VARIANT } from "@/components/admin/visuals";
+import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { fmtDate, taskVariantLabel } from "@/lib/format";
 import { createGameTemplate, toggleTemplateStatus } from "@/app/admin/actions";
+import { toast } from "@/components/admin/toast";
 
 const variantTone: Record<TaskVariant, "violet" | "coral" | "amber" | "green"> = {
   bug_fix: "coral",
@@ -20,11 +26,15 @@ const defaultRubric = (): RubricCriterion[] => [
   { id: crypto.randomUUID(), label: "AI usage", weight: 20 },
 ];
 
-export function LibraryView({ initial }: { initial: GameTemplate[] }) {
+/**
+ * `asOf` is decided on the server and passed in, so the server render and the
+ * browser draw the same graphs; `sample` says the rows are fixtures.
+ */
+export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplate[]; asOfIso: string; sample: boolean }) {
+  const asOf = new Date(asOfIso);
   const [rows, setRows] = useState<GameTemplate[]>(initial);
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
 
   // author form
   const [name, setName] = useState("");
@@ -58,10 +68,10 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
       rubric,
       status: (publishNow ? "published" : "draft") as GameTemplate["status"],
     };
-    setErr(null);
     start(async () => {
       const res = await createGameTemplate(input);
-      if (!res.ok) { setErr(res.error); return; }
+      if (!res.ok) { toast.error("Couldn't save the game", res.error); return; }
+      toast.success(input.status === "published" ? "Published to the library" : "Draft saved", input.name);
       // optimistic — the persisted row also arrives on next server render
       setRows((r) => [{ ...input, id: crypto.randomUUID(), usedByCompanies: 0, createdAt: new Date().toISOString().slice(0, 10) }, ...r]);
       reset();
@@ -78,21 +88,31 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
   const published = rows.filter((t) => t.status === "published").length;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Assessment / Game Library"
         title="Game Library"
-        action={<Button onClick={() => setOpen(true)}>+ Author game</Button>}
-      >
-        Mindfries centrally authors the base repository templates, task variants, interviewer prompts, and default
-        rubrics that every company picks from. Published games appear to candidates in the candidate app.
-      </PageHeader>
+        action={
+          <div className="flex items-center gap-3">
+            {sample && <SampleBadge asOf={asOf} />}
+            <Button onClick={() => setOpen(true)}>+ Author game</Button>
+          </div>
+        }
+      />
 
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Total games" value={rows.length} />
-        <StatCard label="Published" value={published} />
-        <StatCard label="Draft" value={rows.length - published} />
-      </div>
+      <MetricGrid columns={3}>
+        <MetricCard
+          id="games" label="Total games" value={rows.length} icon={Box} tone="violet"
+          trend={flat(`${rows.filter((t) => t.usedByCompanies > 0).length} in use`)}
+          series={cumulative(rows.map((t) => t.createdAt), asOf, 12, WEEK)} seriesLabel="Games, running total over the last 12 weeks"
+        />
+        <MetricCard
+          id="published" label="Published" value={published} icon={CircleCheck} tone="green"
+          trend={(() => { const n = countWithin(rows.filter((t) => t.status === "published").map((t) => t.createdAt), asOf, 30 * DAY); return n ? { text: `+${n} this month`, direction: "up" as const, good: true } : flat("None new this month"); })()}
+          series={cumulative(rows.filter((t) => t.status === "published").map((t) => t.createdAt), asOf, 12, WEEK)} seriesLabel="Published games, running total over the last 12 weeks"
+        />
+        <MetricCard id="draft" label="Draft" value={rows.length - published} icon={PencilLine} tone="amber" trend={flat("Not yet visible to candidates")} />
+      </MetricGrid>
 
       {rows.length === 0 && (
         <div className="hair-card p-8 text-center text-sm text-dim">
@@ -100,11 +120,16 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
         </div>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         {rows.map((t) => (
           <div key={t.id} className="hair-card flex flex-col p-5">
             <div className="flex items-start justify-between gap-3">
-              <div>
+              {(() => { const V = VARIANT[t.taskVariant].icon; return (
+                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${VARIANT[t.taskVariant].tile}`}>
+                  <V size={20} strokeWidth={2.1} aria-hidden />
+                </span>
+              ); })()}
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Pill tone={variantTone[t.taskVariant]}>{taskVariantLabel[t.taskVariant]}</Pill>
                   <Pill tone={t.status === "published" ? "green" : "gray"}>{t.status}</Pill>
@@ -154,7 +179,6 @@ export function LibraryView({ initial }: { initial: GameTemplate[] }) {
         }
       >
         <div className="space-y-4">
-          {err && <div className="rounded-lg bg-[#f4502f]/10 px-3 py-2 text-sm text-[#f4502f]">{err}</div>}
           <Field label="Game name">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Auth Bug Hunt" />
           </Field>

@@ -7,6 +7,7 @@ import {
   setSessionState, setTemplateStatus,
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
+import { targetsStore } from "@/lib/targets-store";
 import type { EmailTemplate } from "@/lib/email-templates";
 import type { LeadStage, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
 
@@ -43,7 +44,7 @@ export async function changeLeadStage(leadId: string, stage: LeadStage): Promise
 // Onboard a company as a user: generate a temp password, email the credentials,
 // store the record (never the password), and mark the source lead onboarded.
 export async function onboardCompany(input: {
-  leadId?: string; company: string; adminEmail: string; plan: Plan; monthlyCost: number;
+  leadId?: string; company: string; adminEmail: string; plan: Plan; monthlyCost: number; targetId?: string;
 }): Promise<Result> {
   try {
     if (!input.company.trim() || !input.adminEmail.trim()) throw new Error("Company and admin email are required");
@@ -67,6 +68,22 @@ Please change your password after first login. Reply to this email if you need a
       leadId: input.leadId, company: input.company, adminEmail: input.adminEmail,
       plan: input.plan, monthlyCost: input.monthlyCost,
     });
+    // Came from a target: close the loop so it doesn't sit in "Pilot" forever.
+    // Only after the email and the record both succeeded — a failed onboarding
+    // must not mark anything won. A note, not a touch: it isn't contact with them.
+    if (typeof input.targetId === "string" && input.targetId) {
+      const store = targetsStore();
+      if (await store.getTarget(input.targetId)) {
+        await store.updateTarget(input.targetId, { stage: "won", nextAction: null, nextActionDue: null });
+        await store.insertActivity({
+          targetId: input.targetId, contactId: null, channel: "note", direction: null, outcome: null,
+          summary: `Onboarded on the ${input.plan} plan — credentials sent to ${input.adminEmail}.`,
+          happenedAt: new Date().toISOString(), by: null,
+        });
+        revalidatePath("/admin/targets");
+        revalidatePath(`/admin/targets/${input.targetId}`);
+      }
+    }
     revalidatePath("/admin/onboarding");
     revalidatePath("/admin/costs");
     revalidatePath("/admin/tracker");

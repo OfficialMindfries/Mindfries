@@ -3,17 +3,19 @@
 import { useEffect, type ReactNode } from "react";
 import type { Tone } from "@/lib/format";
 
+// Soft bordered pills — the same look as SoftPill in components/admin/cards,
+// so a status reads the same on every admin page.
 const toneClass: Record<Tone, string> = {
-  violet: "bg-accent-soft text-accent",
-  coral: "bg-[#f4502f]/12 text-[#f4502f]",
-  green: "bg-[#15a34a]/12 text-[#15a34a]",
-  amber: "bg-[#d97706]/12 text-[#b45309]",
-  gray: "bg-black/[0.06] text-dim",
+  violet: "border-[#d9cdfa] bg-[#f4f0ff] text-[#6d3fe0]",
+  coral: "border-[#fbd0d4] bg-[#fff1f2] text-[#d93a44]",
+  green: "border-[#c5ecd5] bg-[#effbf4] text-[#1b8f4e]",
+  amber: "border-[#f3dca6] bg-[#fff8e8] text-[#b7791f]",
+  gray: "border-hair bg-surface-2 text-dim",
 };
 
 export function Pill({ tone = "gray", children, dot = false }: { tone?: Tone; children: ReactNode; dot?: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${toneClass[tone]}`}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${toneClass[tone]}`}>
       {dot && <span className={`h-1.5 w-1.5 rounded-full bg-current ${tone === "violet" ? "pulse-dot" : ""}`} />}
       {children}
     </span>
@@ -45,18 +47,36 @@ export function PageHeader({ eyebrow, title, children, action }: { eyebrow: stri
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "ghost" | "soft" | "danger";
+  size?: "sm" | "md";
 };
-export function Button({ variant = "primary", className = "", ...p }: ButtonProps) {
-  const v = {
-    primary: "bg-accent text-white hover:brightness-110",
-    danger: "bg-accent-2 text-white hover:brightness-110",
-    soft: "bg-accent-soft text-accent hover:brightness-105",
-    ghost: "border border-hair bg-surface text-ink hover:border-hair-bright",
-  }[variant];
+
+/**
+ * The fill-from-the-left button.
+ *
+ * The mechanic (the ::before that grows to 100% on hover) is one class in
+ * globals.css, because a pseudo-element can't be styled from the style
+ * attribute. Everything that differs between variants — the resting colour,
+ * the colour that sweeps in, and the text colour on either side — is set
+ * inline here as custom properties, so this file is the only place to look to
+ * know what a variant looks like.
+ */
+const TONES: Record<NonNullable<ButtonProps["variant"]>, React.CSSProperties> = {
+  // The primary action stays violet at rest and deepens as the fill arrives,
+  // so it still reads as the main thing on the page before anyone hovers it.
+  primary: { "--btn-bg": "var(--color-accent)", "--btn-fg": "#ffffff", "--btn-fill": "#3b1d8f", "--btn-fg-hover": "#ffffff" },
+  danger: { "--btn-bg": "var(--color-accent-2)", "--btn-fg": "#ffffff", "--btn-fill": "#a62c14", "--btn-fg-hover": "#ffffff" },
+  // Light at rest, violet on the way in — the supplied design, in our palette.
+  soft: { "--btn-bg": "#efeafd", "--btn-fg": "#5b21b6", "--btn-fill": "var(--color-accent)", "--btn-fg-hover": "#ffffff" },
+  ghost: { "--btn-bg": "#f0f0f4", "--btn-fg": "var(--color-ink)", "--btn-fill": "var(--color-ink)", "--btn-fg-hover": "#f4f4f7" },
+} as Record<NonNullable<ButtonProps["variant"]>, React.CSSProperties>;
+
+export function Button({ variant = "primary", size = "md", className = "", style, ...p }: ButtonProps) {
+  const pad = size === "sm" ? "px-4 py-2 text-[13px]" : "px-6 py-3 text-[15px]";
   return (
     <button
       {...p}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ${v} ${className}`}
+      style={{ ...TONES[variant], ...style }}
+      className={`btn-wipe inline-flex items-center justify-center gap-2 font-extrabold ${pad} ${className}`}
     />
   );
 }

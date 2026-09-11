@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, AlertTriangle, ArrowRight, ArrowLeft, RefreshCcw } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
 
 type CheckStatus = "idle" | "requesting" | "ok" | "denied" | "unavailable";
@@ -179,24 +180,14 @@ export function DeviceCheckStep({ onBack, onContinue }: DeviceCheckStepProps) {
 
       {/* Navigation */}
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-[#4A7FA7] transition-colors hover:bg-[#B3CFE5]/30 hover:text-[#1A3D63]"
-        >
+        <Button tone="ghost" type="button" onClick={onBack}>
           <ArrowLeft size={15} />
           Back
-        </button>
-        <button
-          id="device-check-continue"
-          type="button"
-          disabled={!isOk}
-          onClick={onContinue}
-          className="flex items-center gap-2 rounded-lg bg-[#1A3D63] px-5 py-2.5 text-sm font-medium text-[#F6FAFD] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        </Button>
+        <Button id="device-check-continue" type="button" disabled={!isOk} onClick={onContinue}>
           Continue
           <ArrowRight size={15} />
-        </button>
+        </Button>
       </div>
     </div>
   );

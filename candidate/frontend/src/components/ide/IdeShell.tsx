@@ -418,7 +418,7 @@ export function IdeShell() {
   // its own (sharp-cornered) internal content is clipped to the card's
   // rounded shape instead of poking out past the corners.
   return (
-    <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.panelBg, palette.text)}>
+    <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.canvas, palette.text)}>
       <HeaderPanel
         theme={theme}
         assessmentName="Frontend Engineering — Auth Bug Fix"

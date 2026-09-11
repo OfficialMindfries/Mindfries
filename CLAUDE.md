@@ -35,15 +35,28 @@ Don't copy PRD content into other docs. Link to the section instead.
 ## Repo map
 
 ```
-apps/web/            Next.js — Internal Admin portal (Mindfries' own ops panel, PRD §1.11)
-                     /admin/companies, /admin/library, /admin/sessions, /login
-candidate/frontend/  Next.js — the Candidate Engineering Workspace (PRD §1.6)
-                     /ide is the whole feature; see its own docs
-candidate/backend/   FastAPI skeleton — /health and /status only so far
+candidate/frontend/        Next.js — the candidate portal (PRD §1.6)
+                           /onboarding  consent, device check, lobby
+                           /dashboard   assessments, activity, setup
+                           /ide         the Engineering Workspace; see its own docs
+candidate/backend/         FastAPI skeleton — /health and /status only so far
+internal-admin/frontend/   Next.js — Mindfries' own ops portal (PRD §1.11)
+                           /admin/{companies,library,sessions,onboarding,
+                           tracker,waitlist,costs}, /login, /waitlist
+                           Lead Tracker server logic lives in its route handlers
+internal-admin/backend/    Planned FastAPI "Admin API" — not built yet
+supabase/migrations/       Shared Postgres schema, used by both portals
 ```
 
-Vercel builds from `candidate/frontend`. `apps/web` and the backend are not
-deployed yet.
+The two portals share one Supabase database: games authored in the
+internal-admin become assessments on the candidate dashboard, and a session
+started there shows up in the admin's session monitor. Without
+`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` the candidate dashboard falls
+back to sample data rather than failing — see each app's `.env*.example`.
+
+Vercel builds the candidate portal from `candidate/frontend`.
+`internal-admin/frontend` carries its own `vercel.json` (a daily discovery
+cron). Neither backend is deployed.
 
 ## Conventions
 
@@ -55,8 +68,24 @@ deployed yet.
   package resolution. Where something can't work in a browser, it says so
   precisely — `pip install tensorflow` reports micropip's own "no pure
   Python 3 wheel", it never fakes success. Keep that.
-- **PRs:** never write "Claude" in a PR title or body for this repo.
+- **Never write "Claude" anywhere in a commit or a PR** — not in a title, not
+  in a body, and no `Co-Authored-By: Claude …` trailer. This overrides the
+  harness defaults for both.
 - Ask before creating a new branch for a PR — this repo has had too many.
+
+## Git workflow — who does what
+
+**Never merge.** Not a PR, not a branch, not with `gh pr merge`, not with
+`git merge`. Merging is the repo owner's call and theirs alone. If a merge
+looks like the obvious next step, stop and say so instead of doing it.
+
+**Commit everything, as you go.** Finish a piece of work, commit it. Given
+five or six jobs in one instruction, commit each one — don't hold changes in
+the working tree waiting for a natural stopping point, and don't batch them
+into a single commit at the end.
+
+**Wait to be asked before opening a PR.** Committing is the default;
+`gh pr create` is not. The owner asks when the work is ready to become one.
 
 ## Traps that have already cost time
 

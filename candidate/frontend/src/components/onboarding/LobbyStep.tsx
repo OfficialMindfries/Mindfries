@@ -1,7 +1,7 @@
 "use client";
 
 import { Clock, Terminal, Bot, GitBranch, ArrowLeft, ArrowRight } from "lucide-react";
-import clsx from "clsx";
+import { Button } from "@/components/ui/Button";
 
 // Mock assessment data — replaced by real data from the database once backend is wired
 const ASSESSMENT = {
@@ -103,28 +103,23 @@ export function LobbyStep({ onBack, onEnter, pending }: LobbyStepProps) {
 
       {/* Navigation */}
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={pending}
-          className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-[#4A7FA7] transition-colors hover:bg-[#B3CFE5]/30 hover:text-[#1A3D63] disabled:opacity-50"
-        >
+        <Button tone="ghost" type="button" onClick={onBack} disabled={pending}>
           <ArrowLeft size={15} />
           Back
-        </button>
-        <button
+        </Button>
+        {/* The one button that costs something to press — the timer starts
+            here — so it gets the largest size on the flow. */}
+        <Button
           id="enter-workspace"
           type="button"
+          size="lg"
           onClick={onEnter}
           disabled={pending}
-          className={clsx(
-            "flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-semibold text-[#F6FAFD] transition-opacity disabled:opacity-60",
-            pending ? "bg-[#4A7FA7]" : "bg-[#1A3D63] hover:opacity-90"
-          )}
+          style={pending ? { "--btn-bg": "#4A7FA7" } as React.CSSProperties : undefined}
         >
           {pending ? "Starting…" : "Enter Workspace"}
           {!pending && <ArrowRight size={15} />}
-        </button>
+        </Button>
       </div>
     </div>
   );

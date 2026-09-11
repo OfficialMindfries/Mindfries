@@ -1,41 +1,59 @@
 import { listLeads } from "@/lib/db";
-import { PageHeader, Pill, StatCard, Chip } from "@/components/ui";
+import { Percent, Radar, Reply, Rocket, Send } from "lucide-react";
+import { PageHeader, Pill, Chip } from "@/components/ui";
+import { MetricCard, MetricGrid, Panel, flat } from "@/components/admin/cards";
+import { countWithin, DAY, perBucket, WEEK } from "@/lib/overview";
 import { LeadActions } from "@/components/admin/LeadActions";
-import { SetupBanner } from "@/components/admin/SetupBanner";
 import { fmtDate, leadStageLabel, leadStageTone } from "@/lib/format";
+import { targetsStore } from "@/lib/targets-store";
+import { companyKey } from "@/lib/targets-rules";
 
 export const dynamic = "force-dynamic";
 
 export default async function TrackerPage() {
-  const leads = await listLeads();
+  const [leads, targets] = await Promise.all([listLeads(), targetsStore().listTargets()]);
+  // A lead is "already a target" if a target links to it, or is the same
+  // company by name — so the button opens it instead of offering a duplicate.
+  const targetFor = (leadId: string, company: string) =>
+    targets.find((t) => t.leadId === leadId)?.id ?? targets.find((t) => companyKey(t.name) === companyKey(company))?.id;
 
   const emailed = leads.filter((l) => l.stage !== "new").length;
   const replied = leads.filter((l) => l.repliedCount! > 0 || ["replied", "demo", "poc", "onboarded"].includes(l.stage)).length;
   const onboarded = leads.filter((l) => l.stage === "onboarded").length;
   const replyRate = emailed ? Math.round((replied / emailed) * 100) : 0;
 
+  // Real data, measured from now. The crawler runs daily, so activity is
+  // shown per day over the last two weeks.
+  const now = new Date();
+  const foundThisWeek = countWithin(leads.map((l) => l.createdAt), now, WEEK);
+  const emailDates = leads.map((l) => l.lastEmailedAt).filter((d): d is string => !!d);
+  const emailedThisWeek = countWithin(emailDates, now, WEEK);
+
   return (
-    <div className="space-y-8">
-      <PageHeader eyebrow="Outbound Growth" title="Company Tracker">
-        Companies the daily crawler found hiring engineers — your ICP — ranked by fit. Email a fixed demo template
-        (details auto-filled), move them to POC, and track replies through to onboarding.
-      </PageHeader>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Outbound Growth" title="Company Tracker" />
 
-      <SetupBanner needsEmail />
+      <MetricGrid columns={5}>
+        <MetricCard
+          id="found" label="Found" value={leads.length} icon={Radar} tone="violet"
+          trend={foundThisWeek ? { text: `+${foundThisWeek} this week`, direction: "up", good: true } : flat("None this week")}
+          series={perBucket(leads.map((l) => l.createdAt), now, 14, DAY)} seriesLabel="Companies found per day, last 14 days"
+        />
+        <MetricCard
+          id="emailed" label="Emailed" value={emailed} icon={Send} tone="blue"
+          trend={emailedThisWeek ? { text: `${emailedThisWeek} this week`, direction: "up", good: true } : flat("None this week")}
+          series={perBucket(emailDates, now, 14, DAY)} seriesLabel="Companies emailed per day, last 14 days"
+        />
+        <MetricCard id="replied" label="Replied" value={replied} icon={Reply} tone="green" trend={flat(`of ${emailed} emailed`)} />
+        <MetricCard id="rate" label="Reply rate" value={`${replyRate}%`} icon={Percent} tone="teal" trend={flat(emailed ? "of companies emailed" : "Nothing sent yet")} />
+        <MetricCard id="onboarded" label="Onboarded" value={onboarded} icon={Rocket} tone="amber" trend={flat("won from the tracker")} />
+      </MetricGrid>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <StatCard label="Found" value={leads.length} />
-        <StatCard label="Emailed" value={emailed} />
-        <StatCard label="Replied" value={replied} />
-        <StatCard label="Reply rate" value={`${replyRate}%`} />
-        <StatCard label="Onboarded" value={onboarded} />
-      </div>
-
-      <div className="hair-card overflow-hidden">
+      <Panel title="Companies found" count={`${leads.length} total`} subtitle="Hiring engineers right now, ranked by how well they fit.">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
+              <tr className="border-b border-hair bg-[#fafafc] text-left text-[13px] font-semibold text-ink">
                 <th className="px-5 py-3 font-semibold">Score</th>
                 <th className="px-5 py-3 font-semibold">Company</th>
                 <th className="px-5 py-3 font-semibold">Hiring for</th>
@@ -76,7 +94,7 @@ export default async function TrackerPage() {
                   </td>
                   <td className="px-5 py-4 text-dim">{fmtDate(l.createdAt)}</td>
                   <td className="px-5 py-4">
-                    <LeadActions lead={l} />
+                    <LeadActions lead={l} targetId={targetFor(l.id, l.company)} />
                   </td>
                 </tr>
               ))}
@@ -91,7 +109,7 @@ export default async function TrackerPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

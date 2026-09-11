@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Targets panel's local store, used until Supabase is configured — holds real
+# people's contact details, so it must never be committed.
+/.data/

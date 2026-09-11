@@ -2,14 +2,22 @@
 
 import { useState, useTransition } from "react";
 import type { Session } from "@/lib/types";
-import { PageHeader, Pill, StatCard } from "@/components/ui";
+import { MonitorPlay, Radio, TriangleAlert } from "lucide-react";
+import { PageHeader, Pill } from "@/components/ui";
+import { MetricCard, MetricGrid, Panel, flat } from "@/components/admin/cards";
+import { SampleBadge } from "@/components/admin/SampleBadge";
+import { DAY, HOUR, perBucket } from "@/lib/overview";
+import { todayIn } from "@/lib/targets-rules";
+import { TEAM_TZ } from "@/lib/team-time";
 import { healthTone, sessionTone } from "@/lib/format";
 import { resetSession, retriggerEval } from "@/app/admin/actions";
 
 type Filter = "all" | "live" | "attention";
 const needsAttention = (s: Session) => s.status === "stuck" || s.status === "failed";
 
-export function SessionsView({ initial }: { initial: Session[] }) {
+/** `asOf` comes from the server so the server render and the browser draw the same graphs. */
+export function SessionsView({ initial, asOfIso, sample }: { initial: Session[]; asOfIso: string; sample: boolean }) {
+  const asOf = new Date(asOfIso);
   const [rows, setRows] = useState<Session[]>(initial);
   const [filter, setFilter] = useState<Filter>("all");
   const [pending, start] = useTransition();
@@ -34,37 +42,51 @@ export function SessionsView({ initial }: { initial: Session[] }) {
   ];
 
   return (
-    <div className="space-y-8">
-      <PageHeader eyebrow="Global Session Monitor" title="Sessions">
-        Every candidate assessment across all companies, live and past — written by the candidate app as sessions run.
-        Reset a stuck sandbox or re-trigger evaluation as a support action.
-      </PageHeader>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Global Session Monitor" title="Sessions" action={sample ? <SampleBadge asOf={asOf} /> : undefined} />
 
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Total sessions" value={rows.length} />
-        <StatCard label="Live now" value={live} />
-        <StatCard label="Needs attention" value={attention} />
-      </div>
+      <MetricGrid columns={3}>
+        <MetricCard
+          id="total" label="Total sessions" value={rows.length} icon={MonitorPlay} tone="violet"
+          trend={flat(`${rows.filter((s) => s.status === "completed" || s.status === "submitted").length} finished`)}
+          series={perBucket(rows.map((s) => s.startedAt), asOf, 14, DAY)} seriesLabel="Sessions started per day, last 14 days"
+        />
+        <MetricCard
+          id="live" label="Live now" value={live} icon={Radio} tone="blue"
+          trend={(() => { const today = todayIn(TEAM_TZ, asOf); const n = rows.filter((s) => todayIn(TEAM_TZ, new Date(s.startedAt)) === today).length; return n ? { text: `${n} started today`, direction: "up" as const, good: true } : flat("None started today"); })()}
+          series={perBucket(rows.map((s) => s.startedAt), asOf, 12, HOUR)} seriesLabel="Sessions started per hour, last 12 hours"
+        />
+        <MetricCard
+          id="attention" label="Needs attention" value={attention} icon={TriangleAlert} tone="red"
+          trend={attention ? { text: "stuck or failed", direction: "up", good: false } : flat("All clear")}
+        />
+      </MetricGrid>
 
-      <div className="flex gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setFilter(t.key)}
-            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-              filter === t.key ? "bg-accent text-white" : "border border-hair bg-surface text-dim hover:text-ink"
-            }`}
-          >
-            {t.label} <span className="mono opacity-70">{t.count}</span>
-          </button>
-        ))}
-      </div>
 
-      <div className="hair-card overflow-hidden">
+      <Panel
+        title="Every session"
+        count={`${rows.length} total`}
+        subtitle="Across all companies, live and past."
+        action={
+          <div className="flex gap-1.5">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setFilter(t.key)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${
+                  filter === t.key ? "bg-accent text-white" : "border border-hair bg-surface text-dim hover:text-ink"
+                }`}
+              >
+                {t.label} <span className="mono opacity-70">{t.count}</span>
+              </button>
+            ))}
+          </div>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
+              <tr className="border-b border-hair bg-[#fafafc] text-left text-[13px] font-semibold text-ink">
                 <th className="px-5 py-3 font-semibold">Candidate</th>
                 <th className="px-5 py-3 font-semibold">Company</th>
                 <th className="px-5 py-3 font-semibold">Game</th>
@@ -119,7 +141,7 @@ export function SessionsView({ initial }: { initial: Session[] }) {
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

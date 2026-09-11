@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import clsx from "clsx";
 import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { assessments as sample, statusLabels, type Assessment } from "@/lib/dashboard/data";
 import { hand } from "@/lib/dashboard/fonts";
 import { startAssessment } from "@/app/dashboard/actions";
@@ -107,21 +108,26 @@ function AssessmentNote({
         <span className="text-xs text-[#1A3D63]">{assessment.due}</span>
 
         {status === "invited" && (
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={onStart}
             disabled={pending}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#0A1931] px-3 py-1.5 text-[12.5px] font-medium text-[#F6FAFD] transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="shrink-0"
+            style={{ "--btn-bg": "#0A1931" } as React.CSSProperties}
           >
             {pending ? "Starting…" : "Start"}
             {!pending && <ArrowRight size={13} />}
-          </button>
+          </Button>
         )}
 
+        {/* A plain <a>, not a Link: entering the workspace is a full page load
+            on purpose, so the IDE starts from a clean slate. */}
         {status === "in-progress" && (
           <a
             href="/ide"
-            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#0A1931] px-3 py-1.5 text-[12.5px] font-medium text-[#F6FAFD] transition-opacity hover:opacity-90"
+            className="btn-wipe inline-flex shrink-0 items-center justify-center gap-1 px-3.5 py-2 text-[12.5px] font-semibold"
+            style={{ "--btn-bg": "#0A1931", "--btn-fg": "#F6FAFD", "--btn-fill": "#4A7FA7", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
           >
             Resume
             <ArrowRight size={13} />
