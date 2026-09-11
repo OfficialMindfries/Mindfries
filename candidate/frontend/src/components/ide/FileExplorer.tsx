@@ -77,7 +77,7 @@ export function FileExplorer({
   };
 
   return (
-    <div className={clsx("flex h-full flex-col text-sm select-none", palette.panelBg, palette.text)}>
+    <div className={clsx("flex h-full min-h-0 flex-col text-sm select-none", palette.panelBg, palette.text)}>
       <div
         className={clsx(
           "flex items-center justify-between border-b px-3 py-2 text-xs font-semibold tracking-wide uppercase",

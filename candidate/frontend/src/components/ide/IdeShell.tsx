@@ -100,6 +100,9 @@ export function IdeShell() {
   const terminal = useResizable({ initial: 220, min: 100, max: 520, axis: "vertical", invert: true });
   const chatPane = useResizable({ initial: 320, min: 240, max: 560, axis: "horizontal", invert: true });
   const [chatOpen, setChatOpen] = useState(false);
+  // Lives here rather than in the Task panel: the Explorer under it is sized
+  // differently depending on whether the brief is open.
+  const [taskCollapsed, setTaskCollapsed] = useState(false);
   // The session is camera-proctored: the gate below blocks the workspace
   // until this is live, and re-blocks if the stream ever stops.
   const camera = useProctorCamera();
@@ -427,8 +430,25 @@ export function IdeShell() {
           style={{ width: sidebar.size }}
           className={clsx("flex shrink-0 flex-col overflow-hidden rounded-xl border", palette.border)}
         >
-          <TaskDescriptionPanel theme={theme} taskMarkdown={MOCK_TASK_MARKDOWN} />
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <TaskDescriptionPanel
+            theme={theme}
+            taskMarkdown={MOCK_TASK_MARKDOWN}
+            collapsed={taskCollapsed}
+            onToggle={() => setTaskCollapsed((prev) => !prev)}
+          />
+          {/* With the brief open, the Explorer is only as tall as its files
+              and the candidate row, up to half the sidebar — so a near-empty
+              workspace leaves the brief almost the whole column, and a big
+              one scrolls its tree instead of pushing the brief away. With the
+              brief collapsed, the Explorer takes everything below its header.
+              Either way the candidate row, and End session in it, stays on
+              screen. */}
+          <div
+            className={clsx(
+              "flex min-h-0 flex-col overflow-hidden",
+              taskCollapsed ? "flex-1" : "max-h-[50%] shrink-0"
+            )}
+          >
             <FileExplorer
               tree={tree}
               activePath={activePath}

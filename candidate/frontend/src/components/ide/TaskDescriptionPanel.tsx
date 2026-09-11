@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import clsx from "clsx";
 import { BookOpen, ChevronDown, ChevronRight } from "lucide-react";
 import { TinyMarkdown } from "./tiny-markdown";
@@ -11,34 +10,49 @@ interface TaskDescriptionPanelProps {
   theme: IdeTheme;
   /** Markdown string describing the assessment task. */
   taskMarkdown: string;
+  /**
+   * Controlled from IdeShell rather than held here, because the Explorer
+   * below sizes itself differently depending on it — see IdeShell's sidebar.
+   */
+  collapsed: boolean;
+  onToggle: () => void;
 }
 
 /**
  * Displays the assessment task instructions (PRD §1.6, left panel → Task
- * Description). Sits above the FileExplorer in the left sidebar, sharing
- * vertical space. The candidate can collapse it once they've read the
- * brief to reclaim the sidebar for the file tree.
+ * Description). Sits above the FileExplorer in the left sidebar.
+ *
+ * Expanded, it takes every pixel the Explorer doesn't need: the Explorer is
+ * only as tall as its files and the candidate row, so with a near-empty
+ * workspace the brief runs almost to the bottom of the sidebar. Collapsed,
+ * it's just its header, and the Explorer takes the rest.
  */
-export function TaskDescriptionPanel({ theme, taskMarkdown }: TaskDescriptionPanelProps) {
+export function TaskDescriptionPanel({
+  theme,
+  taskMarkdown,
+  collapsed,
+  onToggle,
+}: TaskDescriptionPanelProps) {
   const palette = idePalette(theme);
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    // Capped at half the sidebar, with the body as the part that scrolls.
-    //
-    // Without the cap this box was as tall as its text: the body's
-    // `overflow-auto` never had anything to overflow, because its own height
-    // grew to fit the brief, and the sidebar's `overflow-hidden` simply cut
-    // off the rest — so the end of the brief was unreachable. It also pushed
-    // the Explorer below it down to zero height, taking the file tree and the
-    // End session control with it. `min-h-0` is what lets the body shrink
-    // below its content so it can scroll; without it a flex child refuses to
-    // be shorter than what's inside it.
-    <div className={clsx("flex max-h-[50%] min-h-0 shrink-0 flex-col", palette.panelBg, palette.text)}>
+    // `min-h-0` is what lets the body be shorter than the brief and scroll.
+    // Without it a flex child refuses to shrink below its content: the body
+    // grows to the full length of the text, its `overflow-y-auto` never has
+    // anything to overflow, and the sidebar's `overflow-hidden` just cuts the
+    // end of the brief off.
+    <div
+      className={clsx(
+        "flex flex-col",
+        collapsed ? "shrink-0" : "min-h-0 flex-1",
+        palette.panelBg,
+        palette.text
+      )}
+    >
       {/* Header — always visible, doubles as the collapse toggle */}
       <button
         type="button"
-        onClick={() => setCollapsed((prev) => !prev)}
+        onClick={onToggle}
         aria-expanded={!collapsed}
         className={clsx(
           "flex shrink-0 items-center justify-between border-b px-3 py-2 text-xs font-semibold tracking-wide uppercase",
@@ -54,9 +68,24 @@ export function TaskDescriptionPanel({ theme, taskMarkdown }: TaskDescriptionPan
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
       </button>
 
-      {/* Body — scrollable task description, hidden when collapsed */}
+      {/* Body — scrolls, with the scrollbar itself hidden.
+          Hiding the bar removes the one cue that there's more below, so two
+          things stand in for it: the last lines fade out at the bottom edge,
+          and the region is focusable, so the brief can still be scrolled
+          from the keyboard. The extra bottom padding lets the final line
+          clear the fade once you've scrolled all the way down. */}
       {!collapsed && (
-        <div className={clsx("min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3", palette.textMuted)}>
+        <div
+          tabIndex={0}
+          role="region"
+          aria-label="Task brief"
+          className={clsx(
+            "min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-3 pb-8 outline-none",
+            "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            "[mask-image:linear-gradient(to_bottom,black_calc(100%-28px),transparent)]",
+            palette.textMuted
+          )}
+        >
           <TinyMarkdown text={taskMarkdown} />
         </div>
       )}
