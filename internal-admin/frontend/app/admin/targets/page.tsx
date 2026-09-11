@@ -5,6 +5,7 @@ import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { TargetsTable, type TargetRow } from "@/components/admin/targets/TargetsTable";
 import { isMissingTables, targetsStore } from "@/lib/targets-store";
 import { SchemaNotice } from "@/components/admin/targets/SchemaNotice";
+import { initialsOf, tileFor } from "@/components/admin/targets/shared";
 import {
   ACTIVE, CLOSED, ENGAGED, STAGES, dueLabel, isDueToday, isGoingCold, isOverdue, sortForAttention,
   stageLabel, websiteHost,
@@ -31,24 +32,6 @@ const BAR: Record<TargetStage, string> = {
   researching: "bg-[#5b4fd6]", contacted: "bg-[#5b4fd6]", conversation: "bg-[#5b4fd6]", meeting: "bg-[#5b4fd6]",
   demo: "bg-[#5b4fd6]", pilot: "bg-[#5b4fd6]", won: "bg-[#23894a]", lost: "bg-[#e5758a]", nurture: "bg-[#b9b9c6]",
 };
-
-// The logo tile: initials on a colour picked from the name. Deterministic, so
-// a company keeps its colour. Real logos would mean sending every prospect's
-// domain to a third-party favicon service, which isn't worth it for a tile.
-const TILES = [
-  "bg-[#e7f7ec] text-[#23894a]", "bg-[#fde8ef] text-[#c2275a]", "bg-[#e8f1fe] text-[#2f5fc4]",
-  "bg-[#efeafd] text-[#6a45d8]", "bg-[#fff1e3] text-[#c26410]", "bg-[#e3f7f6] text-[#11807a]",
-  "bg-[#fcecea] text-[#c23a2b]", "bg-[#eef0f4] text-[#4b5563]",
-];
-function tileFor(name: string) {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return TILES[h % TILES.length];
-}
-function initialsOf(name: string) {
-  const words = name.replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
-  return ((words[0]?.[0] ?? "?") + (words[1]?.[0] ?? words[0]?.[1] ?? "")).toUpperCase();
-}
 
 const fullDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: TEAM_TZ });
