@@ -1,31 +1,38 @@
 import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
+import { StatNotes } from "@/components/dashboard/StatNotes";
 import { SetupCard } from "@/components/dashboard/SetupCard";
+import { AssessmentNotes } from "@/components/dashboard/AssessmentNotes";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { SideRail } from "@/components/dashboard/SideRail";
 import { candidate } from "@/lib/dashboard/data";
+import { listAvailableAssessments } from "@/lib/db";
+import { supabaseReady } from "@/lib/supabase";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
   description: "Your assessments, sessions and evidence reports.",
 };
 
+// Assessments are read per request from the shared Supabase, so this page
+// can't be prerendered once at build time.
+export const dynamic = "force-dynamic";
+
 /**
  * The candidate's home, outside the workspace.
  *
- * The stat tiles and the assessment carousel have been taken out, to be
- * redesigned as sticky notes. What they drew on is still in place for that:
- *
- * - `listAvailableAssessments()` in `lib/db.ts` — the candidate's real
- *   assessments from the shared Supabase, when it's configured. The page no
- *   longer calls it, so it's static again; re-adding the call means re-adding
- *   `export const dynamic = "force-dynamic"` with it.
- * - `startAssessment` in `app/dashboard/actions.ts` — the only way from here
- *   into `/onboarding`. Until the notes land, nothing on this page reaches it.
- * - `stats` and `assessments` in `lib/dashboard/data.ts` — the sample data
- *   both sections fell back to.
+ * The counters and the assessments are sticky notes, after brainwhite; see
+ * `StickyNote` for why colour carries meaning and the notes never overlap.
+ * Assessments come from the shared Supabase when it's configured, and fall
+ * back to the sample data in `lib/dashboard/data.ts` when it isn't —
+ * everything else on the page is still sample data.
  */
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  // `undefined`, not `[]`, when there's no backend: an empty array means "you
+  // have no assessments", and the notes would say so. Unconfigured isn't the
+  // same as empty, so it gets the sample set instead.
+  const items = supabaseReady() ? await listAvailableAssessments() : undefined;
+
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
       <DashboardNav />
@@ -46,11 +53,16 @@ export default function DashboardPage() {
           </a>
         </div>
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="mt-8">
+          <StatNotes />
+        </div>
+
+        <div className="mt-12 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
           {/* `min-w-0` stops a grid item's default `min-width: auto` from
               letting wide content stretch this column past the viewport. */}
-          <div className="min-w-0 space-y-8">
+          <div className="min-w-0 space-y-10">
             <SetupCard />
+            <AssessmentNotes items={items} />
             <ActivityFeed />
           </div>
           <SideRail />
