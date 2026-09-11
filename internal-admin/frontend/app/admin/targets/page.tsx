@@ -3,7 +3,8 @@ import { PageHeader } from "@/components/ui";
 import { MetricCard, MetricGrid, flat } from "@/components/admin/cards";
 import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { TargetsTable, type TargetRow } from "@/components/admin/targets/TargetsTable";
-import { targetsStore } from "@/lib/targets-store";
+import { isMissingTables, targetsStore } from "@/lib/targets-store";
+import { SchemaNotice } from "@/components/admin/targets/SchemaNotice";
 import {
   ACTIVE, CLOSED, ENGAGED, STAGES, dueLabel, isDueToday, isGoingCold, isOverdue, sortForAttention,
   stageLabel, websiteHost,
@@ -81,7 +82,24 @@ function toRow(t: TargetCompany, today: string): TargetRow {
 export default async function TargetsPage({ searchParams }: { searchParams: Promise<Params> }) {
   const params = await searchParams;
   const store = targetsStore();
-  const [targets, contacts] = await Promise.all([store.listTargets(), store.listContacts()]);
+
+  // A project without the migration applied is a setup problem, not a crash:
+  // say which tables are missing and how to create them. Any other failure is
+  // a real fault and still throws.
+  let targets: TargetCompany[];
+  let contacts: Awaited<ReturnType<typeof store.listContacts>>;
+  try {
+    [targets, contacts] = await Promise.all([store.listTargets(), store.listContacts()]);
+  } catch (e) {
+    if (!isMissingTables(e)) throw e;
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="Account-based outreach" title="Targets" />
+        <SchemaNotice detail={e.message} />
+      </div>
+    );
+  }
+
   const today = teamToday();
 
   const peopleByTarget = new Map<string, string[]>();

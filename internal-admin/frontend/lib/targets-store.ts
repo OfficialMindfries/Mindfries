@@ -49,6 +49,29 @@ export function targetsStore(): TargetsStore {
   return client ? supabaseStore(client) : fileStore;
 }
 
+/**
+ * Supabase is configured, but 0003_targets.sql has never been applied to that
+ * project — so the tables genuinely aren't there.
+ *
+ * This deliberately does NOT fall back to the file store. Falling back would
+ * look like the panel working while every write went to a JSON file on one
+ * machine, invisible to everyone else. Better to say what's missing.
+ */
+export class MissingTablesError extends Error {
+  constructor(readonly table: string) {
+    super(
+      `The Targets tables aren't in this Supabase project yet (public.${table} is missing). ` +
+        `Apply supabase/migrations/0003_targets.sql to the project, then reload.`,
+    );
+    this.name = "MissingTablesError";
+  }
+}
+
+export const isMissingTables = (e: unknown): e is MissingTablesError => e instanceof MissingTablesError;
+
+/** PostgREST's code for "no such table in the schema cache". */
+const NO_SUCH_TABLE = "PGRST205";
+
 // ── Supabase ────────────────────────────────────────────────────────────────
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -90,53 +113,58 @@ const fromActivity = (r: any): TargetActivity => ({
 });
 
 function supabaseStore(c: Client): TargetsStore {
-  const must = <T>({ data, error }: { data: T; error: unknown }): T => {
-    if (error) throw error instanceof Error ? error : new Error(String((error as any)?.message ?? error));
+  // `table` is passed in rather than parsed out of the message, so a missing
+  // table is reported as itself even if PostgREST rewords the text.
+  const must = <T>(table: string, { data, error }: { data: T; error: unknown }): T => {
+    if (error) {
+      if ((error as any)?.code === NO_SUCH_TABLE) throw new MissingTablesError(table);
+      throw error instanceof Error ? error : new Error(String((error as any)?.message ?? error));
+    }
     return data;
   };
   return {
     mode: "supabase",
     async listTargets() {
-      return (must(await c.from("target_companies").select("*")) ?? []).map(fromTarget);
+      return (must("target_companies", await c.from("target_companies").select("*")) ?? []).map(fromTarget);
     },
     async getTarget(id) {
-      const { data } = await c.from("target_companies").select("*").eq("id", id).maybeSingle();
+      const data = must("target_companies", await c.from("target_companies").select("*").eq("id", id).maybeSingle());
       return data ? fromTarget(data) : null;
     },
     async insertTarget(t) {
       const row = { ...toRow(t, TARGET_COLS), company_key: companyKey(t.name) };
-      return fromTarget(must(await c.from("target_companies").insert(row).select("*").single()));
+      return fromTarget(must("target_companies", await c.from("target_companies").insert(row).select("*").single()));
     },
     async updateTarget(id, patch) {
       const row: Record<string, unknown> = { ...toRow(patch, TARGET_COLS), updated_at: new Date().toISOString() };
       if (patch.name !== undefined) row.company_key = companyKey(patch.name);
-      must(await c.from("target_companies").update(row).eq("id", id));
+      must("target_companies", await c.from("target_companies").update(row).eq("id", id));
     },
     async deleteTarget(id) {
-      must(await c.from("target_companies").delete().eq("id", id));
+      must("target_companies", await c.from("target_companies").delete().eq("id", id));
     },
     async listContacts(targetId) {
       let q = c.from("target_contacts").select("*").order("created_at", { ascending: true });
       if (targetId) q = q.eq("target_id", targetId);
-      return (must(await q) ?? []).map(fromContact);
+      return (must("target_contacts", await q) ?? []).map(fromContact);
     },
     async insertContact(ct) {
       const row = { ...toRow(ct, CONTACT_COLS), target_id: ct.targetId };
-      return fromContact(must(await c.from("target_contacts").insert(row).select("*").single()));
+      return fromContact(must("target_contacts", await c.from("target_contacts").insert(row).select("*").single()));
     },
     async updateContact(id, patch) {
-      must(await c.from("target_contacts").update(toRow(patch, CONTACT_COLS)).eq("id", id));
+      must("target_contacts", await c.from("target_contacts").update(toRow(patch, CONTACT_COLS)).eq("id", id));
     },
     async listActivities(targetId) {
       const q = c.from("target_activities").select("*").eq("target_id", targetId).order("happened_at", { ascending: false });
-      return (must(await q) ?? []).map(fromActivity);
+      return (must("target_activities", await q) ?? []).map(fromActivity);
     },
     async insertActivity(a) {
       const row = {
         target_id: a.targetId, contact_id: a.contactId, channel: a.channel, direction: a.direction,
         outcome: a.outcome, summary: a.summary, happened_at: a.happenedAt, by_name: a.by,
       };
-      return fromActivity(must(await c.from("target_activities").insert(row).select("*").single()));
+      return fromActivity(must("target_activities", await c.from("target_activities").insert(row).select("*").single()));
     },
   };
 }

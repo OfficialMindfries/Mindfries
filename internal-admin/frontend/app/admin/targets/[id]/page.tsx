@@ -5,7 +5,8 @@ import { Contacts } from "@/components/admin/targets/Contacts";
 import { DeleteTarget, DetailsCard, NextStepCard, NotesCard, StageSelect } from "@/components/admin/targets/Editors";
 import { LogTouch } from "@/components/admin/targets/LogTouch";
 import { channelIcon, outcomeLabel, priorityTone, sourceLabel } from "@/components/admin/targets/shared";
-import { targetsStore } from "@/lib/targets-store";
+import { isMissingTables, targetsStore } from "@/lib/targets-store";
+import { SchemaNotice } from "@/components/admin/targets/SchemaNotice";
 import { addWorkingDays, channelLabel, FOLLOW_UP_WORKING_DAYS, isGoingCold, websiteHost, whenLabel } from "@/lib/targets-rules";
 import { TEAM_TZ, teamToday } from "@/lib/team-time";
 
@@ -14,7 +15,16 @@ export const dynamic = "force-dynamic";
 export default async function TargetPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const store = targetsStore();
-  const target = await store.getTarget(id);
+
+  // Reachable by deep link even when the list can't render, so it needs the
+  // same setup guard. `notFound()` throws, so it stays outside the try.
+  let target;
+  try {
+    target = await store.getTarget(id);
+  } catch (e) {
+    if (!isMissingTables(e)) throw e;
+    return <SchemaNotice detail={e.message} />;
+  }
   if (!target) notFound();
 
   const [contacts, activities, all] = await Promise.all([
