@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { Send, Sparkles, X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
+import { ChatComposer } from "./ChatComposer";
 
 /**
  * Mindfries AI — the candidate's assistant during an assessment.
@@ -63,14 +64,6 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
       { id: id + 1, author: "assistant", text: respondTo() },
     ]);
     setDraft("");
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter sends, Shift+Enter starts a new line — the usual chat contract.
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      send();
-    }
   };
 
   return (
@@ -132,34 +125,8 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
         )}
       </div>
 
-      <div className={clsx("shrink-0 border-t p-2", palette.border)}>
-        <div className={clsx("flex items-end gap-1.5 rounded-lg border p-1.5", palette.border)}>
-          <textarea
-            rows={2}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about the code, an error, or an approach…"
-            className={clsx(
-              "min-h-0 flex-1 resize-none bg-transparent text-xs outline-none placeholder:opacity-60",
-              palette.text
-            )}
-          />
-          <button
-            type="button"
-            title="Send (Enter)"
-            onClick={send}
-            disabled={draft.trim().length === 0}
-            className={clsx(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-              draft.trim().length === 0
-                ? clsx(palette.textMuted, "opacity-50")
-                : "bg-[#4A7FA7] text-[#F6FAFD] hover:opacity-90"
-            )}
-          >
-            <Send size={12} />
-          </button>
-        </div>
+      <div className={clsx("shrink-0 border-t p-2.5", palette.border)}>
+        <ChatComposer theme={theme} draft={draft} onDraftChange={setDraft} onSend={send} />
       </div>
     </div>
   );

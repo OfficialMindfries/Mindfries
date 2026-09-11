@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
-import { StatTiles } from "@/components/dashboard/StatTiles";
+import { StatNotes } from "@/components/dashboard/StatNotes";
 import { SetupCard } from "@/components/dashboard/SetupCard";
-import { AssessmentRail } from "@/components/dashboard/AssessmentRail";
+import { AssessmentNotes } from "@/components/dashboard/AssessmentNotes";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { SideRail } from "@/components/dashboard/SideRail";
 import { candidate } from "@/lib/dashboard/data";
@@ -14,17 +14,23 @@ export const metadata: Metadata = {
   description: "Your assessments, sessions and evidence reports.",
 };
 
+// Assessments are read per request from the shared Supabase, so this page
+// can't be prerendered once at build time.
 export const dynamic = "force-dynamic";
 
 /**
  * The candidate's home, outside the workspace.
  *
- * Assessments come from the shared Supabase (published games authored in the
- * internal-admin) once the backend is connected; otherwise the rail falls back
- * to sample data. Everything else is still sample data (lib/dashboard/data.ts).
+ * The counters and the assessments are sticky notes, after brainwhite; see
+ * `StickyNote` for why colour carries meaning and the notes never overlap.
+ * Assessments come from the shared Supabase when it's configured, and fall
+ * back to the sample data in `lib/dashboard/data.ts` when it isn't —
+ * everything else on the page is still sample data.
  */
 export default async function DashboardPage() {
-  // undefined → AssessmentRail uses its mock fallback (pre-backend).
+  // `undefined`, not `[]`, when there's no backend: an empty array means "you
+  // have no assessments", and the notes would say so. Unconfigured isn't the
+  // same as empty, so it gets the sample set instead.
   const items = supabaseReady() ? await listAvailableAssessments() : undefined;
 
   return (
@@ -47,14 +53,16 @@ export default async function DashboardPage() {
           </a>
         </div>
 
-        <div className="mt-6">
-          <StatTiles />
+        <div className="mt-8">
+          <StatNotes />
         </div>
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-w-0 space-y-8">
+        <div className="mt-12 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          {/* `min-w-0` stops a grid item's default `min-width: auto` from
+              letting wide content stretch this column past the viewport. */}
+          <div className="min-w-0 space-y-10">
             <SetupCard />
-            <AssessmentRail items={items} />
+            <AssessmentNotes items={items} />
             <ActivityFeed />
           </div>
           <SideRail />
