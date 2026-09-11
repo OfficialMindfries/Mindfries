@@ -24,13 +24,24 @@ export function TaskDescriptionPanel({ theme, taskMarkdown }: TaskDescriptionPan
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className={clsx("flex flex-col", palette.panelBg, palette.text)}>
+    // Capped at half the sidebar, with the body as the part that scrolls.
+    //
+    // Without the cap this box was as tall as its text: the body's
+    // `overflow-auto` never had anything to overflow, because its own height
+    // grew to fit the brief, and the sidebar's `overflow-hidden` simply cut
+    // off the rest — so the end of the brief was unreachable. It also pushed
+    // the Explorer below it down to zero height, taking the file tree and the
+    // End session control with it. `min-h-0` is what lets the body shrink
+    // below its content so it can scroll; without it a flex child refuses to
+    // be shorter than what's inside it.
+    <div className={clsx("flex max-h-[50%] min-h-0 shrink-0 flex-col", palette.panelBg, palette.text)}>
       {/* Header — always visible, doubles as the collapse toggle */}
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
+        aria-expanded={!collapsed}
         className={clsx(
-          "flex items-center justify-between border-b px-3 py-2 text-xs font-semibold tracking-wide uppercase",
+          "flex shrink-0 items-center justify-between border-b px-3 py-2 text-xs font-semibold tracking-wide uppercase",
           palette.border,
           palette.textMuted,
           palette.hover
@@ -45,7 +56,7 @@ export function TaskDescriptionPanel({ theme, taskMarkdown }: TaskDescriptionPan
 
       {/* Body — scrollable task description, hidden when collapsed */}
       {!collapsed && (
-        <div className={clsx("overflow-auto px-3 py-3", palette.textMuted)}>
+        <div className={clsx("min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3", palette.textMuted)}>
           <TinyMarkdown text={taskMarkdown} />
         </div>
       )}
