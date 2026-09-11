@@ -121,11 +121,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Account-based outreach" title="Targets">
-        Companies you&apos;ve chosen to win, worked by hand — the people at each one, every touch across
-        email, LinkedIn and calls, and the next step with a date. Outreach happens from your own inbox;
-        log it here so the whole team can see where every deal stands.
-      </PageHeader>
+      <PageHeader eyebrow="Account-based outreach" title="Targets" />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <StatCard label="Being worked" value={targets.filter((t) => ACTIVE.includes(t.stage)).length} hint={`${stageCounts.nurture} nurturing`} />
