@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { IdentityCard } from "@/components/profile/IdentityCard";
 import { SkillsCard } from "@/components/profile/SkillsCard";
+import { ProfileStrength } from "@/components/profile/ProfileStrength";
+import { LinkedAccounts } from "@/components/profile/LinkedAccounts";
 import { EvidenceSummary } from "@/components/profile/EvidenceSummary";
-import { ResumeCard } from "@/components/profile/ResumeCard";
+import { ResumeUpload } from "@/components/profile/ResumeUpload";
 
 export const metadata: Metadata = {
   title: "Profile · Mindfries",
@@ -12,9 +14,11 @@ export const metadata: Metadata = {
 
 /**
  * The candidate's profile: who they are, what they bring, and what their
- * sessions have produced so far. Deliberately not an account-settings page —
- * there's no auth or profile-write path yet, so nothing here pretends to be
- * editable. See IdentityCard and ResumeCard for where that shows up.
+ * sessions have produced so far. Bio and skills are still read-only — no
+ * auth or profile-write path exists for those yet — but the resume and
+ * linked accounts below them are genuinely interactive, kept in this
+ * browser rather than on a server that doesn't exist yet. See
+ * ResumeUpload and LinkedAccounts for exactly what "saved" means there.
  *
  * Cards, not sticky notes: StickyNote's wall is for things that happen to
  * you (an invitation, a deadline), and a profile is closer to a résumé than
@@ -34,15 +38,20 @@ export default function ProfilePage() {
           </p>
         </div>
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="mt-6">
+          <ProfileStrength />
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0 space-y-6">
             <IdentityCard />
+            <LinkedAccounts />
             <SkillsCard />
           </div>
 
           <aside className="space-y-4">
             <EvidenceSummary />
-            <ResumeCard />
+            <ResumeUpload />
           </aside>
         </div>
       </main>
