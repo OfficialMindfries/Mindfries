@@ -6,8 +6,7 @@ import { AssessmentNotes } from "@/components/dashboard/AssessmentNotes";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { SideRail } from "@/components/dashboard/SideRail";
 import { candidate } from "@/lib/dashboard/data";
-import { listAvailableAssessments } from "@/lib/db";
-import { supabaseReady } from "@/lib/supabase";
+import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
@@ -23,15 +22,13 @@ export const dynamic = "force-dynamic";
  *
  * The counters and the assessments are sticky notes, after brainwhite; see
  * `StickyNote` for why colour carries meaning and the notes never overlap.
- * Assessments come from the shared Supabase when it's configured, and fall
- * back to the sample data in `lib/dashboard/data.ts` when it isn't —
- * everything else on the page is still sample data.
+ * Assessments come from the real candidate/backend (Go — PRD §2.3) when it's
+ * configured and reachable, and fall back to the sample data in
+ * `lib/dashboard/data.ts` otherwise — everything else on the page is still
+ * sample data.
  */
 export default async function DashboardPage() {
-  // `undefined`, not `[]`, when there's no backend: an empty array means "you
-  // have no assessments", and the notes would say so. Unconfigured isn't the
-  // same as empty, so it gets the sample set instead.
-  const items = supabaseReady() ? await listAvailableAssessments() : undefined;
+  const items = await listAssessmentsOrUndefined();
 
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">

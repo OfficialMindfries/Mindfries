@@ -9,16 +9,15 @@ import {
   statusLabels,
   type AssessmentStatus,
 } from "@/lib/dashboard/data";
-import { listAvailableAssessments } from "@/lib/db";
-import { supabaseReady } from "@/lib/supabase";
+import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 
 export const metadata: Metadata = {
   title: "Assessments · Mindfries",
   description: "Every invitation, session and result, in one place.",
 };
 
-// Same reasoning as the dashboard: assessments come from the shared
-// Supabase per request, so this can't be prerendered once at build time.
+// Same reasoning as the dashboard: assessments come from the real backend
+// per request, so this can't be prerendered once at build time.
 export const dynamic = "force-dynamic";
 
 /**
@@ -33,7 +32,7 @@ export default async function AssessmentsPage({
   searchParams: Promise<{ status?: string }>;
 }) {
   const { status } = await searchParams;
-  const items = supabaseReady() ? await listAvailableAssessments() : undefined;
+  const items = await listAssessmentsOrUndefined();
   const all = sortByAttention(items ?? sample);
 
   const counts = Object.fromEntries(
