@@ -1,5 +1,7 @@
 import { Box, Radio, TriangleAlert, Users } from "lucide-react";
-import { companies, templates, sessions, SAMPLE_AS_OF } from "@/lib/mock-data";
+import { companies as mockCompanies, templates as mockTemplates, sessions as mockSessions, SAMPLE_AS_OF } from "@/lib/mock-data";
+import { listCompanies, listSessions, listTemplates } from "@/lib/db";
+import { supabaseReady } from "@/lib/supabase";
 import { PageHeader } from "@/components/ui";
 import { MetricCard, MetricGrid, Panel, SoftPill, flat } from "@/components/admin/cards";
 import { SampleBadge } from "@/components/admin/SampleBadge";
@@ -8,16 +10,25 @@ import { ago, countWithin, cumulative, DAY, HOUR, perBucket, WEEK } from "@/lib/
 import { todayIn } from "@/lib/targets-rules";
 import { TEAM_TZ } from "@/lib/team-time";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Everything the Mindfries team runs, at a glance.
  *
- * Shows the sample fixtures in lib/mock-data, and says so in its header — the
- * trends and sparklines are real calculations, over sample records, measured
- * from the sample's own snapshot time (SAMPLE_AS_OF) rather than now.
+ * Real once Supabase is connected — companies/templates/sessions come from
+ * the same lib/db.ts functions Companies/Library/Sessions already use for
+ * real reads, same `supabaseReady()` gate as the rest of this app. Until
+ * this fix, this page imported the mock fixtures unconditionally with no
+ * check at all (ADMIN_BACKEND_PLAN.md §3) — the one page that never even
+ * looked at whether a real database was configured.
  */
+export default async function OverviewPage() {
+  const backendLive = supabaseReady();
+  const [companies, templates, sessions] = backendLive
+    ? await Promise.all([listCompanies(), listTemplates(), listSessions()])
+    : [mockCompanies, mockTemplates, mockSessions];
 
-export default function OverviewPage() {
-  const asOf = new Date(SAMPLE_AS_OF);
+  const asOf = backendLive ? new Date() : new Date(SAMPLE_AS_OF);
   const today = todayIn(TEAM_TZ, asOf);
   const onDay = (iso: string) => todayIn(TEAM_TZ, new Date(iso)) === today;
 
@@ -34,7 +45,7 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Mindfries Ops" title="Overview" action={<SampleBadge asOf={asOf} />} />
+      <PageHeader eyebrow="Mindfries Ops" title="Overview" action={!live && <SampleBadge asOf={asOf} />} />
 
       <MetricGrid columns={4}>
         <MetricCard

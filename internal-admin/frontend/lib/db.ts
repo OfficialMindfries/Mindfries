@@ -1,8 +1,8 @@
 import "server-only";
 import { db } from "./supabase";
 import type {
-  GameTemplate, Lead, LeadStage, OnboardedCompany, Plan, RubricCriterion,
-  Session, SessionStatus, SandboxHealth, TaskVariant, TemplateStatus, WaitlistEntry,
+  Company, CompanyStatus, GameTemplate, Lead, LeadStage, MemberRole, OnboardedCompany, Plan, RubricCriterion,
+  Session, SessionStatus, SandboxHealth, TaskVariant, TeamMember, TemplateStatus, WaitlistEntry,
 } from "./types";
 import type { RawLead } from "./icp";
 
@@ -136,11 +136,71 @@ export async function listOnboarded(): Promise<OnboardedCompany[]> {
   return (data ?? []).map((r: any) => ({
     id: r.id, company: r.company, adminEmail: r.admin_email, plan: r.plan as Plan,
     monthlyCost: Number(r.monthly_cost), status: r.status, credentialsSentAt: r.credentials_sent_at ?? null,
-    createdAt: r.created_at,
+    createdAt: r.created_at, companyId: r.company_id ?? null,
   }));
 }
 
 // ── Shared product tables (0002_product.sql) ────────────────────────────────
+// Real product accounts — distinct from onboarded_companies above, which is
+// the sales/billing record. See ADMIN_BACKEND_PLAN.md §3, §5.3: winning a
+// deal through Tracker's OnboardForm has never created a row here, so this
+// table (the one a future Company Portal login would actually need) has sat
+// at zero rows despite Companies looking, from the UI alone, like it worked.
+
+function toCompany(r: any): Company {
+  // The `team` jsonb column only ever stores {email, role} — `id` is a
+  // display-only React key, synthesized here on read rather than persisted,
+  // since nothing about a team member's identity in this schema needs one.
+  const team: TeamMember[] = ((r.team ?? []) as { email: string; role: MemberRole }[]).map((m, i) => ({
+    id: String(i),
+    email: m.email,
+    role: m.role,
+  }));
+  return {
+    id: r.id,
+    name: r.name,
+    website: r.website ?? "",
+    plan: r.plan as Plan,
+    status: r.status as CompanyStatus,
+    seats: r.seats ?? 0,
+    team,
+    defaultTemplateIds: r.default_template_ids ?? [],
+    createdAt: r.created_at,
+  };
+}
+
+export async function listCompanies(): Promise<Company[]> {
+  const c = db();
+  if (!c) return [];
+  const { data } = await c.from("companies").select("*").order("created_at", { ascending: false });
+  return (data ?? []).map(toCompany);
+}
+
+export async function createCompany(input: {
+  name: string; website: string; plan: Plan; status: CompanyStatus; seats: number;
+  team: { email: string; role: MemberRole }[]; defaultTemplateIds: string[];
+}): Promise<Company> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("companies")
+    .insert({
+      name: input.name, website: input.website || null, plan: input.plan, status: input.status,
+      seats: input.seats, team: input.team, default_template_ids: input.defaultTemplateIds,
+    })
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+  return toCompany(data);
+}
+
+export async function setCompanyStatus(id: string, status: CompanyStatus): Promise<void> {
+  const c = db();
+  if (!c) return;
+  const { error } = await c.from("companies").update({ status }).eq("id", id);
+  if (error) throw error;
+}
+
 // The Assessment/Game Library — internal-admin authors, candidate app consumes.
 
 function toTemplate(r: any): GameTemplate {
@@ -234,9 +294,23 @@ export async function addOnboarded(e: {
 }): Promise<void> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");
+
+  // Winning a deal creates both the sales/billing record (below) and the
+  // real product account (companies) it's supposed to imply — see
+  // ADMIN_BACKEND_PLAN.md §3/§5.3. Not a DB transaction (Supabase's client
+  // doesn't expose one across two tables here), but ordered so a failure
+  // leaves onboarded_companies unlinked rather than companies orphaned —
+  // the sales record staying the source of truth for "did we win this
+  // deal" either way.
+  const company = await createCompany({
+    name: e.company, website: "", plan: e.plan, status: "active", seats: 5,
+    team: [{ email: e.adminEmail, role: "admin" }], defaultTemplateIds: [],
+  });
+
   const { error } = await c.from("onboarded_companies").insert({
     lead_id: e.leadId ?? null, company: e.company, admin_email: e.adminEmail,
     plan: e.plan, monthly_cost: e.monthlyCost, credentials_sent_at: new Date().toISOString(),
+    company_id: company.id,
   });
   if (error) throw error;
   if (e.leadId) await setLeadStage(e.leadId, "onboarded");
