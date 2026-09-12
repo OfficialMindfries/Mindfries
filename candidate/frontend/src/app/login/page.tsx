@@ -7,14 +7,21 @@ export const metadata: Metadata = {
   description: "Sign in to your Mindfries candidate workspace.",
 };
 
+export const dynamic = "force-dynamic";
+
 /**
  * The candidate portal's entry point, shaped after the supplied reference —
  * centred form, no card border, scattered decorative shapes — redrawn in
- * this app's own palette. See LoginForm's own doc comment for what "Login"
- * and the four social buttons honestly do: there's no candidate account
- * system yet, so neither pretends to check a credential against one.
+ * this app's own palette. Real now: LoginForm submits to lib/auth/users.ts's
+ * checkCredentials against candidate_users. See LoginForm's own doc comment
+ * for what the four social buttons still honestly don't do.
  */
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const { next } = await searchParams;
+  // Only a path on this site survives; anything else falls back to /dashboard,
+  // so a crafted ?next= can't bounce someone off to another origin after login.
+  const safeNext = typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "";
+
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F6FAFD] px-6 py-16">
       <LoginBlobs />
@@ -26,7 +33,7 @@ export default function LoginPage() {
           <span className="text-[22px] font-semibold tracking-tight text-[#0A1931]">Mindfries</span>
         </div>
 
-        <LoginForm />
+        <LoginForm next={safeNext} />
       </div>
     </div>
   );

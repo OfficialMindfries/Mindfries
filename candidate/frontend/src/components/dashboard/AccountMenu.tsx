@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { LogOut, ShieldCheck, User } from "lucide-react";
 import { resolveIdentity } from "@/lib/profile/data";
 import { useProfileExtras } from "@/lib/profile/storage";
 import { useDismissablePanel } from "@/lib/useDismissablePanel";
+import { signOut as endSession } from "@/app/login/actions";
 import { PoliciesModal } from "./PoliciesModal";
 
 /**
@@ -14,12 +14,13 @@ import { PoliciesModal } from "./PoliciesModal";
  * standard shape (View profile, policies, sign out) once there's more than
  * one place worth going from here.
  *
- * "Sign out" is the one item that isn't quite what the label usually means:
- * there's no login for a candidate yet (PRD's own stated gap), so there's no
- * session to end. What IS real is the profile data saved in this browser
- * (lib/profile/storage.ts) — so that's what this clears, after a plain
- * confirmation that says exactly that, rather than either a dead button or
- * one that quietly claims to sign out of something that doesn't exist.
+ * "Sign out" now does two real, separate things: ends the real session
+ * (lib/auth — a signed cookie against a row in candidate_users) and clears
+ * the profile data kept only in this browser (resume, linked accounts,
+ * identity edits — lib/profile/storage.ts). The confirmation names both,
+ * because they're genuinely different kinds of data with different
+ * lifetimes, and a candidate signing out on a shared machine cares about
+ * both being gone.
  */
 export function AccountMenu() {
   const { open, setOpen, ref } = useDismissablePanel<HTMLDivElement>();
@@ -27,7 +28,7 @@ export function AccountMenu() {
   const identity = resolveIdentity(saved);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [showPolicies, setShowPolicies] = useState(false);
-  const router = useRouter();
+  const [pending, startTransition] = useTransition();
 
   function close() {
     setOpen(false);
@@ -36,9 +37,13 @@ export function AccountMenu() {
 
   function signOut() {
     clearAll();
-    close();
-    router.push("/dashboard");
-    router.refresh();
+    // endSession() redirects to /login itself once the cookie is cleared —
+    // Next resolves that redirect through this transition, same pattern
+    // AssessmentWall already uses to call startAssessment from a client
+    // component.
+    startTransition(() => {
+      void endSession();
+    });
   }
 
   return (
@@ -69,22 +74,24 @@ export function AccountMenu() {
             {confirmingSignOut ? (
               <div className="p-4">
                 <p className="text-[12.5px] leading-relaxed text-[#0A1931]">
-                  This clears your resume, linked accounts and any profile edits saved in this browser.
+                  Ends your session and clears your resume, linked accounts and any profile edits saved in this browser.
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
                     type="button"
                     onClick={() => setConfirmingSignOut(false)}
-                    className="flex-1 rounded-lg border border-[#B3CFE5] px-3 py-1.5 text-[12.5px] font-medium text-[#1A3D63] transition-colors hover:bg-[#B3CFE5]/20"
+                    disabled={pending}
+                    className="flex-1 rounded-lg border border-[#B3CFE5] px-3 py-1.5 text-[12.5px] font-medium text-[#1A3D63] transition-colors hover:bg-[#B3CFE5]/20 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={signOut}
-                    className="flex-1 rounded-lg bg-[#a6203c] px-3 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90"
+                    disabled={pending}
+                    className="flex-1 rounded-lg bg-[#a6203c] px-3 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                   >
-                    Clear & sign out
+                    {pending ? "Signing out…" : "Sign out"}
                   </button>
                 </div>
               </div>

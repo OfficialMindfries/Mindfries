@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { GithubMark, GitlabMark, GoogleMark, LinkedinMark } from "@/components/icons/BrandIcon";
+import { signIn, type LoginState } from "@/app/login/actions";
 
 const SOCIAL = [
   { id: "google", label: "Google", icon: GoogleMark },
@@ -12,71 +14,56 @@ const SOCIAL = [
   { id: "linkedin", label: "LinkedIn", icon: LinkedinMark },
 ] as const;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SUPPORT_EMAIL = "officemindfries@gmail.com";
 
-/**
- * There's no candidate login yet (no accounts table, no session — the
- * account menu's own doc comment says the same thing about "Sign out").
- * Building a real credential check or real OAuth against four providers
- * both need infrastructure that doesn't exist here, so neither is faked:
- *
- * - The form validates for real (required fields, a real email shape) and,
- *   once valid, goes straight to the dashboard — the one real destination
- *   this app has — with no fake "verifying…" delay, because nothing is
- *   actually being verified.
- * - Each social button says plainly that it isn't connected yet rather than
- *   doing nothing (a dead button) or pretending to sign in.
- */
-export function LoginForm() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [socialNotice, setSocialNotice] = useState<string | null>(null);
+function Submit() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" tone="primary" size="lg" className="w-full !rounded-full" disabled={pending}>
+      {pending ? "Signing in…" : "Login"}
+    </Button>
+  );
+}
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setSocialNotice(null);
-    if (!email.trim() || !password) {
-      setError("Enter your email and password.");
-      return;
-    }
-    if (!EMAIL_RE.test(email.trim())) {
-      setError("That doesn't look like an email address.");
-      return;
-    }
-    setError(null);
-    router.push("/dashboard");
-  }
+/**
+ * A real account check now (checkCredentials, against candidate_users) —
+ * see lib/auth/users.ts. The four social buttons still aren't: real OAuth
+ * for four separate providers needs a registered app and a secret for each,
+ * plus somewhere to hold them, none of which exists here. Each one says so
+ * plainly rather than doing nothing or faking success.
+ */
+export function LoginForm({ next }: { next: string }) {
+  const [state, action] = useActionState<LoginState, FormData>(signIn, { error: null });
+  const [socialNotice, setSocialNotice] = useState<string | null>(null);
 
   return (
     <div className="w-full max-w-sm">
-      <form onSubmit={submit} className="space-y-3.5" noValidate>
+      <form action={action} className="space-y-3.5">
+        {next && <input type="hidden" name="next" value={next} />}
+
         <input
+          name="email"
           type="email"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setError(null);
-          }}
-          placeholder="you@company.com"
+          required
           autoComplete="username"
+          autoFocus
+          placeholder="you@company.com"
           className="w-full rounded-xl border border-[#B3CFE5] bg-white px-4 py-3 text-[14px] text-[#0A1931] outline-none transition placeholder:text-[#4A7FA7]/70 focus:border-[#1A3D63]"
         />
         <input
+          name="password"
           type="password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            setError(null);
-          }}
-          placeholder="Password"
+          required
           autoComplete="current-password"
+          placeholder="Password"
           className="w-full rounded-xl border border-[#B3CFE5] bg-white px-4 py-3 text-[14px] text-[#0A1931] outline-none transition placeholder:text-[#4A7FA7]/70 focus:border-[#1A3D63]"
         />
 
-        {error && <p className="text-center text-[12.5px] text-[#a6203c]">{error}</p>}
+        {state.error && (
+          <p role="alert" className="text-center text-[12.5px] text-[#a6203c]">
+            {state.error}
+          </p>
+        )}
 
         <a
           href={`mailto:${SUPPORT_EMAIL}`}
@@ -85,12 +72,13 @@ export function LoginForm() {
           Having trouble logging in?
         </a>
 
-        <Button type="submit" tone="primary" size="lg" className="w-full !rounded-full">
-          Login
-        </Button>
+        <Submit />
 
         <p className="text-center text-[12px] text-[#4A7FA7]">
-          Accounts are created when a company invites you to an assessment.
+          Need an account?{" "}
+          <Link href="/signup" className="font-medium text-[#1A3D63] hover:underline">
+            Sign up
+          </Link>
         </p>
       </form>
 

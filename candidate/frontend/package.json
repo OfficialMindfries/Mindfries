@@ -7,6 +7,7 @@
     "build": "node scripts/copy-monaco.js && node scripts/copy-file-icons.js && node scripts/copy-pyodide.js && next build",
     "start": "next start",
     "lint": "eslint",
+    "migrate": "tsx scripts/migrate.mts",
     "postinstall": "node scripts/copy-monaco.js && node scripts/copy-file-icons.js && node scripts/copy-pyodide.js"
   },
   "dependencies": {
@@ -23,9 +24,11 @@
     "mammoth": "^1.12.3",
     "next": "16.3.3",
     "pdfjs-dist": "^6.3.289",
+    "pg": "^8.23.0",
     "pyodide": "^314.0.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
     "simple-icons": "^16.30.0",
     "tailwind-merge": "^3.6.0",
     "typescript": "^5"
@@ -33,6 +36,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
