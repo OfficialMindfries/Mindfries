@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { BackendAuthError, backendReady, startSession } from "@/lib/backend/client";
+import { isRedirectError } from "@/lib/isRedirectError";
 
 /**
  * Called from the final Lobby step when the candidate clicks "Enter Workspace".
@@ -44,10 +45,4 @@ export async function enterWorkspace(templateId: string): Promise<{ error: strin
       error: err instanceof Error ? err.message : "Could not start the assessment. Please try again.",
     };
   }
-}
-
-// next/navigation's redirect() works by throwing; a broad catch above must
-// let that throw keep propagating instead of reporting it as an error.
-function isRedirectError(err: unknown): boolean {
-  return !!err && typeof err === "object" && "digest" in err && typeof (err as { digest?: unknown }).digest === "string" && (err as { digest: string }).digest.startsWith("NEXT_REDIRECT");
 }

@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   description: "In-browser code editor with file explorer and terminal.",
 };
 
-export default function IdePage() {
-  return <IdeShell />;
+export default async function IdePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session?: string }>;
+}) {
+  const { session } = await searchParams;
+  return <IdeShell sessionId={session} />;
 }

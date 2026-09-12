@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import clsx from "clsx";
 import { GripVertical, GripHorizontal } from "lucide-react";
 import { FileExplorer } from "./FileExplorer";
@@ -30,8 +30,20 @@ import { useDiagnostics } from "@/lib/ide/diagnostics";
 import { CHANNELS, output } from "@/lib/ide/output";
 import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
+import { submitAssessment } from "@/app/ide/actions";
 
-export function IdeShell() {
+interface IdeShellProps {
+  /**
+   * The real session id this workspace was opened for (onboarding's
+   * enterWorkspace passes it as `?session=<id>` on success). Undefined for
+   * a workspace opened without a tracked session — directly at /ide, or
+   * onboarding's own honest fallback when the backend isn't configured —
+   * in which case Submit stays local-only, same as before this was wired.
+   */
+  sessionId?: string;
+}
+
+export function IdeShell({ sessionId }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -115,11 +127,16 @@ export function IdeShell() {
   const [ending, setEnding] = useState<InstalledPackage[] | null>(null);
   const [ended, setEnded] = useState<{ deleted: boolean } | null>(null);
 
-  // Submit flow — the header's Submit button opens a confirmation dialog,
-  // confirming replaces the workspace with a submitted screen (same pattern
-  // as EndSession, except this one is "work submitted" not "session ended").
+  // Submit flow — the header's Submit button opens a confirmation dialog.
+  // With a real sessionId, confirming calls the backend for real
+  // (submitAssessment) and leaves for the report page rather than staying
+  // on a local "submitted" screen — there's somewhere real to send the
+  // candidate now. Without one (no tracked session for this workspace),
+  // it falls back to the original local-only confirmation screen.
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | undefined>();
+  const [isSubmittingReal, startSubmitTransition] = useTransition();
 
 
   const openFile = (path: string) => {
@@ -576,12 +593,29 @@ export function IdeShell() {
       {submitting && (
         <SubmitConfirmDialog
           theme={theme}
-          onCancel={() => setSubmitting(false)}
-          onConfirm={() => {
+          pending={isSubmittingReal}
+          error={submitError}
+          onCancel={() => {
             setSubmitting(false);
-            camera.stop();
-            exitFullscreen();
-            setSubmitted(true);
+            setSubmitError(undefined);
+          }}
+          onConfirm={() => {
+            if (!sessionId) {
+              // No tracked session for this workspace (backend wasn't
+              // configured when it was entered, or /ide was opened
+              // directly) — nothing real to submit to, so this stays the
+              // original local-only confirmation.
+              setSubmitting(false);
+              camera.stop();
+              exitFullscreen();
+              setSubmitted(true);
+              return;
+            }
+            startSubmitTransition(async () => {
+              const result = await submitAssessment(sessionId);
+              // A successful call redirects and never returns here.
+              if (result?.error) setSubmitError(result.error);
+            });
           }}
         />
       )}
