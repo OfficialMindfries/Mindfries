@@ -10,6 +10,7 @@ import {
   type AssessmentStatus,
 } from "@/lib/dashboard/data";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
+import { currentCandidate } from "@/lib/auth/users";
 
 export const metadata: Metadata = {
   title: "Assessments · Mindfries",
@@ -32,7 +33,7 @@ export default async function AssessmentsPage({
   searchParams: Promise<{ status?: string }>;
 }) {
   const { status } = await searchParams;
-  const items = await listAssessmentsOrUndefined();
+  const [items, session] = await Promise.all([listAssessmentsOrUndefined(), currentCandidate()]);
   const all = sortByAttention(items ?? sample);
 
   const counts = Object.fromEntries(
@@ -44,7 +45,7 @@ export default async function AssessmentsPage({
 
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
-      <DashboardNav />
+      <DashboardNav sessionName={session?.name} />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         <div className="flex flex-wrap items-end justify-between gap-4">

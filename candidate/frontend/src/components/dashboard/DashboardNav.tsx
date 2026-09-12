@@ -26,7 +26,12 @@ const SECTIONS = [
   { label: "Profile", href: "/profile" },
 ];
 
-export function DashboardNav() {
+interface DashboardNavProps {
+  /** The signed-in candidate's real name, read server-side from the session by whichever page renders this — threaded down to AccountMenu so the avatar/menu never disagrees with the page's own greeting. */
+  sessionName?: string;
+}
+
+export function DashboardNav({ sessionName }: DashboardNavProps) {
   const pathname = usePathname();
 
   return (
@@ -64,7 +69,7 @@ export function DashboardNav() {
 
         <div className="ml-auto flex items-center gap-2">
           <NotificationBell />
-          <AccountMenu />
+          <AccountMenu sessionName={sessionName} />
         </div>
       </div>
     </header>

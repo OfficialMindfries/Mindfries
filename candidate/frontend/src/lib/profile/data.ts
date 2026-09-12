@@ -42,11 +42,22 @@ export interface DisplayIdentity {
   updatedAt: string | null;
 }
 
-/** The sample identity until "Edit profile" saves a real one; the saved one after. */
-export function resolveIdentity(saved: StoredIdentity | null): DisplayIdentity {
+/**
+ * The saved edit if there is one; otherwise the signed-in session's real
+ * name over the sample one; otherwise the sample identity outright (signed
+ * out, or the rare page that doesn't have a session to pass in).
+ *
+ * Only `name` has a real, signed-in-session source today — role, location,
+ * bio and availability are candidate-editable fields that only exist once
+ * "Edit profile" saves them (see CANDIDATE_BACKEND_PLAN.md §6.3); until
+ * then those stay the sample's, same as before. This is what keeps the
+ * dashboard greeting, the nav avatar, and the account menu from reading
+ * three different names for the same signed-in candidate.
+ */
+export function resolveIdentity(saved: StoredIdentity | null, sessionName?: string): DisplayIdentity {
   if (saved) return saved;
   return {
-    name: candidate.name,
+    name: sessionName?.trim() || candidate.name,
     role: candidate.role,
     location: candidate.location,
     openTo: availability.openTo,

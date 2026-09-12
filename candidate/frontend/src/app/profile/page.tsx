@@ -7,6 +7,7 @@ import { LinkedAccounts } from "@/components/profile/LinkedAccounts";
 import { EvidenceSummary } from "@/components/profile/EvidenceSummary";
 import { ResumeUpload } from "@/components/profile/ResumeUpload";
 import { NextSteps } from "@/components/profile/NextSteps";
+import { currentCandidate } from "@/lib/auth/users";
 
 export const metadata: Metadata = {
   title: "Profile · Mindfries",
@@ -34,10 +35,12 @@ export const metadata: Metadata = {
  * motif is for the dashboard's wall of things happening to you; a profile
  * reads as reference material, so these sit flat.
  */
-export default function ProfilePage() {
+export default async function ProfilePage() {
+  const session = await currentCandidate();
+
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
-      <DashboardNav />
+      <DashboardNav sessionName={session?.name} />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         <PreviewModeProvider>
@@ -47,7 +50,7 @@ export default function ProfilePage() {
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 space-y-6">
-              <IdentityCard />
+              <IdentityCard sessionName={session?.name} />
               <LinkedAccounts />
             </div>
 

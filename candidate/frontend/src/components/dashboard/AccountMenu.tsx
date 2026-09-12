@@ -22,10 +22,14 @@ import { PoliciesModal } from "./PoliciesModal";
  * lifetimes, and a candidate signing out on a shared machine cares about
  * both being gone.
  */
-export function AccountMenu() {
+interface AccountMenuProps {
+  sessionName?: string;
+}
+
+export function AccountMenu({ sessionName }: AccountMenuProps) {
   const { open, setOpen, ref } = useDismissablePanel<HTMLDivElement>();
   const { identity: saved, clearAll } = useProfileExtras();
-  const identity = resolveIdentity(saved);
+  const identity = resolveIdentity(saved, sessionName);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [showPolicies, setShowPolicies] = useState(false);
   const [pending, startTransition] = useTransition();

@@ -18,9 +18,13 @@ function formatUpdated(iso: string): string {
  * Sample until the edit form saves something real (resolveIdentity), the
  * same fallback pattern the resume and linked accounts already use.
  */
-export function IdentityCard() {
+interface IdentityCardProps {
+  sessionName?: string;
+}
+
+export function IdentityCard({ sessionName }: IdentityCardProps) {
   const { identity: saved } = useProfileExtras();
-  const identity = resolveIdentity(saved);
+  const identity = resolveIdentity(saved, sessionName);
 
   return (
     <section className="rounded-2xl border border-[#B3CFE5] bg-white p-6">
