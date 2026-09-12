@@ -5,16 +5,21 @@ Detail for the workspace itself lives in
 [`candidate/frontend/src/app/ide/task.md`](candidate/frontend/src/app/ide/task.md)
 (still accurate, not restated here); detail for what's real vs. sample data
 in each app lives in [`CANDIDATE_BACKEND_PLAN.md`](CANDIDATE_BACKEND_PLAN.md)
-and [`ADMIN_BACKEND_PLAN.md`](ADMIN_BACKEND_PLAN.md). This file is the
+and [`ADMIN_BACKEND_PLAN.md`](ADMIN_BACKEND_PLAN.md) — both now partially
+superseded by this file (see the note at the top of each). This file is the
 whole-product view: every MVP line item, marked against what's actually
 built, with the gaps named plainly rather than implied.
 
-Rewritten 2026-09-12, after the candidate backend (Go) was built and the
-candidate frontend wired to three of its endpoints. Every "done" claim below
-was checked against the current code, not carried over from the last time
-this file was written — several things it used to say are no longer true in
-either direction (some gaps closed, one new one opened by the rewrite
-itself — see "Gaps worth naming").
+Rewritten 2026-09-13, after a second pass that: fixed the dashboard's
+self-contradiction and its sample-name greeting; wired the `assessments`
+table for real per-candidate invitations; wired the IDE's Submit button to
+the real backend and added a report-viewing page; started sending real
+(scoped) telemetry from the workspace; and, on the internal-admin side, made
+Overview real and fixed the Companies page, reconciling it with
+`onboarded_companies`. Every "done" claim below was checked against the
+current code or verified live against the running stack this pass — several
+things the previous version of this file called gaps are now closed; a few
+new, more precise gaps replaced them.
 
 ---
 
@@ -22,208 +27,184 @@ itself — see "Gaps worth naming").
 
 **✅ done and real · 🟡 partially done / infra exists but disconnected · ❌ not started**
 
-### Company (§2.1) — 0 of 6
+### Company (§2.1) — 0 of 6, unchanged
 
 | # | Item | Status |
 |---|---|---|
 | 1 | Sign up | ❌ No Company Portal exists at all — no route, no page, nothing |
 | 2 | Create a role | ❌ |
 | 3 | Select or configure an assessment | ❌ Internal-admin authors templates; nothing lets a *company* pick one |
-| 4 | Invite a candidate | ❌ The `assessments` table this needs (candidate + company + template + status) has existed since the first product migration and has never been read or written by any code — see "Gaps" |
+| 4 | Invite a candidate | 🟡 The `assessments` table this needs is now genuinely wired end to end — a real invitation is visible on the candidate side, starts a real session, and moves through its lifecycle (see "The backend, concretely"). What's still missing is *anything that creates one*: no Company Portal, and no internal-admin UI either — `CreateInvitation` exists in `candidate/backend/internal/db` and is called by nothing |
 | 5 | See assessment status | ❌ |
-| 6 | Review an evidence-based report | ❌ Nothing anywhere renders a report — see "Gaps" |
+| 6 | Review an evidence-based report | ❌ A report can now be generated and viewed on the *candidate* side (see Candidate #9) — nothing on a company-facing surface exists to review one, because no company-facing surface exists |
 
-**This is the single largest hole in the MVP.** Every other portal has at
-least partial coverage; the Company Portal has none. A company today has no
+**Still the single largest hole in the MVP.** Every other portal has
+meaningful coverage now; the Company Portal has none. A company today has no
 way to do anything the product exists for except author templates from the
-*internal* admin side.
+*internal* admin side, or have Mindfries ops create an invitation on their
+behalf via a direct database write (there is no admin UI for even that yet).
 
-### Candidate (§2.1) — 9 items, roughly 4 done, 4 partial, 1 not started
+### Candidate (§2.1) — 9 items: 6 done, 3 partial, 0 fully not-started
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Accept invitation | 🟡 There's no invitation to accept (see Company #4) — but self-serve sign up/sign in is real: scrypt hashing, HMAC-signed session cookie, lockout, generic-refusal timing, all real (`candidate/frontend/src/lib/auth`) |
+| 1 | Accept invitation | 🟡 Improved, not resolved: a real invitation now works end to end once one exists (see Company #4) — but nothing can create one except a direct database write, so in practice every candidate today still arrives via self-serve sign up |
 | 2 | Complete basic setup | ✅ Onboarding wizard — consent, device/camera check, instructions lobby — all real, all gated by middleware |
-| 3 | Enter the coding environment | ✅ Real, and as of this session backed by a real session row with a real `candidate_id` — verified live against the running stack (signed up a real account, started a real assessment, confirmed the row in Postgres) |
-| 4 | Read the task | ❌ The lobby shows the assessment's role/company/tags; nothing inside the IDE itself shows the actual task brief. No task-description panel exists |
+| 3 | Enter the coding environment | ✅ Backed by a real session row (real `candidate_id`, and now real `assessment_id`/`company_id` when started from an invitation) — verified live repeatedly |
+| 4 | Read the task | ❌ **More precisely wrong than "missing":** `TaskDescriptionPanel` exists and renders in the IDE, but its content is `MOCK_TASK_MARKDOWN` — a hardcoded "Authentication Bug Fix" brief shown for every assessment regardless of which one is actually running. Confirmed live: a candidate starting "UI Submit Flow Test" still saw the fake auth-bug task. There's no schema field for a real task brief to come from yet |
 | 5 | Modify a real codebase | ✅ Full virtual filesystem, real Monaco editor, real git (isomorphic-git) — see the IDE's own task.md |
-| 6 | Use terminal and tests | 🟡 Terminal is fully real (pipes, redirects, a real Unix toolbelt). "Tests" isn't: there's no test runner or results panel — `npm test` would just refuse the way `build`/`lint` do today |
-| 7 | Interact with an AI assistant | 🟡 Chat panel UI is real and well-built; no model behind it. The backend now has a real OpenRouter client that *could* answer it — nothing connects the two yet |
-| 8 | Complete an AI follow-up interview | ❌ Gemini Live API needs a real-time bidirectional-audio bridge that doesn't exist. The backend says so honestly (`ErrInterviewNotImplemented`) rather than faking it |
-| 9 | Submit | 🟡 The backend has a real submit endpoint that runs the full evaluation pipeline (tested end to end). There is no Submit button or flow in the IDE that calls it |
+| 6 | Use terminal and tests | 🟡 Terminal is fully real. "Tests" isn't: no test runner or results panel |
+| 7 | Interact with an AI assistant | 🟡 Chat panel UI is real; no model behind it. The backend's OpenRouter client could answer it — nothing connects the two |
+| 8 | Complete an AI follow-up interview | ❌ Gemini Live API needs a real-time bidirectional-audio bridge that doesn't exist; the backend says so honestly (`ErrInterviewNotImplemented`) |
+| 9 | Submit | ✅ **Now real, end to end.** The header's Submit → confirm → real `POST /sessions/{id}/submit` call → redirect to a new report page. Verified live: signed up a candidate, started a session, clicked through to Submit, watched it redirect to `/assessments/{id}/report` showing the honest "OpenRouter is not configured" failure, confirmed in the database that the session was `submitted` and the report row matched exactly |
 
-### Platform (§2.1) — 6 items, 0 fully done, 4 with real infra sitting unused
+### Platform (§2.1) — 6 items: 2 done, 4 partial
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Provision an isolated sandbox | 🟡 The Go backend has a real Daytona client (`internal/sandbox`) wired into session start — but `DAYTONA_API_KEY` isn't set anywhere, so it always answers "not configured." Separately, the IDE runs entirely browser-side with no concept of a remote sandbox to provision *into* yet — this is the "execution model" decision flagged below, unchanged |
-| 2 | Track candidate events | 🟡 The infrastructure is completely real: `activity_events` table, `POST /api/v1/sessions/{id}/events`, real batch insert, real-time fan-out over the WebSocket hub. **Nothing calls it.** The IDE is explicitly documented (its own CLAUDE.md) as local-only "on purpose" — wiring it to the backend is a deliberate, undecided architecture change, not an oversight |
+| 1 | Provision an isolated sandbox | 🟡 Unchanged: the Go backend's Daytona client is real and wired into session start, but no `DAYTONA_API_KEY` exists anywhere, so it always answers "not configured." The IDE still has no concept of a remote sandbox to provision into |
+| 2 | Track candidate events | 🟡 **Real signal now flows, deliberately scoped.** The workspace's Output-channel store (git/npm/pip activity, preview rebuild results — already real, already tested) is relayed into a telemetry buffer, plus file saves, batched and POSTed to a new same-origin `/api/telemetry` route that forwards to the backend's real ingestion endpoint. Verified live: an authenticated POST returned `202 {recorded:1}` and the row landed in `activity_events`. **Not captured:** raw terminal command lines — that would mean touching `vfs-shell.ts`'s line editor, the one surface with both the heaviest test coverage (30/30, 18/18) and the most documented automation fragility in the repo. A deliberate, disclosed scope cut, not an oversight |
 | 3 | Run tests | ❌ |
-| 4 | Store code changes | 🟡 Real locally (git objects in IndexedDB via isomorphic-git) — nothing syncs a candidate's code to the backend or database. The "Code and Session Artifacts" piece of the data model has no data flowing into it |
-| 5 | Generate evaluation evidence | 🟡 The Go orchestrator and its four OpenRouter-backed agents (Code Evaluation, Reasoning, Workflow, Report) are real and tested — verified live that a submit with no evidence honestly reports "no agent produced usable evidence" rather than fabricating a read. Two things starve it: no telemetry ever reaches it (above), and `OPENROUTER_API_KEY` is unset everywhere, so even a session with events would get an honest "not configured" instead of a real evaluation |
-| 6 | Generate a final report | 🟡 `assessment_reports`/`evidence_items` tables, the full report-generation pipeline, and `GET /api/v1/sessions/{id}/report` all exist and work. **No UI anywhere — candidate or admin — reads or displays a report.** Grepped both frontends to confirm: only the client code written to *call* the endpoint exists |
+| 4 | Store code changes | 🟡 Unchanged: real locally (IndexedDB via isomorphic-git), nothing syncs to the backend |
+| 5 | Generate evaluation evidence | 🟡 The pipeline is real and tested; it can now actually receive real (if partial) evidence when a session has telemetry and `OPENROUTER_API_KEY` set — neither key has been configured anywhere yet, so every real run to date has honestly reported "not configured" or "no usable evidence," never a fabricated read |
+| 6 | Generate a final report | ✅ **Now real, end to end**, closing what was the previous version of this file's #3 named gap. `assessment_reports`/`evidence_items`, the generation pipeline, `GET /sessions/{id}/report`, and now a real candidate-facing page that polls while evaluation runs and shows the true terminal state (ready or honestly failed) |
 
-### Internal Admin (§2.1) — 4 of 4 items real, with caveats on 2
+### Internal Admin (§2.1) — 4 of 4 items real; both known-wrong pages from last pass are now fixed
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Onboard a company + assign team | 🟡 The pipeline that's actually used (Tracker → `OnboardForm` → `addOnboarded()`) is real and works — but it writes to `onboarded_companies` (a sales/billing record), not `companies` (the real product-account table from the data model). Winning a deal today produces a row a future Company Portal login couldn't authenticate against. `companies` has **zero rows** and no writer anywhere in the repo |
+| 1 | Onboard a company + assign team | ✅ **Now genuinely reconciled.** `addOnboarded()` (Tracker → `OnboardForm`) now creates a real `companies` row *and* the `onboarded_companies` sales record, linked by a new `company_id` FK (`0007_link_onboarded_companies.sql`). Verified against the real database: the join resolves, the company has the right name/status/team |
 | 2 | Author and publish assessment templates | ✅ Real (`game_templates`, `supabaseReady()`-gated with an honest sample fallback) |
-| 3 | View live/past sessions globally | ✅ Real — and as of this session, a session started through the new Go backend carries a real `candidate_id`, which this page doesn't use yet but could |
-| 4 | Reset a session / re-trigger evaluation | ✅ Real, wired to a UI (`SessionsView.tsx` → `resetSession`/`retriggerEval` → Supabase directly). The Go backend now *also* implements both as HTTP endpoints — unused duplicates of a capability the Next.js side already does live. Worth consolidating, not urgent |
+| 3 | View live/past sessions globally | ✅ Real — still a name-based join (company/template names), not yet reading the `candidate_id`/`assessment_id` FKs a Go-backend-created session now carries |
+| 4 | Reset a session / re-trigger evaluation | ✅ Real, wired to a UI, direct to Supabase. The Go backend's equivalent endpoints remain real but unused — still worth consolidating, still not urgent |
 
-Two things also real in internal-admin outside the MVP list, worth naming
-because they're the one place this app is actively *wrong* rather than
-incomplete: the **Overview** page imports mock data unconditionally with no
-`supabaseReady()` check at all, and the **Companies** page is a client
-component that writes an onboarding form's input to local React state and
-nowhere else. Both are unchanged since `ADMIN_BACKEND_PLAN.md` found them;
-neither has been touched this session.
+**The two pages that were actively wrong, not just incomplete, are both
+fixed this pass.** Overview (`app/admin/page.tsx`) imported mock data
+unconditionally with no `supabaseReady()` check at all — it now branches
+exactly like Library/Sessions/Companies, verified live (signed in with a
+throwaway admin account, confirmed real zeros with no sample badge).
+Companies was a client component writing an onboarding form's input to local
+`useState` and nowhere else — it's now a real Server Component + client view
+pair backed by real `listCompanies`/`createCompany`/`setCompanyStatus`,
+verified live (created a company, reloaded the page, it was still there;
+paused it, reloaded, still paused).
 
 ---
 
 ## The backend, concretely
 
-`candidate/backend` went from a two-endpoint FastAPI stub to a real Go
-monolith this session (see its own [README](candidate/backend/README.md)
-for the full endpoint list). What matters for this file is *adoption*, not
-just existence:
+`candidate/backend` (see its own [README](candidate/backend/README.md) for
+the full endpoint list) — adoption has moved substantially since last time:
 
 | Capability | Backend has it | Something calls it |
 |---|---|---|
-| Session verification (`mf_candidate`/`mf_admin`) | ✅ | ✅ (candidate/frontend, 3 routes) |
-| List published assessments | ✅ | ✅ |
-| Start a session (real `candidate_id`) | ✅ | ✅ |
-| Session status | ✅ | ❌ |
-| Telemetry ingestion | ✅ | ❌ |
-| Submit + evaluation pipeline | ✅ | ❌ |
-| Report retrieval | ✅ | ❌ |
-| Real-time WebSocket hub | ✅ | ❌ (no browser client anywhere connects) |
-| Admin: session monitor, reset, retrigger | ✅ | ❌ (internal-admin still goes direct to Supabase) |
-| OpenRouter (4 evaluation agents) | ✅, honestly refuses without a key | — no key configured |
-| Daytona (sandbox provisioning) | ✅, honestly refuses without a key | — no key configured |
+| Session verification (`mf_candidate`/`mf_admin`) | ✅ | ✅ |
+| List assessments (real invitations + open pool) | ✅ | ✅ |
+| Start a session (invitation or open template) | ✅ | ✅ |
+| Session status | ✅ | ✅ (the report page reads it for context) |
+| Telemetry ingestion | ✅ | ✅ (git/npm/pip/preview/file-saves — see Platform #2) |
+| Submit + evaluation pipeline | ✅ | ✅ |
+| Report retrieval | ✅ | ✅ (the new report page) |
+| Real-time WebSocket hub | ✅ | ❌ still no browser client connects — telemetry and the report page both use plain REST/polling, not the hub |
+| Admin: session monitor, reset, retrigger | ✅ | ❌ internal-admin still goes direct to Supabase |
+| OpenRouter (4 evaluation agents) | ✅, honestly refuses without a key | — no key configured anywhere |
+| Daytona (sandbox provisioning) | ✅, honestly refuses without a key | — no key configured anywhere |
 | Gemini Live (AI interview) | Interface only — **not implemented**, by design | — |
 
-Read that table as: **the hard, easy-to-get-wrong plumbing (auth, data
-access, the agent pipeline's shape, real-time fan-out) is built and tested.
-The wiring that would make any of it visible to a candidate or company is
-almost entirely still ahead.**
+Read that table as: **almost everything the backend can do now has
+something real calling it.** The two rows still unconnected — the WebSocket
+hub, and internal-admin's own use of the Admin API — are both legitimate
+next steps, not oversights hiding behind a green checkmark elsewhere.
 
 ---
 
 ## Gaps worth naming
 
-Not "not built yet" — these are places where the app currently says or
-implies something that isn't true, or where two things exist that
-contradict each other. In the order they'd embarrass the product first:
+Not "not built yet" — places where the app currently says or implies
+something untrue, or two things exist that contradict each other. Most of
+what carried this heading last time is fixed; what's left is more precise.
 
-1. **The dashboard shows two different numbers of your assessments on the
-   same screen.** `StatNotes` renders the hardcoded sample stat
-   ("Open invitations · 1") while `AssessmentNotes` right below it renders
-   the real (now genuinely wired) list from the backend. With `game_templates`
-   currently empty in production, that real list is correctly empty — so the
-   page asserts "you have 1 open invitation" and "you have no assessments"
-   in the same render. Unchanged from when `CANDIDATE_BACKEND_PLAN.md` first
-   found it; still a few hours of work, not days.
-2. **"Welcome back, Rishi" — for everyone, always.** Confirmed live this
-   session: signed up a real account named "Frontend Wiring Test," and the
-   dashboard greeting still read the hardcoded sample name.
-   `resolveIdentity()` has exactly two tiers (a saved local edit, or the
-   sample) — the signed-in session was never added as the tier in between,
-   per `CANDIDATE_BACKEND_PLAN.md` §6.3.
-3. **A session can be started, but nothing built this session lets anyone
-   see what happens to it.** The report pipeline is real; there's no page
-   that shows a report. This isn't a "not started" the way the Company
-   Portal is — it's a completed backend with an intentionally missing front
-   door.
-4. **`companies` vs. `onboarded_companies` — the split `ADMIN_BACKEND_PLAN.md`
-   flagged is still exactly as unreconciled.** Every "company" anyone can
-   currently create in this product is a billing record, not the account row
-   a login would need.
-5. **`assessments` — the per-candidate-invitation table the whole Company
-   flow depends on — is still never touched by any code**, Go backend
-   included. `/api/v1/assessments` lists *every* published template to
-   *every* candidate; there is no per-candidate invitation, no "this company
-   invited this candidate to this template," anywhere in the system yet.
-   This is the one piece of schema every unbuilt Company Portal feature and
-   every "review a report" feature both sit on top of.
-6. **Telemetry has a real destination and nothing sending to it.** Worth
-   restating plainly since it's easy to read "the backend has an events
-   endpoint now" as progress on PRD §1.7 — it isn't, yet. The product's
-   whole differentiator still captures zero signal from a real session.
-7. **Two implementations of admin support-overrides now exist** (Next.js →
-   Supabase directly, live; Go backend's equivalent endpoints, unused). Not
-   a correctness bug — a maintenance one, if both are ever edited separately.
-8. **Every table that matters is currently empty in production.** Checked
-   directly while writing this: `game_templates`, `sessions`,
-   `candidate_users`, `companies`, `onboarded_companies`, `assessments` are
-   all at zero rows. Every "real" path described above has been proven to
-   work, end to end, against the real database — but none of it has any
-   real data behind it yet outside of a session's own testing (created and
-   deleted immediately after verifying).
+1. **The task brief inside the IDE is fake, specifically.** Every assessment
+   shows "Authentication Bug Fix" (`MOCK_TASK_MARKDOWN`) regardless of which
+   real assessment the candidate actually started — confirmed live. This is
+   worse than "no task panel," because the panel exists and looks connected.
+2. **Telemetry captures a real but partial picture.** Stated plainly so
+   "the IDE sends telemetry now" isn't read as more than it is: git/npm/pip
+   activity, preview rebuilds, and file saves are real; raw terminal command
+   lines are not captured (see Platform #2 for why, and the deliberate scope
+   line in `lib/ide/telemetry.ts`).
+3. **Two implementations of admin support-overrides still exist** — unchanged
+   from last time. Not a correctness bug, a maintenance one if they're ever
+   edited separately.
+4. **Most tables that matter are still empty in production.** Checked while
+   writing this: `game_templates`, `sessions`, `candidate_users`,
+   `assessments`, `activity_events`, `assessment_reports` are all at (or
+   very near) zero real rows; `companies` now has real write paths but no
+   standing rows either. Every "real" path described above has been proven
+   to work end to end against the real database, each time by creating test
+   rows and deleting them immediately after — none of it has real production
+   data behind it yet.
+5. **The IDE's own Explorer footer still shows a hardcoded candidate name
+   ("Rishi")**, unrelated to and unfixed by the dashboard identity fix from
+   this pass — confirmed live, still true, not yet threaded through.
+
+Resolved since the last version of this file (kept here briefly so the
+history is legible, not because they're still open): the dashboard's
+StatNotes/AssessmentNotes self-contradiction; the sample-name dashboard
+greeting; the missing report-viewing surface; `assessments` never being
+read or written; `companies`/`onboarded_companies` being unlinked;
+Overview's unconditional mock import; Companies writing to nowhere.
 
 ---
 
 ## Blocked on a decision
 
-**Still not blocked on ambiguity — each of these needs a call, not more
-exploratory work:**
-
 1. **Execution model.** Unchanged: the workspace is browser-only; the PRD
-   specifies Daytona sandboxes over a WebSocket (now confirmed Go, not
-   FastAPI — see §2.3). The Go backend's sandbox client and WebSocket hub
-   exist on the *server* side of that bridge; nothing on the IDE side has
-   been built to be the other end of it, and building that is a deliberate
-   scope decision, not a small wire-up.
-2. **Backend hosting target** (PRD §2.4) — resolved in *language*, not in
-   *where*. Go is confirmed; the process still doesn't run anywhere but a
-   developer's machine. Vercel serverless still doesn't fit a long-lived
-   process with WebSocket connections.
-3. **Per-agent LLM routing** (PRD §2.4) — the access *layer* is now settled
-   (OpenRouter, confirmed this session); *which* model runs Code Evaluation
-   / Reasoning / Workflow / Report is still the same open proposal it always
-   was (defaults to Claude, overridable per agent via env var, nobody's
-   confirmed it).
-4. **Email.** `RESEND_API_KEY` is unset in every `.env.local` in the repo,
-   checked again while writing this. Nothing sends a real email anywhere.
-5. **Self-serve signup vs. invitation as the primary candidate entry point**
-   (`CANDIDATE_BACKEND_PLAN.md` §9) — now more consequential than when first
-   raised, since it directly decides how `assessments.candidate_id` (still
-   unbuilt) gets populated: does an invite create the account, or does an
-   account holder redeem an invite?
-6. **`companies` vs. `onboarded_companies`** (gap #4 above) — absorb one
-   into the other, or keep both and actually link them. The wrong outcome is
-   today's: separate and unlinked.
+   specifies Daytona sandboxes over a Go WebSocket. Both ends of that bridge
+   exist in isolation (the backend's sandbox client and WS hub; the IDE's own
+   telemetry and eventual terminal); nothing connects them, and that's a
+   deliberate scope decision, not a small wire-up.
+2. **Backend hosting target** (PRD §2.4) — resolved in *language*, still open
+   in *where*. The process still only runs on a developer's machine.
+3. **Per-agent LLM routing** (PRD §2.4) — the access *layer* is settled
+   (OpenRouter); *which* model runs each of the four agents is still the same
+   open proposal (defaults to Claude, overridable per agent, unconfirmed).
+4. **Email.** `RESEND_API_KEY` is still unset everywhere. Nothing sends a
+   real email anywhere in either app.
+5. **Self-serve signup vs. invitation as the primary candidate entry point** —
+   this pass made both genuinely work side by side rather than picking one,
+   which is a real answer but possibly a provisional one: worth confirming
+   whether that's the intended steady state or a stopgap until the Company
+   Portal exists and invitations become the norm.
+6. **Raw terminal telemetry** — a real scope decision, not an oversight (see
+   Platform #2): capture it by touching `vfs-shell.ts`'s line editor despite
+   its test/automation fragility, or accept the git/npm/pip/file-save signal
+   as sufficient for now.
 
 ## Next, in the order I'd do it
 
-1. **Fix the dashboard's self-contradiction (gap #1).** Hours, not days,
-   and it's the most visible honesty problem in the product today.
-2. **Give `resolveIdentity()` its third tier (gap #2).** Small, same
-   category of fix.
-3. **Wire `assessments` for real** (gaps #4, #5) — the one schema fix that
-   everything else (per-candidate invitations, the Company Portal, a
-   reviewable report) sits on top of. `CANDIDATE_BACKEND_PLAN.md` §6.1 and
-   `ADMIN_BACKEND_PLAN.md` §5.4 both point at this same table from opposite
-   sides; it's one feature, not two.
-4. **A report-viewing surface, even a minimal one.** The pipeline that
-   produces a report already works; right now that work is invisible.
-5. **Telemetry from the IDE to `POST /sessions/{id}/events`** (PRD §1.7) —
-   the product's actual differentiator, still the largest genuinely unbuilt
-   piece, exactly as ranked in every prior version of this file.
-6. **The rest of the IDE's assessment chrome** — task description panel,
-   timer, a Submit action that calls the real endpoint, diff viewer, test
-   results. What turns the workspace from "a very good IDE" into "an
-   assessment."
-7. **Company Portal, from zero** (§1.4) — the largest single hole in the
-   MVP scope, and nothing before it needs to be finished first except #3.
-8. **Fix internal-admin's Overview and Companies pages, and reconcile
-   `companies`/`onboarded_companies`** (`ADMIN_BACKEND_PLAN.md` §5.1–5.3) —
-   independent of everything above, ready to do any time.
-9. **Get real keys for OpenRouter, Daytona, and decide Gemini Live's
-   timeline** — everything downstream of these has been built to the point
-   where a real key is the only thing left standing between "honestly
-   refuses" and "actually works."
+1. **Company Portal, from zero** (§1.4) — now unambiguously the largest
+   single hole in the MVP scope, and the backend-side prerequisite it used to
+   wait on (`assessments` being real) is done.
+2. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
+   and the candidate-side consumption of one are both real; only the
+   authoring surface is missing. Small relative to #1, and unblocks testing
+   the whole invitation flow without a direct database write.
+3. **Real task-brief content** (gap #1) — needs a schema field (`game_templates`
+   has no task-description column today) and an authoring UI in the Library
+   page before the IDE side is worth touching.
+4. **Get real keys for OpenRouter and Daytona** — everything downstream of
+   both has been built to the point where a real key is the only thing left
+   between "honestly refuses" and "actually works."
+5. **Decide Gemini Live's timeline** — the one MVP item with no partial
+   progress possible without committing to building the real-time bridge.
+6. **Raw terminal telemetry, if the decision above lands on "yes"** — the
+   remaining, harder half of Platform #2.
+7. **Wire the WebSocket hub to something** — live status/terminal streaming
+   exists server-side with zero consumers; the report page's polling and
+   telemetry's REST batching both work without it today, so this is real but
+   not urgent.
+8. **Consolidate the duplicate admin support-override implementations.**
 
 ## Known limitations, accepted for now
 
@@ -236,7 +217,9 @@ exploratory work:**
 - The AI chat panel has no model connected, even though the backend now
   could answer it — that wire doesn't exist yet.
 - Gemini Live (the AI interview) is explicitly unimplemented, not merely
-  unconfigured — see "The backend, concretely" above.
+  unconfigured.
+- Telemetry is real but scoped to git/npm/pip/preview/file-save signals —
+  not raw terminal command lines (see "Blocked on a decision" #6).
 - The Go backend is not deployed anywhere; nobody but a developer's machine
   can reach it.
 - OpenRouter and Daytona are both wired for real but unconfigured — every
@@ -244,14 +227,21 @@ exploratory work:**
 
 ## Testing note
 
-The IDE's shell engine has no DOM or React imports, deliberately — it's
-driven directly against an in-memory filesystem in Node (see its own
-task.md for exact counts). The Go backend has real unit tests
-(`go test ./...`, no live database needed) plus, this session, live
-verification against the actual running stack: real signup through the
-actual UI, a real session created and confirmed in Postgres by its
-`candidate_id`/`email` match, then cleaned up. Anything genuinely
-browser-dependent on the candidate side — Pyodide, the npm registry, the
-camera — still has to be checked in a real browser; the automation
-available here reliably drops keystrokes into xterm specifically (documented
-in the IDE's own CLAUDE.md), not elsewhere.
+The IDE's shell engine has no DOM or React imports, deliberately — driven
+directly against an in-memory filesystem in Node (see its own task.md for
+exact counts). The Go backend has real unit tests (`go test ./...`, no live
+database needed — this pass added coverage for the invitation-vs-open-pool
+mapping and status translation) plus repeated live verification against the
+actual running stack: real signups through the actual UI, real sessions
+started from both a real invitation and the open pool, a real Submit
+click-through to a real report page, a real telemetry POST confirmed in
+`activity_events`, and on the internal-admin side a throwaway admin account
+(created and deleted directly in the database — no production credentials
+touched) used to confirm Overview and Companies against real data. Every
+test row created this pass was deleted immediately after verifying.
+Anything genuinely browser-dependent and not already covered — Pyodide, the
+npm registry, the camera, raw terminal input — still has to be checked by a
+human in a real browser; the automation available here reliably drops
+keystrokes into xterm specifically (documented in the IDE's own CLAUDE.md),
+which is also why raw-terminal telemetry wasn't attempted through it this
+pass.
