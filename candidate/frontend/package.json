@@ -23,6 +23,7 @@
     "pyodide": "^314.0.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "simple-icons": "^16.30.0",
     "tailwind-merge": "^3.6.0",
     "typescript": "^5"
   },

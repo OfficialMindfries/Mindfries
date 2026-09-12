@@ -1,4 +1,6 @@
-import { Briefcase, GitBranch, GitMerge, Globe, type LucideIcon } from "lucide-react";
+import { Briefcase, Globe } from "lucide-react";
+import type { ComponentType } from "react";
+import { GithubMark, GitlabMark } from "@/components/profile/BrandIcon";
 
 /**
  * The four platforms a candidate can point a hiring team at — GitHub and
@@ -33,7 +35,7 @@ interface PlatformConfig {
   id: LinkPlatform;
   label: string;
   tint: string;
-  icon: LucideIcon;
+  icon: ComponentType<{ size?: number }>;
   placeholder: string;
   /** What this platform adds, shown once, so the ask isn't a bare text box. */
   pitch: string;
@@ -92,8 +94,8 @@ export const PLATFORMS: Record<LinkPlatform, PlatformConfig> = {
   github: {
     id: "github",
     label: "GitHub",
-    tint: "#171717",
-    icon: GitBranch,
+    tint: "#181717", // simple-icons' own brand hex for GitHub
+    icon: GithubMark,
     placeholder: "your-username",
     pitch: "Real commit history — the same kind of evidence this workspace already collects.",
     live: true,
@@ -109,8 +111,8 @@ export const PLATFORMS: Record<LinkPlatform, PlatformConfig> = {
   gitlab: {
     id: "gitlab",
     label: "GitLab",
-    tint: "#FC6D26",
-    icon: GitMerge,
+    tint: "#FC6D26", // simple-icons' own brand hex for GitLab
+    icon: GitlabMark,
     placeholder: "your-username",
     pitch: "Same idea, for teams that ship on GitLab instead.",
     live: true,

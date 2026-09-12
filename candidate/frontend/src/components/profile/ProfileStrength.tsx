@@ -2,7 +2,7 @@
 
 import { Check } from "lucide-react";
 import clsx from "clsx";
-import { bio, skills } from "@/lib/profile/data";
+import { bio } from "@/lib/profile/data";
 import { useProfileExtras } from "@/lib/profile/storage";
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/profile/links";
 
@@ -21,7 +21,6 @@ export function ProfileStrength() {
 
   const items = [
     { label: "About you", done: bio.trim().length > 0 },
-    { label: "Skills", done: skills.some((g) => g.items.length > 0) },
     { label: "Resume", done: !!resume },
     ...PLATFORM_ORDER.map((id) => ({ label: PLATFORMS[id].label, done: !!links[id] })),
   ];
