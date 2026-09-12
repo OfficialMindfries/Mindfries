@@ -97,6 +97,8 @@ export interface OnboardedCompany {
   status: "active" | "paused";
   credentialsSentAt: string | null;
   createdAt: string;
+  /** The real companies row this deal created (0007_link_onboarded_companies.sql) — null for anything onboarded before that migration. */
+  companyId: string | null;
 }
 
 // A candidate invited to run a template for a company (candidate app reads these).

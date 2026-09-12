@@ -40,22 +40,77 @@ export interface SetupStep {
   done: boolean;
 }
 
+// role and location are kept discrete — not just parsed out of headline —
+// because the profile page lays them out separately; headline is still the
+// single combined string the nav and dashboard greeting use.
+const ROLE = "Full-stack engineer";
+const LOCATION = "Bengaluru, IN";
+
 export const candidate = {
   name: "Rishi",
   initials: "R",
-  headline: "Full-stack engineer · Bengaluru, IN",
+  role: ROLE,
+  location: LOCATION,
+  headline: `${ROLE} · ${LOCATION}`,
 };
+
+export interface Stat {
+  kind: AssessmentStatus | "practice";
+  label: string;
+  value: number;
+  hint: string;
+}
 
 /**
  * `kind` ties each counter to the same state an assessment can be in, so the
  * dashboard colours a counter and the assessments it counts the same way.
  */
-export const stats = [
+export const stats: Stat[] = [
   { kind: "invited", label: "Open invitations", value: 1, hint: "1 closes in 3 days" },
   { kind: "in-progress", label: "In progress", value: 1, hint: "Resume where you left off" },
   { kind: "submitted", label: "Submitted", value: 2, hint: "Both under review" },
   { kind: "practice", label: "Practice runs", value: 4, hint: "Unlimited, never scored" },
-] as const;
+];
+
+/**
+ * The real counters, derived from the same list `AssessmentNotes` renders —
+ * so the dashboard can never again show a real "no assessments" list next to
+ * a hardcoded "1 open invitation" note above it (the contradiction
+ * `CANDIDATE_BACKEND_PLAN.md` §3 flagged). `items` is only ever the real
+ * backend list here, never the sample one — see StatNotes for the branch.
+ *
+ * "Practice runs" has no real analog yet — nothing in this product tracks a
+ * practice session anywhere — so it reports 0 and says so, rather than
+ * carrying over the sample's invented "4."
+ */
+export function deriveStats(items: Assessment[]): Stat[] {
+  const count = (status: AssessmentStatus) => items.filter((a) => a.status === status).length;
+  const invited = count("invited");
+  const inProgress = count("in-progress");
+  const submitted = count("submitted");
+
+  return [
+    {
+      kind: "invited",
+      label: "Open invitations",
+      value: invited,
+      hint: invited === 0 ? "Nothing open right now" : `${invited} open right now`,
+    },
+    {
+      kind: "in-progress",
+      label: "In progress",
+      value: inProgress,
+      hint: inProgress === 0 ? "Nothing in progress" : "Resume where you left off",
+    },
+    {
+      kind: "submitted",
+      label: "Submitted",
+      value: submitted,
+      hint: submitted === 0 ? "Nothing submitted yet" : submitted === 1 ? "Under review" : "All under review",
+    },
+    { kind: "practice", label: "Practice runs", value: 0, hint: "Not tracked yet" },
+  ];
+}
 
 /**
  * Mercor's three-step header, adapted. The steps are the things that must be
@@ -176,3 +231,18 @@ export const statusLabels: Record<AssessmentStatus, string> = {
   submitted: "Submitted",
   closed: "Closed",
 };
+
+/** All four statuses, in the order they're worth your attention. */
+export const ASSESSMENT_STATUSES: AssessmentStatus[] = ["invited", "in-progress", "submitted", "closed"];
+
+const ATTENTION_ORDER: Record<AssessmentStatus, number> = { invited: 0, "in-progress": 1, submitted: 2, closed: 3 };
+
+/**
+ * Needs-your-action first: an open invitation before a session you've
+ * already submitted. Used wherever a list of assessments is shown without an
+ * explicit sort of its own — the dashboard's preview and the full
+ * Assessments page's "All" view both read this way.
+ */
+export function sortByAttention(items: Assessment[]): Assessment[] {
+  return [...items].sort((a, b) => ATTENTION_ORDER[a.status] - ATTENTION_ORDER[b.status]);
+}

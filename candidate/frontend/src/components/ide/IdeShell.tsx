@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import clsx from "clsx";
 import { GripVertical, GripHorizontal } from "lucide-react";
 import { FileExplorer } from "./FileExplorer";
@@ -30,8 +30,21 @@ import { useDiagnostics } from "@/lib/ide/diagnostics";
 import { CHANNELS, output } from "@/lib/ide/output";
 import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
+import { submitAssessment } from "@/app/ide/actions";
+import { TelemetryBuffer } from "@/lib/ide/telemetry";
 
-export function IdeShell() {
+interface IdeShellProps {
+  /**
+   * The real session id this workspace was opened for (onboarding's
+   * enterWorkspace passes it as `?session=<id>` on success). Undefined for
+   * a workspace opened without a tracked session — directly at /ide, or
+   * onboarding's own honest fallback when the backend isn't configured —
+   * in which case Submit stays local-only, same as before this was wired.
+   */
+  sessionId?: string;
+}
+
+export function IdeShell({ sessionId }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -48,6 +61,43 @@ export function IdeShell() {
     }
     return dirty;
   }, [openPaths, files, savedFiles]);
+
+  // Telemetry (PRD §1.7) — real, but deliberately scoped: git/npm/pip
+  // activity and preview rebuilds (via the existing Output-channel store)
+  // plus file saves. See lib/ide/telemetry.ts's own doc comment for exactly
+  // what this does and doesn't cover yet, and why. Only created when this
+  // workspace has a real session to attribute events to.
+  const telemetryRef = useRef<TelemetryBuffer | null>(null);
+  useEffect(() => {
+    if (!sessionId) return;
+    const buffer = new TelemetryBuffer(sessionId);
+    telemetryRef.current = buffer;
+    return () => {
+      buffer.destroy();
+      telemetryRef.current = null;
+    };
+  }, [sessionId]);
+
+  // Relays the Output panel's own channels (git/npm/pip/preview — see
+  // lib/ide/output.ts) into telemetry. Tracks how many lines of each
+  // channel have already been sent, since the store only exposes full
+  // snapshots, not "what's new since last time."
+  useEffect(() => {
+    if (!sessionId) return;
+    const sent: Record<string, number> = {};
+    const relay = () => {
+      const snapshot = output.getSnapshot();
+      for (const [channel, lines] of Object.entries(snapshot)) {
+        const from = sent[channel] ?? 0;
+        const newLines = lines.slice(from);
+        if (newLines.length === 0) continue;
+        sent[channel] = lines.length;
+        telemetryRef.current?.record("workspace_output", { channel, lines: newLines });
+      }
+    };
+    relay(); // catch anything already buffered before this effect ran
+    return output.subscribe(relay);
+  }, [sessionId]);
 
   // Restore whatever was here last time — localStorage only exists client-side,
   // so this has to happen post-mount (matches the theme provider's same pattern).
@@ -87,11 +137,13 @@ export function IdeShell() {
   useEffect(() => {
     if (dirtyPaths.size === 0) return;
     const timeout = setTimeout(() => {
+      const paths = [...dirtyPaths];
       setSavedFiles((prev) => {
         const next = { ...prev };
-        for (const path of dirtyPaths) next[path] = files[path];
+        for (const path of paths) next[path] = files[path];
         return next;
       });
+      telemetryRef.current?.record("file_edit", { paths });
     }, 800);
     return () => clearTimeout(timeout);
   }, [dirtyPaths, files]);
@@ -115,11 +167,16 @@ export function IdeShell() {
   const [ending, setEnding] = useState<InstalledPackage[] | null>(null);
   const [ended, setEnded] = useState<{ deleted: boolean } | null>(null);
 
-  // Submit flow — the header's Submit button opens a confirmation dialog,
-  // confirming replaces the workspace with a submitted screen (same pattern
-  // as EndSession, except this one is "work submitted" not "session ended").
+  // Submit flow — the header's Submit button opens a confirmation dialog.
+  // With a real sessionId, confirming calls the backend for real
+  // (submitAssessment) and leaves for the report page rather than staying
+  // on a local "submitted" screen — there's somewhere real to send the
+  // candidate now. Without one (no tracked session for this workspace),
+  // it falls back to the original local-only confirmation screen.
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | undefined>();
+  const [isSubmittingReal, startSubmitTransition] = useTransition();
 
 
   const openFile = (path: string) => {
@@ -576,12 +633,29 @@ export function IdeShell() {
       {submitting && (
         <SubmitConfirmDialog
           theme={theme}
-          onCancel={() => setSubmitting(false)}
-          onConfirm={() => {
+          pending={isSubmittingReal}
+          error={submitError}
+          onCancel={() => {
             setSubmitting(false);
-            camera.stop();
-            exitFullscreen();
-            setSubmitted(true);
+            setSubmitError(undefined);
+          }}
+          onConfirm={() => {
+            if (!sessionId) {
+              // No tracked session for this workspace (backend wasn't
+              // configured when it was entered, or /ide was opened
+              // directly) — nothing real to submit to, so this stays the
+              // original local-only confirmation.
+              setSubmitting(false);
+              camera.stop();
+              exitFullscreen();
+              setSubmitted(true);
+              return;
+            }
+            startSubmitTransition(async () => {
+              const result = await submitAssessment(sessionId);
+              // A successful call redirects and never returns here.
+              if (result?.error) setSubmitError(result.error);
+            });
           }}
         />
       )}

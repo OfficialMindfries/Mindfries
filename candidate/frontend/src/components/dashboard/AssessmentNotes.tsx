@@ -1,145 +1,42 @@
-"use client";
+import Link from "next/link";
+import { AssessmentWall } from "@/components/assessments/AssessmentWall";
+import { assessments as sample, sortByAttention, type Assessment } from "@/lib/dashboard/data";
 
-import { useTransition } from "react";
-import clsx from "clsx";
-import { ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { assessments as sample, statusLabels, type Assessment } from "@/lib/dashboard/data";
-import { hand } from "@/lib/dashboard/fonts";
-import { startAssessment } from "@/app/dashboard/actions";
-import { StickyNote } from "./StickyNote";
-import { TONE } from "./noteTones";
+const PREVIEW_COUNT = 3;
 
 /**
- * Assessments, pinned to the wall as notes.
+ * Assessments, pinned to the wall as notes — the dashboard's preview of the
+ * full list at /assessments. `items` are the candidate's real assessments
+ * when Supabase is configured, and the sample set otherwise.
  *
- * A wall rather than the old carousel: five things don't need to hide behind
- * arrows, and a wall is the point of the metaphor. `items` are the
- * candidate's real assessments when Supabase is configured, and the sample
- * set otherwise — the same fallback the carousel had.
+ * Shows the three most worth acting on (an open invitation before a session
+ * already submitted) rather than the whole wall, so this section doesn't
+ * compete with SetupCard and ActivityFeed for the page. "View all" only
+ * appears when there's more to see.
  *
- * ## Every button goes somewhere
- *
- * The old cards had three buttons and only one of them did anything. "Resume
- * session" and "View your report" were wired to nothing, which is worse than
- * having no button: it's a promise the page doesn't keep. So:
- *
- * - **Start assessment** runs `startAssessment`, which takes the candidate
- *   into `/onboarding` — consent, device check, lobby — before any session or
- *   timer starts.
- * - **Resume** is a link to `/ide`. The workspace restores itself from
- *   browser storage, so it genuinely does open where they left off.
- * - **Submitted** shows its state instead of a button, because there's no
- *   report page yet. That comes back as a link when there's something to
- *   link to.
+ * The note rendering itself — including what each button does — lives in
+ * AssessmentWall, shared with the full Assessments page.
  */
 export function AssessmentNotes({ items = sample }: { items?: Assessment[] }) {
-  const [pending, start] = useTransition();
+  const ordered = sortByAttention(items);
+  const preview = ordered.slice(0, PREVIEW_COUNT);
 
   return (
     <section>
       <div className="mb-5 flex items-baseline gap-3">
         <h2 className="text-base font-semibold tracking-tight text-[#0A1931]">Your assessments</h2>
         <span className="text-[13px] text-[#4A7FA7] tabular-nums">{items.length}</span>
+        {items.length > PREVIEW_COUNT && (
+          <Link
+            href="/assessments"
+            className="ml-auto text-[13px] font-medium text-[#4A7FA7] transition-colors hover:text-[#1A3D63]"
+          >
+            View all →
+          </Link>
+        )}
       </div>
 
-      {items.length === 0 ? (
-        <div className="max-w-xs">
-          <StickyNote tone="lavender" index={0}>
-            <p className={clsx(hand.className, "text-[26px] leading-tight font-bold")}>
-              Nothing pinned here yet
-            </p>
-            <p className="mt-2 text-[13px] leading-relaxed text-[#1A3D63]">
-              Assessments you&apos;re invited to will show up on this wall.
-            </p>
-          </StickyNote>
-        </div>
-      ) : (
-        <div className="grid gap-x-6 gap-y-9 pt-2 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((assessment, index) => (
-            <AssessmentNote
-              key={assessment.id}
-              assessment={assessment}
-              index={index}
-              pending={pending}
-              onStart={() => start(() => startAssessment(assessment.id))}
-            />
-          ))}
-        </div>
-      )}
+      <AssessmentWall items={preview} />
     </section>
-  );
-}
-
-function AssessmentNote({
-  assessment,
-  index,
-  pending,
-  onStart,
-}: {
-  assessment: Assessment;
-  index: number;
-  pending: boolean;
-  onStart: () => void;
-}) {
-  const { status } = assessment;
-
-  return (
-    <StickyNote tone={TONE[status]} index={index} faded={status === "closed"} className="min-h-[232px]">
-      <div className="flex items-center gap-2 text-[10.5px] font-semibold tracking-[0.08em] text-[#1A3D63] uppercase">
-        <span>{statusLabels[status]}</span>
-        {assessment.match !== undefined && (
-          <span className="ml-auto tracking-normal normal-case">{assessment.match}% match</span>
-        )}
-      </div>
-
-      <h3 className={clsx(hand.className, "mt-2 text-[27px] leading-[1.05] font-bold")}>
-        {assessment.role}
-      </h3>
-
-      <p className="mt-2 text-[13px] text-[#1A3D63]">
-        {assessment.company} · {assessment.location}
-      </p>
-      <p className="mt-1 text-xs text-[#1A3D63]/80">{assessment.tags.join(" · ")}</p>
-
-      {/* Pinned to the bottom, so the actions line up across a row even when
-          one role's name wraps to two lines and its neighbour's doesn't. */}
-      <div className="mt-auto flex items-end justify-between gap-3 pt-5">
-        <span className="text-xs text-[#1A3D63]">{assessment.due}</span>
-
-        {status === "invited" && (
-          <Button
-            type="button"
-            size="sm"
-            onClick={onStart}
-            disabled={pending}
-            className="shrink-0"
-            style={{ "--btn-bg": "#0A1931" } as React.CSSProperties}
-          >
-            {pending ? "Starting…" : "Start"}
-            {!pending && <ArrowRight size={13} />}
-          </Button>
-        )}
-
-        {/* A plain <a>, not a Link: entering the workspace is a full page load
-            on purpose, so the IDE starts from a clean slate. */}
-        {status === "in-progress" && (
-          <a
-            href="/ide"
-            className="btn-wipe inline-flex shrink-0 items-center justify-center gap-1 px-3.5 py-2 text-[12.5px] font-semibold"
-            style={{ "--btn-bg": "#0A1931", "--btn-fg": "#F6FAFD", "--btn-fill": "#4A7FA7", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
-          >
-            Resume
-            <ArrowRight size={13} />
-          </a>
-        )}
-
-        {status === "submitted" && (
-          <span className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63]")}>
-            under review ✓
-          </span>
-        )}
-      </div>
-    </StickyNote>
   );
 }

@@ -99,10 +99,16 @@ export function SubmitConfirmDialog({
   theme,
   onCancel,
   onConfirm,
+  pending,
+  error,
 }: {
   theme: IdeTheme;
   onCancel: () => void;
   onConfirm: () => void;
+  /** True while a real submit call to the backend is in flight — disables both buttons so a slow request can't be fired twice. */
+  pending?: boolean;
+  /** Set when a real submit attempt failed — shown instead of silently reopening the workspace as if nothing happened. */
+  error?: string;
 }) {
   const palette = idePalette(theme);
 
@@ -135,24 +141,31 @@ export function SubmitConfirmDialog({
             Make sure you have saved all your files and are happy with your solution before
             proceeding.
           </p>
+          {error && (
+            <p className="mt-3 rounded-md border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400">
+              {error}
+            </p>
+          )}
         </div>
 
         <div className={clsx("flex justify-end gap-2 border-t px-4 py-3", palette.border)}>
           <button
             type="button"
             onClick={onCancel}
-            className={clsx("rounded-md px-3 py-1.5 text-xs", palette.hover, palette.textMuted)}
+            disabled={pending}
+            className={clsx("rounded-md px-3 py-1.5 text-xs disabled:opacity-50", palette.hover, palette.textMuted)}
           >
             Go back
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+            disabled={pending}
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
             style={{ backgroundColor: STATUS_BAR_BG }}
           >
             <Send size={13} />
-            Confirm &amp; submit
+            {pending ? "Submitting…" : "Confirm & submit"}
           </button>
         </div>
       </div>

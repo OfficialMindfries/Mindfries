@@ -1,16 +1,17 @@
-FROM python:3.12-slim
+FROM golang:1.27-alpine AS build
+WORKDIR /src
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Dependencies first so this layer is cached across code changes.
+COPY go.mod go.sum ./
+RUN go mod download
 
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/server ./cmd/server
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
+COPY --from=build /out/server ./server
 
-# Install dependencies first so this layer is cached across code changes
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY app ./app
-
-EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8080
+CMD ["./server"]

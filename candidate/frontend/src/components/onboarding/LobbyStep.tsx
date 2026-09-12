@@ -3,13 +3,12 @@
 import { Clock, Terminal, Bot, GitBranch, ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
-// Mock assessment data — replaced by real data from the database once backend is wired
-const ASSESSMENT = {
-  role: "Senior Engineer, Agentic AI",
-  company: "Northwind Labs",
-  duration: "90 minutes",
-  taskType: "Bug Fix",
-};
+export interface LobbyAssessment {
+  role: string;
+  company: string;
+  /** Short descriptors as they come off the assessment card — e.g. ["Bug Fix", "90 min", "Remote"]. Shown verbatim, nothing re-derived or guessed here. */
+  tags: string[];
+}
 
 const RULES = [
   {
@@ -35,9 +34,12 @@ const RULES = [
 ];
 
 interface LobbyStepProps {
+  assessment: LobbyAssessment;
   onBack: () => void;
   onEnter: () => void;
   pending: boolean;
+  /** Set when a previous attempt to start the session failed — shown above the CTA so the candidate knows to retry rather than assume they're already in. */
+  error?: string;
 }
 
 /**
@@ -49,7 +51,7 @@ interface LobbyStepProps {
  *
  * Deliberately calm and clear — the candidate should feel prepared, not pressured.
  */
-export function LobbyStep({ onBack, onEnter, pending }: LobbyStepProps) {
+export function LobbyStep({ assessment, onBack, onEnter, pending, error }: LobbyStepProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -66,10 +68,10 @@ export function LobbyStep({ onBack, onEnter, pending }: LobbyStepProps) {
       {/* Assessment card */}
       <div className="rounded-2xl border border-[#1A3D63] bg-[#0A1931] p-5 text-[#F6FAFD]">
         <p className="text-xs font-semibold uppercase tracking-widest text-[#4A7FA7]">Your assessment</p>
-        <h2 className="mt-2 text-lg font-semibold leading-snug">{ASSESSMENT.role}</h2>
-        <p className="mt-0.5 text-sm text-[#B3CFE5]">{ASSESSMENT.company}</p>
+        <h2 className="mt-2 text-lg font-semibold leading-snug">{assessment.role}</h2>
+        <p className="mt-0.5 text-sm text-[#B3CFE5]">{assessment.company}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          {[ASSESSMENT.taskType, ASSESSMENT.duration, "Proctored"].map((tag) => (
+          {assessment.tags.map((tag) => (
             <span
               key={tag}
               className="rounded-md bg-[#1A3D63] px-2.5 py-1 text-xs font-medium text-[#B3CFE5]"
@@ -95,9 +97,15 @@ export function LobbyStep({ onBack, onEnter, pending }: LobbyStepProps) {
         ))}
       </div>
 
+      {error && (
+        <p className="rounded-lg border border-[#E4A0A0] bg-[#FBEAEA] px-4 py-3 text-center text-sm font-medium text-[#8A2C2C]">
+          {error}
+        </p>
+      )}
+
       {/* Final CTA note */}
       <p className="text-center text-xs text-[#4A7FA7]">
-        The timer starts when you click <strong className="text-[#0A1931]">Enter Workspace</strong>. 
+        The timer starts when you click <strong className="text-[#0A1931]">Enter Workspace</strong>.
         Take a moment and enter only when you&apos;re ready.
       </p>
 

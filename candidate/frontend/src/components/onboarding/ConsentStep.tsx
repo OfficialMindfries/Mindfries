@@ -3,15 +3,7 @@
 import { useState } from "react";
 import { ShieldCheck, Eye, Clock, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-
-const SIGNALS = [
-  { icon: "🗂️", label: "Repository navigation", detail: "Which files you explore and in what order" },
-  { icon: "✏️", label: "Code changes", detail: "Every edit, not just the final state" },
-  { icon: "⌨️", label: "Terminal commands", detail: "Commands run and their output" },
-  { icon: "🧪", label: "Test execution", detail: "Which tests you run and when" },
-  { icon: "💬", label: "AI assistant usage", detail: "How you interact with the AI — what you ask and why" },
-  { icon: "⏱️", label: "Time patterns", detail: "Where you spend time — reading, coding, debugging" },
-];
+import { HOW_EVIDENCE_IS_USED, RECORDED_SIGNALS, RETENTION, WHAT_IS_RECORDED } from "@/lib/policies";
 
 interface ConsentStepProps {
   onContinue: () => void;
@@ -48,11 +40,8 @@ export function ConsentStep({ onContinue }: ConsentStepProps) {
             <Eye size={16} className="text-[#1A3D63]" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-[#0A1931]">What is recorded during this session</h2>
-            <p className="mt-1 text-xs leading-relaxed text-[#4A7FA7]">
-              Your camera feed, code activity, and workspace behaviour are captured throughout the session.
-              Nothing is recorded until you click <strong>Enter Workspace</strong> on the final step.
-            </p>
+            <h2 className="text-sm font-semibold text-[#0A1931]">{WHAT_IS_RECORDED.title}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-[#4A7FA7]">{WHAT_IS_RECORDED.body}</p>
           </div>
         </div>
 
@@ -67,7 +56,7 @@ export function ConsentStep({ onContinue }: ConsentStepProps) {
 
         {showSignals && (
           <ul className="space-y-2 rounded-lg bg-[#F6FAFD] p-3">
-            {SIGNALS.map((s) => (
+            {RECORDED_SIGNALS.map((s) => (
               <li key={s.label} className="flex items-start gap-2.5">
                 <span className="text-base leading-none">{s.icon}</span>
                 <span>
@@ -87,12 +76,8 @@ export function ConsentStep({ onContinue }: ConsentStepProps) {
             <ShieldCheck size={16} className="text-[#1A3D63]" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-[#0A1931]">How evidence is used</h2>
-            <p className="mt-1 text-xs leading-relaxed text-[#4A7FA7]">
-              Mindfries doesn&apos;t score your final code. Instead, it produces an evidence report for the hiring team 
-              that describes how you approached the problem — what you explored, where you debugged, how you used tests, 
-              and how you explained your decisions. The hiring team makes the final call.
-            </p>
+            <h2 className="text-sm font-semibold text-[#0A1931]">{HOW_EVIDENCE_IS_USED.title}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-[#4A7FA7]">{HOW_EVIDENCE_IS_USED.body}</p>
           </div>
         </div>
 
@@ -101,11 +86,8 @@ export function ConsentStep({ onContinue }: ConsentStepProps) {
             <Clock size={16} className="text-[#1A3D63]" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-[#0A1931]">Retention</h2>
-            <p className="mt-1 text-xs leading-relaxed text-[#4A7FA7]">
-              Session recordings and activity data are retained for 90 days and then permanently deleted,
-              unless you request earlier deletion.
-            </p>
+            <h2 className="text-sm font-semibold text-[#0A1931]">{RETENTION.title}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-[#4A7FA7]">{RETENTION.body}</p>
           </div>
         </div>
       </div>
