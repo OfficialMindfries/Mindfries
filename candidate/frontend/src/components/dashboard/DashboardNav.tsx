@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell } from "lucide-react";
 import clsx from "clsx";
-import { candidate } from "@/lib/dashboard/data";
+import { NotificationBell } from "./NotificationBell";
+import { AccountMenu } from "./AccountMenu";
 
 /**
  * Top bar, following Eightfold's shape: wordmark, a short set of sections,
@@ -63,21 +63,8 @@ export function DashboardNav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="Notifications"
-            className="relative rounded-lg p-2 text-[#4A7FA7] transition-colors hover:bg-[#B3CFE5]/30 hover:text-[#1A3D63]"
-          >
-            <Bell size={17} />
-            <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#E06C75]" />
-          </button>
-          <Link
-            href="/profile"
-            aria-label="Your profile"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1A3D63] text-[13px] font-semibold text-[#F6FAFD] transition-opacity hover:opacity-90"
-          >
-            {candidate.initials}
-          </Link>
+          <NotificationBell />
+          <AccountMenu />
         </div>
       </div>
     </header>

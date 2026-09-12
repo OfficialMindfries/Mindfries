@@ -144,5 +144,14 @@ export function useProfileExtras() {
     setIdentity(identity: Omit<StoredIdentity, "updatedAt">): boolean {
       return write({ ...read(), identity: { ...identity, updatedAt: new Date().toISOString() } });
     },
+    /**
+     * Forgets the resume, every linked account and any identity edit — back
+     * to the sample "Rishi" this browser started with. Used by the account
+     * menu's "Sign out": there's no server session to end, so this is what
+     * that click can honestly do — clear what's actually stored here.
+     */
+    clearAll() {
+      write(EMPTY);
+    },
   };
 }
