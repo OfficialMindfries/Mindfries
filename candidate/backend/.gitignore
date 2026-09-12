@@ -1,0 +1,12 @@
+.env.local
+.env
+*.local.env
+
+# Build output
+/bin/
+/server
+/server.exe
+
+# Go
+*.test
+*.out
