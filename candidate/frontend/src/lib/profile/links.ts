@@ -1,6 +1,6 @@
-import { Briefcase, Globe } from "lucide-react";
+import { Globe } from "lucide-react";
 import type { ComponentType } from "react";
-import { GithubMark, GitlabMark } from "@/components/profile/BrandIcon";
+import { GithubMark, GitlabMark, LinkedinMark } from "@/components/profile/BrandIcon";
 
 /**
  * The four platforms a candidate can point a hiring team at — GitHub and
@@ -128,8 +128,8 @@ export const PLATFORMS: Record<LinkPlatform, PlatformConfig> = {
   linkedin: {
     id: "linkedin",
     label: "LinkedIn",
-    tint: "#0A66C2",
-    icon: Briefcase,
+    tint: "#0A66C2", // LinkedIn's own brand blue
+    icon: LinkedinMark,
     placeholder: "linkedin.com/in/your-name",
     pitch: "Background and experience, in your own words.",
     // LinkedIn's API doesn't allow an unauthenticated browser to read a

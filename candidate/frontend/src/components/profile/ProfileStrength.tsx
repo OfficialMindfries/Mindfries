@@ -2,7 +2,7 @@
 
 import { Check } from "lucide-react";
 import clsx from "clsx";
-import { bio } from "@/lib/profile/data";
+import { resolveIdentity } from "@/lib/profile/data";
 import { useProfileExtras } from "@/lib/profile/storage";
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/profile/links";
 
@@ -17,10 +17,11 @@ import { PLATFORM_ORDER, PLATFORMS } from "@/lib/profile/links";
  * show its work, not just render a verdict.
  */
 export function ProfileStrength() {
-  const { resume, links } = useProfileExtras();
+  const { identity: saved, resume, links } = useProfileExtras();
+  const identity = resolveIdentity(saved);
 
   const items = [
-    { label: "About you", done: bio.trim().length > 0 },
+    { label: "About you", done: identity.bio.trim().length > 0 },
     { label: "Resume", done: !!resume },
     ...PLATFORM_ORDER.map((id) => ({ label: PLATFORMS[id].label, done: !!links[id] })),
   ];
@@ -32,8 +33,9 @@ export function ProfileStrength() {
     <section className="rounded-2xl border border-[#B3CFE5] bg-white p-5">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-[#0A1931]">Profile strength</h2>
-        <span className="text-sm font-semibold tabular-nums text-[#1A3D63]">{pct}%</span>
+        <span className="text-sm font-semibold tabular-nums text-[#1A3D63]">{pct}% complete</span>
       </div>
+      <p className="mt-0.5 text-[12px] text-[#4A7FA7]">Complete these sections to make your profile stronger.</p>
 
       <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-[#B3CFE5]/40">
         <div

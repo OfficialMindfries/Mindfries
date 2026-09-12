@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
+import { PreviewModeProvider } from "@/components/profile/PreviewMode";
 import { IdentityCard } from "@/components/profile/IdentityCard";
 import { ProfileStrength } from "@/components/profile/ProfileStrength";
 import { LinkedAccounts } from "@/components/profile/LinkedAccounts";
 import { EvidenceSummary } from "@/components/profile/EvidenceSummary";
 import { ResumeUpload } from "@/components/profile/ResumeUpload";
+import { NextSteps } from "@/components/profile/NextSteps";
 
 export const metadata: Metadata = {
   title: "Profile · Mindfries",
@@ -13,16 +15,24 @@ export const metadata: Metadata = {
 
 /**
  * The candidate's profile: who they are, what they bring, and what their
- * sessions have produced so far. Bio is still read-only — no auth or
- * profile-write path exists for it yet — but the resume and linked accounts
- * below it are genuinely interactive, kept in this browser rather than on a
- * server that doesn't exist yet. See ResumeUpload and LinkedAccounts for
+ * sessions have produced so far.
+ *
+ * One edit surface, not several: name, role, location, availability and bio
+ * all live in IdentityCard and are all changed through the same "Edit
+ * profile" button (EditProfileModal) — there used to be a separate "About
+ * you" card with its own edit affordance; folding it in here left one thing
+ * to open instead of two. The resume and linked accounts manage themselves
+ * inline, genuinely interactive, kept in this browser rather than on a
+ * server that doesn't exist yet — see ResumeUpload and LinkedAccounts for
  * exactly what "saved" means there.
  *
- * Cards, not sticky notes: StickyNote's wall is for things that happen to
- * you (an invitation, a deadline), and a profile is closer to a résumé than
- * an event feed — see StickyNote's own doc comment on why colour there is
- * reserved for state.
+ * "View as others see" (PreviewModeProvider) is a real toggle, not a label:
+ * it hides every edit affordance and every not-yet-connected platform, so
+ * what's left is what a hiring team's own view would actually render.
+ *
+ * The sidebar borrows StickyNote's three colours but not its tilt — that
+ * motif is for the dashboard's wall of things happening to you; a profile
+ * reads as reference material, so these sit flat.
  */
 export default function ProfilePage() {
   return (
@@ -30,28 +40,24 @@ export default function ProfilePage() {
       <DashboardNav />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
-        <div>
-          <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-[#0A1931]">Profile</h1>
-          <p className="mt-1.5 text-sm text-[#4A7FA7]">
-            What hiring teams see alongside the evidence from your sessions.
-          </p>
-        </div>
-
-        <div className="mt-6">
-          <ProfileStrength />
-        </div>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-w-0 space-y-6">
-            <IdentityCard />
-            <LinkedAccounts />
+        <PreviewModeProvider>
+          <div className="mt-6">
+            <ProfileStrength />
           </div>
 
-          <aside className="space-y-4">
-            <EvidenceSummary />
-            <ResumeUpload />
-          </aside>
-        </div>
+          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-w-0 space-y-6">
+              <IdentityCard />
+              <LinkedAccounts />
+            </div>
+
+            <aside className="space-y-4">
+              <ResumeUpload />
+              <EvidenceSummary />
+              <NextSteps />
+            </aside>
+          </div>
+        </PreviewModeProvider>
       </main>
     </div>
   );

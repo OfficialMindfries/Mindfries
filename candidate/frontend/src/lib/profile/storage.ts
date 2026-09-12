@@ -34,13 +34,25 @@ export interface StoredLink {
   stats?: PlatformStats;
 }
 
+/** What the "Edit profile" form writes. Absent (`null`) means nothing has been edited yet — the page falls back to the sample identity in lib/dashboard/data.ts and lib/profile/data.ts. */
+export interface StoredIdentity {
+  name: string;
+  role: string;
+  location: string;
+  openTo: string[];
+  noticePeriod: string;
+  bio: string;
+  updatedAt: string;
+}
+
 interface ProfileExtras {
   resume: StoredResume | null;
   links: Partial<Record<LinkPlatform, StoredLink>>;
+  identity: StoredIdentity | null;
 }
 
 const KEY = "mindfries.profile.extras";
-const EMPTY: ProfileExtras = { resume: null, links: {} };
+const EMPTY: ProfileExtras = { resume: null, links: {}, identity: null };
 const listeners = new Set<() => void>();
 
 // useSyncExternalStore requires its snapshot function to return the *same*
@@ -56,7 +68,7 @@ function parse(raw: string | null): ProfileExtras {
   if (!raw) return EMPTY;
   try {
     const parsed = JSON.parse(raw) as Partial<ProfileExtras>;
-    return { resume: parsed.resume ?? null, links: parsed.links ?? {} };
+    return { resume: parsed.resume ?? null, links: parsed.links ?? {}, identity: parsed.identity ?? null };
   } catch {
     // Corrupt blob from an earlier shape — treat it as empty rather than
     // throwing the page over it.
@@ -112,6 +124,7 @@ export function useProfileExtras() {
   return {
     resume: extras.resume,
     links: extras.links,
+    identity: extras.identity,
     /** True if the resume was actually saved; false means the browser refused to store it (most likely full). */
     setResume(resume: StoredResume): boolean {
       return write({ ...read(), resume });
@@ -126,6 +139,10 @@ export function useProfileExtras() {
     removeLink(platform: LinkPlatform) {
       const rest = Object.fromEntries(Object.entries(read().links).filter(([id]) => id !== platform));
       write({ ...read(), links: rest });
+    },
+    /** True if it saved. Stamps `updatedAt` itself, so every caller reports the same "when" honestly. */
+    setIdentity(identity: Omit<StoredIdentity, "updatedAt">): boolean {
+      return write({ ...read(), identity: { ...identity, updatedAt: new Date().toISOString() } });
     },
   };
 }
