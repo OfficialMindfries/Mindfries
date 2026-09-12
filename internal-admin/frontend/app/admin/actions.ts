@@ -3,13 +3,13 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
-  addOnboarded, addWaitlist, createTemplate, recordEmailEvent, setLeadStage,
+  addOnboarded, addWaitlist, createCompany, createTemplate, recordEmailEvent, setCompanyStatus, setLeadStage,
   setSessionState, setTemplateStatus,
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
 import { targetsStore } from "@/lib/targets-store";
 import type { EmailTemplate } from "@/lib/email-templates";
-import type { LeadStage, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
+import type { CompanyStatus, LeadStage, MemberRole, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -112,6 +112,32 @@ export async function toggleTemplateStatus(id: string, status: TemplateStatus): 
   try {
     await setTemplateStatus(id, status);
     revalidatePath("/admin/library");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Company Onboarding, wired for real (ADMIN_BACKEND_PLAN.md §5.1) — this
+// used to be a client component's local useState, persisting nothing.
+export async function onboardCompanyAccount(input: {
+  name: string; website: string; plan: Plan; status: CompanyStatus; seats: number;
+  team: { email: string; role: MemberRole }[]; defaultTemplateIds: string[];
+}): Promise<Result> {
+  try {
+    if (!input.name.trim()) throw new Error("Company name is required");
+    await createCompany(input);
+    revalidatePath("/admin/companies");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function setCompanyStatusAction(id: string, status: CompanyStatus): Promise<Result> {
+  try {
+    await setCompanyStatus(id, status);
+    revalidatePath("/admin/companies");
     return { ok: true };
   } catch (e) {
     return fail(e);
