@@ -1,6 +1,6 @@
 import { Globe } from "lucide-react";
 import type { ComponentType } from "react";
-import { GithubMark, GitlabMark, LinkedinMark } from "@/components/profile/BrandIcon";
+import { GithubMark, GitlabMark, LinkedinMark } from "@/components/icons/BrandIcon";
 
 /**
  * The four platforms a candidate can point a hiring team at — GitHub and
