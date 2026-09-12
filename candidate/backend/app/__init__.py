@@ -1,1 +1,0 @@
-# Mindfries FastAPI Backend Package
