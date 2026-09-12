@@ -43,7 +43,7 @@ func (s *Server) Routes() http.Handler {
 	// "mf_candidate" cookie candidate/frontend already issues.
 	mux.HandleFunc("GET /api/v1/me", s.requireCandidate(s.handleMe))
 	mux.HandleFunc("GET /api/v1/assessments", s.requireCandidate(s.handleListAssessments))
-	mux.HandleFunc("POST /api/v1/assessments/{templateId}/sessions", s.requireCandidate(s.handleStartSession))
+	mux.HandleFunc("POST /api/v1/assessments/{id}/sessions", s.requireCandidate(s.handleStartSession))
 	mux.HandleFunc("GET /api/v1/sessions/{id}", s.requireCandidate(s.handleGetSession))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/events", s.requireCandidate(s.handlePostEvents))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/submit", s.requireCandidate(s.handleSubmit))

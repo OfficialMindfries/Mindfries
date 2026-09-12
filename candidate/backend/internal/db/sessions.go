@@ -60,6 +60,19 @@ func (d *DB) StartSession(ctx context.Context, candidateID, candidateName string
 	return scanSession(row)
 }
 
+// StartSessionFromInvitation is StartSession's counterpart for a real,
+// company-issued invitation (the `assessments` table) rather than the open
+// self-serve pool: the resulting session carries assessment_id and
+// company_id too, so it can be traced back to the specific invitation it
+// came from — the exact link CANDIDATE_BACKEND_PLAN.md §6.2 asked for.
+func (d *DB) StartSessionFromInvitation(ctx context.Context, candidateID, candidateName string, inv Invitation) (Session, error) {
+	row := d.pool.QueryRow(ctx, `
+		insert into sessions (assessment_id, company_id, template_id, candidate_id, candidate_name, status, duration_min)
+		values ($1, $2, $3, $4, $5, 'live', $6)
+		returning `+sessionColumns, inv.ID, inv.CompanyID, inv.TemplateID, candidateID, candidateName, inv.DurationMin)
+	return scanSession(row)
+}
+
 // GetSession fetches one session by id, for status polling, ownership
 // checks, and the WebSocket handshake.
 func (d *DB) GetSession(ctx context.Context, id string) (Session, error) {

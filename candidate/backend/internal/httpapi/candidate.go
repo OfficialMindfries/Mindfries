@@ -21,8 +21,12 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 // assessmentView is the same shape candidate/frontend's listAvailableAssessments
-// (src/lib/db.ts) already produces from game_templates — moved server-side
-// here so any client (not just that one Next.js app) gets the same mapping.
+// (src/lib/db.ts) used to produce from game_templates alone — now also fed
+// by real per-candidate invitations (the `assessments` table), so any
+// client gets one consistent mapping regardless of which of the two this
+// item actually is. `id` works as the path parameter for starting a session
+// either way — the orchestrator resolves it against an invitation first,
+// then the open pool (see orchestrator.StartAssessment).
 type assessmentView struct {
 	ID       string   `json:"id"`
 	Role     string   `json:"role"`
@@ -31,31 +35,79 @@ type assessmentView struct {
 	Tags     []string `json:"tags"`
 	Status   string   `json:"status"`
 	Due      string   `json:"due"`
+	Match    *int     `json:"match,omitempty"`
 }
 
-func toAssessmentView(t db.Template) assessmentView {
+func techStackTags(stack []string, durationMin int) []string {
 	tags := []string{}
-	for i, ts := range t.TechStack {
+	for i, ts := range stack {
 		if i >= 2 {
 			break
 		}
 		tags = append(tags, ts)
 	}
-	tags = append(tags, fmt.Sprintf("%d min", t.DurationMin))
+	return append(tags, fmt.Sprintf("%d min", durationMin))
+}
+
+// invitationStatus maps assessments.status (underscore, matching the SQL
+// enum-by-convention already used across this schema) to the candidate
+// frontend's AssessmentStatus union (hyphenated — lib/dashboard/data.ts).
+// The two were never going to naturally agree; this is the one place that
+// difference is bridged rather than leaking into either side.
+func invitationStatus(dbStatus string) string {
+	if dbStatus == "in_progress" {
+		return "in-progress"
+	}
+	return dbStatus // invited|submitted|closed already match
+}
+
+func toAssessmentView(t db.Template) assessmentView {
 	return assessmentView{
 		ID: t.ID, Role: t.Name, Company: "Mindfries", Location: "Remote",
-		Tags: tags, Status: "invited", Due: "Open now",
+		Tags: techStackTags(t.TechStack, t.DurationMin), Status: "invited", Due: "Open now",
 	}
 }
 
+func toInvitationView(inv db.Invitation) assessmentView {
+	role := inv.TemplateName
+	if inv.Role != nil && *inv.Role != "" {
+		role = *inv.Role
+	}
+	due := "No due date set"
+	if inv.DueDate != nil && *inv.DueDate != "" {
+		due = "Due " + *inv.DueDate
+	}
+	return assessmentView{
+		ID: inv.ID, Role: role, Company: inv.CompanyName, Location: "Remote",
+		Tags: techStackTags(inv.TechStack, inv.DurationMin), Status: invitationStatus(inv.Status),
+		Due: due, Match: inv.MatchScore,
+	}
+}
+
+// handleListAssessments returns a candidate's real invitations (companies →
+// this candidate specifically, via `assessments.candidate_email`) followed
+// by the open self-serve pool of published templates anyone can start —
+// see orchestrator.StartAssessment's doc comment for why both coexist.
 func (s *Server) handleListAssessments(w http.ResponseWriter, r *http.Request) {
-	templates, err := s.db.ListPublishedTemplates(r.Context())
+	c := candidateFrom(r)
+
+	invitations, err := s.db.ListInvitationsForCandidate(r.Context(), c.Email)
 	if err != nil {
-		slog.Error("handleListAssessments", "error", err)
+		slog.Error("handleListAssessments: invitations", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not load assessments")
 		return
 	}
-	out := make([]assessmentView, 0, len(templates))
+	templates, err := s.db.ListPublishedTemplates(r.Context())
+	if err != nil {
+		slog.Error("handleListAssessments: templates", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not load assessments")
+		return
+	}
+
+	out := make([]assessmentView, 0, len(invitations)+len(templates))
+	for _, inv := range invitations {
+		out = append(out, toInvitationView(inv))
+	}
 	for _, t := range templates {
 		out = append(out, toAssessmentView(t))
 	}
@@ -63,12 +115,13 @@ func (s *Server) handleListAssessments(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleStartSession is the Assessment Orchestrator's entry point: a
-// signed-in candidate starts a published template.
+// signed-in candidate starts either a real invitation or an open template —
+// the orchestrator itself resolves which.
 func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	c := candidateFrom(r)
-	templateID := r.PathValue("templateId")
+	id := r.PathValue("id")
 
-	sess, err := s.orc.StartAssessment(r.Context(), c.ID, c.Name, templateID)
+	sess, err := s.orc.StartAssessment(r.Context(), c.ID, c.Email, c.Name, id)
 	if err != nil {
 		slog.Error("handleStartSession", "error", err)
 		writeError(w, http.StatusBadRequest, "could not start that assessment: "+err.Error())

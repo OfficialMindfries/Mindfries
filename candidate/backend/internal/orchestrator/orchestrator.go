@@ -53,24 +53,70 @@ func (o *Orchestrator) broadcast(sessionID, eventType string, payload any) {
 	o.Hub.Broadcast(sessionID, msg)
 }
 
-// StartAssessment validates the template is real and published, creates the
-// session row attributed to the signed-in candidate, and — if Daytona is
-// configured — provisions a sandbox for it. A sandbox failure doesn't fail
-// the session start: the candidate still has a real session row and the
-// session's sandbox_health reflects the honest state, per this repo's
-// "real, or an honest failure" rule (never fail the whole flow over an
-// optional piece that isn't wired up).
-func (o *Orchestrator) StartAssessment(ctx context.Context, candidateID, candidateName, templateID string) (db.Session, error) {
-	tmpl, err := o.DB.GetPublishedTemplate(ctx, templateID)
-	if err != nil {
-		return db.Session{}, fmt.Errorf("orchestrator: template %s is not available: %w", templateID, err)
+// StartAssessment resolves id against a real invitation first (the
+// `assessments` table — a company-issued invite addressed to this
+// candidate's email) and falls back to the open self-serve pool of
+// published templates. Both are legitimate ways into an assessment today:
+// there's no Company Portal yet to issue invitations at any real volume
+// (see task.md's open decision on which path is primary), so the self-serve
+// pool stays the practical front door while the real per-candidate path
+// exists and works the moment something creates a row in it — internal-admin's
+// "invite a candidate" action, or a future Company Portal.
+//
+// An id that happens to collide between an assessment and a template would
+// be astronomically unlikely (both are random UUIDs) — trying the
+// invitation first is about which case is more specific, not a race.
+func (o *Orchestrator) StartAssessment(ctx context.Context, candidateID, candidateEmail, candidateName, id string) (db.Session, error) {
+	if inv, err := o.DB.GetInvitation(ctx, id); err == nil {
+		return o.startFromInvitation(ctx, candidateID, candidateEmail, candidateName, inv)
 	}
 
-	sess, err := o.DB.StartSession(ctx, candidateID, candidateName, *tmpl)
+	tmpl, err := o.DB.GetPublishedTemplate(ctx, id)
+	if err != nil {
+		return db.Session{}, fmt.Errorf("orchestrator: %s is not an available assessment: %w", id, err)
+	}
+	return o.startFromTemplate(ctx, candidateID, candidateName, *tmpl)
+}
+
+func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, candidateEmail, candidateName string, inv db.Invitation) (db.Session, error) {
+	if !strings.EqualFold(inv.CandidateEmail, candidateEmail) {
+		// Deliberately the same error shape as "not found" — confirming an
+		// invitation id exists but belongs to someone else is exactly the
+		// kind of detail an attacker probing ids shouldn't get back.
+		return db.Session{}, fmt.Errorf("orchestrator: invitation not found")
+	}
+	if inv.Status != "invited" {
+		return db.Session{}, fmt.Errorf("orchestrator: this assessment is already %s", strings.ReplaceAll(inv.Status, "_", " "))
+	}
+
+	sess, err := o.DB.StartSessionFromInvitation(ctx, candidateID, candidateName, inv)
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)
 	}
+	if err := o.DB.SetInvitationStatus(ctx, inv.ID, "in_progress"); err != nil {
+		// The session is real either way; log rather than fail a candidate's
+		// entry over the invitation's own status bookkeeping.
+		slog.Error("orchestrator: marking invitation in_progress failed", "invitation", inv.ID, "error", err)
+	}
 
+	sess = o.provisionAndAnnounce(ctx, sess)
+	return sess, nil
+}
+
+func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candidateName string, tmpl db.Template) (db.Session, error) {
+	sess, err := o.DB.StartSession(ctx, candidateID, candidateName, tmpl)
+	if err != nil {
+		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)
+	}
+	sess = o.provisionAndAnnounce(ctx, sess)
+	return sess, nil
+}
+
+// provisionAndAnnounce is the part both entry points share: an optional
+// sandbox (never fails the session over it — "real, or an honest failure,"
+// never "fail the whole flow over an optional piece that isn't wired up")
+// and the real-time broadcast every session start makes.
+func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session) db.Session {
 	if o.Sandbox != nil && o.Sandbox.Configured() {
 		if _, err := o.Sandbox.CreateSandbox(ctx, sandbox.CreateOptions{}); err != nil {
 			slog.Error("orchestrator: sandbox provisioning failed", "session", sess.ID, "error", err)
@@ -79,9 +125,8 @@ func (o *Orchestrator) StartAssessment(ctx context.Context, candidateID, candida
 			sess.SandboxHealth = degraded
 		}
 	}
-
 	o.broadcast(sess.ID, "session_started", sess)
-	return sess, nil
+	return sess
 }
 
 // RecordEvents stores a batch of telemetry (PRD §1.7) and fans it out live to
@@ -103,10 +148,25 @@ func (o *Orchestrator) RecordEvents(ctx context.Context, sessionID string, event
 // handler) — this method itself just does the work, so it's usable either
 // way and independently testable.
 func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
+	sess, err := o.DB.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("orchestrator: loading session to submit: %w", err)
+	}
+
 	submitted := "submitted"
 	if err := o.DB.UpdateSessionState(ctx, sessionID, db.SessionStatePatch{Status: &submitted}); err != nil {
 		return err
 	}
+	if sess.AssessmentID != nil {
+		// This session came from a real invitation — its lifecycle follows
+		// the session's, the same way startFromInvitation moved it to
+		// in_progress. A template-only (self-serve) session has no
+		// invitation to update.
+		if err := o.DB.SetInvitationStatus(ctx, *sess.AssessmentID, "submitted"); err != nil {
+			slog.Error("orchestrator: marking invitation submitted failed", "invitation", *sess.AssessmentID, "error", err)
+		}
+	}
+
 	o.broadcast(sessionID, "session_submitted", map[string]string{"sessionId": sessionID})
 	return o.Evaluate(ctx, sessionID)
 }

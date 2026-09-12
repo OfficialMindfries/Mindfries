@@ -97,14 +97,13 @@ export interface AssessmentView {
   company: string;
   location: string;
   tags: string[];
-  // Every published template comes back "invited" today — the backend's
-  // /api/v1/assessments is a browse-available-templates list, not yet a
-  // per-candidate invitation feed (see CANDIDATE_BACKEND_PLAN.md §5 on
-  // wiring real per-candidate invitations). Typed as the full union rather
-  // than widened to `string` so it stays a compile-time match with
-  // lib/dashboard/data.ts's Assessment the moment that changes.
+  // A real per-candidate invitation (assessments.status) or the open pool's
+  // constant "invited" (every published template, same as before) — the
+  // backend distinguishes internally; this type just needs to cover both.
   status: AssessmentStatus;
   due: string;
+  /** Only ever present on a real invitation (assessments.match_score) — the open pool has no per-candidate match to compute. */
+  match?: number;
 }
 
 export interface SessionView {
