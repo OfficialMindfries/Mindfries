@@ -31,6 +31,7 @@ import { CHANNELS, output } from "@/lib/ide/output";
 import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
 import { submitAssessment } from "@/app/ide/actions";
+import { TelemetryBuffer } from "@/lib/ide/telemetry";
 
 interface IdeShellProps {
   /**
@@ -60,6 +61,43 @@ export function IdeShell({ sessionId }: IdeShellProps) {
     }
     return dirty;
   }, [openPaths, files, savedFiles]);
+
+  // Telemetry (PRD §1.7) — real, but deliberately scoped: git/npm/pip
+  // activity and preview rebuilds (via the existing Output-channel store)
+  // plus file saves. See lib/ide/telemetry.ts's own doc comment for exactly
+  // what this does and doesn't cover yet, and why. Only created when this
+  // workspace has a real session to attribute events to.
+  const telemetryRef = useRef<TelemetryBuffer | null>(null);
+  useEffect(() => {
+    if (!sessionId) return;
+    const buffer = new TelemetryBuffer(sessionId);
+    telemetryRef.current = buffer;
+    return () => {
+      buffer.destroy();
+      telemetryRef.current = null;
+    };
+  }, [sessionId]);
+
+  // Relays the Output panel's own channels (git/npm/pip/preview — see
+  // lib/ide/output.ts) into telemetry. Tracks how many lines of each
+  // channel have already been sent, since the store only exposes full
+  // snapshots, not "what's new since last time."
+  useEffect(() => {
+    if (!sessionId) return;
+    const sent: Record<string, number> = {};
+    const relay = () => {
+      const snapshot = output.getSnapshot();
+      for (const [channel, lines] of Object.entries(snapshot)) {
+        const from = sent[channel] ?? 0;
+        const newLines = lines.slice(from);
+        if (newLines.length === 0) continue;
+        sent[channel] = lines.length;
+        telemetryRef.current?.record("workspace_output", { channel, lines: newLines });
+      }
+    };
+    relay(); // catch anything already buffered before this effect ran
+    return output.subscribe(relay);
+  }, [sessionId]);
 
   // Restore whatever was here last time — localStorage only exists client-side,
   // so this has to happen post-mount (matches the theme provider's same pattern).
@@ -99,11 +137,13 @@ export function IdeShell({ sessionId }: IdeShellProps) {
   useEffect(() => {
     if (dirtyPaths.size === 0) return;
     const timeout = setTimeout(() => {
+      const paths = [...dirtyPaths];
       setSavedFiles((prev) => {
         const next = { ...prev };
-        for (const path of dirtyPaths) next[path] = files[path];
+        for (const path of paths) next[path] = files[path];
         return next;
       });
+      telemetryRef.current?.record("file_edit", { paths });
     }, 800);
     return () => clearTimeout(timeout);
   }, [dirtyPaths, files]);
