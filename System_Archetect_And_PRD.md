@@ -2,7 +2,7 @@
 
 **Product:** Mindfries — AI Hiring Intelligence Platform
 **Document type:** System Architecture (complete) + PRD (tech stack & MVP scope)
-**Status:** Architecture finalized for MVP, including Internal Admin Portal · Tech stack finalized — Database (Supabase) and Frontend Hosting (Vercel) confirmed 2026-08-30 — one item still open (see 2.4)
+**Status:** Architecture finalized for MVP, including Internal Admin Portal · Tech stack finalized — Database (Supabase) and Frontend Hosting (Vercel) confirmed 2026-08-30; Backend language (Go, no Python) and LLM access layer (OpenRouter) confirmed 2026-09-12 — a few items still open (see 2.4)
 
 ---
 
@@ -790,13 +790,13 @@ Every tech choice below should be judged against this principle — favor whatev
 | Web App | Company Portal, Candidate Portal, Internal Admin Portal | **Next.js + React + TypeScript** | One shared design system across all three portals |
 | Code Editor | In-browser editor inside the sandbox | **Monaco Editor** | Closest browser experience to VS Code |
 | Terminal | In-browser terminal | **xterm.js** | Real terminal-like experience in browser |
-| Backend / API | Application API, Assessment Orchestrator, Admin Portal API | **FastAPI — monolith** | Excellent for AI orchestration and rapid MVP development |
+| Backend / API | Application API, Assessment Orchestrator, Admin Portal API | **Go — monolith** | **Confirmed 2026-09-12** (replaces the earlier FastAPI proposal). Native concurrency (goroutines) is a strong fit for WebSocket-heavy work — terminal streaming, live events, sandbox orchestration — without a separate async runtime to manage. No Python in the confirmed backend stack |
 | Real-time | Terminal streaming, live status, live events | **WebSocket** | Essential for terminal, status, and live events |
 | Sandbox Infrastructure | Isolated candidate environments, terminal, file system | **Daytona** | Best fit for real development environments *(supersedes the earlier Docker-in-Docker call — Daytona likely runs on containers underneath, but is the managed layer we build against)* |
-| AI / LLM Orchestration | Multi-agent orchestrator (code, reasoning, workflow, interview, report agents) | **Multi-LLM system**, routed per agent | Routing proposal below still pending confirmation |
-| LLM Providers | Code Evaluation, Reasoning, Workflow and Report agents | **Claude** | Proposed: primary agent for code evaluation, reasoning, and report generation |
-| LLM Providers | **AI Interview agent** — the live spoken interview | **Gemini** | **Confirmed.** Gemini's Live API handles real-time speech in and out natively, so the interview needs no separate TTS/STT layer |
-| LLM Providers | Multimodal / vision RAG | **Gemini** | Vision RAG (e.g. screen/diagram understanding) and multimodal context — same provider as the interviewer, one integration to build and bill |
+| AI / LLM Orchestration | Multi-agent orchestrator (code, reasoning, workflow, interview, report agents) | **Multi-LLM system, unified through OpenRouter** | **Confirmed 2026-09-12.** OpenRouter is the single key/billing surface for every model call except the live interview (see below) — one integration instead of one per provider, and swapping or A/B-testing a model per agent is a routing-config change, not a new SDK. Per-agent model routing itself is still a proposal, below |
+| LLM Providers | Code Evaluation, Reasoning, Workflow and Report agents | **Claude, via OpenRouter** | Proposed: primary agent for code evaluation, reasoning, and report generation |
+| LLM Providers | **AI Interview agent** — the live spoken interview | **Gemini, direct (not OpenRouter)** | **Confirmed.** Gemini's Live API handles real-time speech in and out natively over its own bidirectional WebSocket — a protocol OpenRouter doesn't proxy — so this one agent keeps a direct Gemini connection while every other model call goes through OpenRouter |
+| LLM Providers | Multimodal / vision RAG | **Gemini, via OpenRouter** | Vision RAG (e.g. screen/diagram understanding) and multimodal context — same provider as the interviewer, routed through OpenRouter since this is request/response, not the live audio stream |
 | Database | Company, candidate, job, assessment records | **Supabase (PostgreSQL)** | Managed Postgres — also gives us Auth, Storage, and Realtime primitives out of the box if we want them later |
 | Vector / Knowledge Store | Context for AI agents, vision RAG | **pgvector via Supabase** | Same database as primary store — no separate vector DB for MVP |
 | Cache / Realtime State | Session state, queues, rate limiting | **Redis** | Fast session state, queues and rate limiting |
@@ -806,20 +806,21 @@ Every tech choice below should be judged against this principle — favor whatev
 | Authentication & Authorization | Company, candidate, and internal admin auth | **Clerk (MVP)** | Fastest path to secure auth; revisit if Internal Admin needs more granular roles than Clerk's org model gives out of the box |
 | Email | Transactional & notification email | **Resend** | Simple, developer-focused email infrastructure |
 | Hosting & Deployment | Web app (Next.js: Company, Candidate, Internal Admin portals) | **Vercel** | First-class Next.js hosting, instant preview deployments per PR |
-| Hosting & Deployment | Backend (FastAPI monolith, WebSocket, sandbox orchestration) | **Open — see 2.4** | Vercel's serverless model doesn't fit a long-running FastAPI process, WebSocket connections, or Daytona orchestration; needs its own host (e.g. Railway, Fly.io, Render, or AWS) |
+| Hosting & Deployment | Backend (Go monolith, WebSocket, sandbox orchestration) | **Open — see 2.4** | Vercel's serverless model doesn't fit a long-running Go process, WebSocket connections, or Daytona orchestration; needs its own host (e.g. Railway, Fly.io, Render, or AWS) — a single static Go binary makes most of these options simpler to deploy to than the earlier Python target did |
 | CI/CD | Build & deploy pipeline | **GitHub Actions + Vercel** | Vercel handles frontend build/deploy; backend deploy target follows the decision above |
 | Monitoring | Errors, distributed tracing | **Sentry + OpenTelemetry** | |
-| Assessment / Game Library | Internal Admin authoring tools | **Same stack** (Next.js/TS + FastAPI + Supabase) | No separate system — lives inside the monolith and shared frontend |
+| Assessment / Game Library | Internal Admin authoring tools | **Same stack** (Next.js/TS + Go + Supabase) | No separate system — lives inside the monolith and shared frontend |
 
 ## 2.4 Still Open
 
 The stack is now essentially final. A few smaller items remain:
 
-1. **LLM-per-agent routing** — the interviewer is settled: **Gemini** runs the AI Interview agent. The remaining question is the Claude side (Code Evaluation, Reasoning, Workflow, Report), still a proposal — confirm or adjust.
+1. **LLM-per-agent routing** — the interviewer is settled: **Gemini** runs the AI Interview agent, direct. The remaining question is the Claude side (Code Evaluation, Reasoning, Workflow, Report) — still a model proposal, though the *access layer* for it is now settled (OpenRouter, see 2.3) regardless of which model ends up assigned.
 2. **ElevenLabs** — it was in the stack solely for AI-interviewer voice, which Gemini's Live API now covers natively. It is dropped from the table on that basis. Re-add it only if the interview needs a specific voice identity or a level of speech control the Live API does not give us.
 3. **Testing infra inside the sandbox** — Daytona likely provides a native way to run the automated test suite per submission; worth confirming rather than assuming, since it affects the Evaluation Pipeline (Section 1.8).
 4. **Team ownership** — with Disha (CTO) leading engineering, is there a split you want reflected here (e.g., who owns the sandbox/orchestrator vs. the AI agent layer vs. the frontend)?
-5. **Backend hosting target** — now that the frontend is confirmed on Vercel, where does the FastAPI monolith (WebSocket terminal streaming, Daytona sandbox orchestration) actually run? Vercel serverless functions aren't a fit for long-lived connections; pick a host (Railway, Fly.io, Render, or an AWS box) before build starts.
+5. **Backend hosting target** — now that the frontend is confirmed on Vercel, where does the Go monolith (WebSocket terminal streaming, Daytona sandbox orchestration) actually run? Vercel serverless functions aren't a fit for long-lived connections; pick a host (Railway, Fly.io, Render, or an AWS box) before build starts.
 6. **Artifact storage: S3 vs. Supabase Storage** — now that Supabase is the primary database, worth a quick call on whether code/session artifacts also live in Supabase Storage (one less vendor) or stay on S3 (already listed above) — no functional difference for MVP, purely an ops-simplicity question.
+7. **OpenRouter fallback / rate-limit behavior** — worth confirming OpenRouter's own failover story (it can route a single logical model call across multiple upstream providers) versus building our own retry-to-a-second-provider logic on top; likely we lean on OpenRouter's native fallback rather than duplicating it.
 
 Once those are confirmed, this document is ready to be treated as final for build planning.
