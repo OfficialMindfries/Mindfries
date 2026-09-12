@@ -40,10 +40,18 @@ export interface SetupStep {
   done: boolean;
 }
 
+// role and location are kept discrete — not just parsed out of headline —
+// because the profile page lays them out separately; headline is still the
+// single combined string the nav and dashboard greeting use.
+const ROLE = "Full-stack engineer";
+const LOCATION = "Bengaluru, IN";
+
 export const candidate = {
   name: "Rishi",
   initials: "R",
-  headline: "Full-stack engineer · Bengaluru, IN",
+  role: ROLE,
+  location: LOCATION,
+  headline: `${ROLE} · ${LOCATION}`,
 };
 
 /**
@@ -176,3 +184,18 @@ export const statusLabels: Record<AssessmentStatus, string> = {
   submitted: "Submitted",
   closed: "Closed",
 };
+
+/** All four statuses, in the order they're worth your attention. */
+export const ASSESSMENT_STATUSES: AssessmentStatus[] = ["invited", "in-progress", "submitted", "closed"];
+
+const ATTENTION_ORDER: Record<AssessmentStatus, number> = { invited: 0, "in-progress": 1, submitted: 2, closed: 3 };
+
+/**
+ * Needs-your-action first: an open invitation before a session you've
+ * already submitted. Used wherever a list of assessments is shown without an
+ * explicit sort of its own — the dashboard's preview and the full
+ * Assessments page's "All" view both read this way.
+ */
+export function sortByAttention(items: Assessment[]): Assessment[] {
+  return [...items].sort((a, b) => ATTENTION_ORDER[a.status] - ATTENTION_ORDER[b.status]);
+}
