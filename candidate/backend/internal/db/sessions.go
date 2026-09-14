@@ -14,7 +14,8 @@ import (
 var ErrNotFound = errors.New("db: not found")
 
 // Session is one candidate's live/past run — sessions rows
-// (supabase/migrations/0002_product.sql, candidate_id added in 0006).
+// (supabase/migrations/0002_product.sql, candidate_id added in 0006,
+// sandbox_id added in 0009).
 type Session struct {
 	ID            string
 	AssessmentID  *string
@@ -24,6 +25,7 @@ type Session struct {
 	CandidateName string
 	Status        string
 	SandboxHealth string
+	SandboxID     *string
 	ProgressPct   int
 	DurationMin   int
 	ElapsedMin    int
@@ -39,11 +41,11 @@ type AdminSessionRow struct {
 	TemplateName string
 }
 
-const sessionColumns = `id, assessment_id, company_id, template_id, candidate_id, candidate_name, status, sandbox_health, progress_pct, duration_min, elapsed_min, started_at`
+const sessionColumns = `id, assessment_id, company_id, template_id, candidate_id, candidate_name, status, sandbox_health, sandbox_id, progress_pct, duration_min, elapsed_min, started_at`
 
 func scanSession(row pgx.Row) (Session, error) {
 	var s Session
-	err := row.Scan(&s.ID, &s.AssessmentID, &s.CompanyID, &s.TemplateID, &s.CandidateID, &s.CandidateName, &s.Status, &s.SandboxHealth, &s.ProgressPct, &s.DurationMin, &s.ElapsedMin, &s.StartedAt)
+	err := row.Scan(&s.ID, &s.AssessmentID, &s.CompanyID, &s.TemplateID, &s.CandidateID, &s.CandidateName, &s.Status, &s.SandboxHealth, &s.SandboxID, &s.ProgressPct, &s.DurationMin, &s.ElapsedMin, &s.StartedAt)
 	return s, err
 }
 
@@ -88,7 +90,7 @@ func (d *DB) GetSession(ctx context.Context, id string) (Session, error) {
 // the "s" alias — needed the moment a join brings in another table with any
 // overlapping column name (game_templates also has its own "status", which
 // is exactly what made the unqualified list ambiguous here before this).
-const sessionColumnsQualified = `s.id, s.assessment_id, s.company_id, s.template_id, s.candidate_id, s.candidate_name, s.status, s.sandbox_health, s.progress_pct, s.duration_min, s.elapsed_min, s.started_at`
+const sessionColumnsQualified = `s.id, s.assessment_id, s.company_id, s.template_id, s.candidate_id, s.candidate_name, s.status, s.sandbox_health, s.sandbox_id, s.progress_pct, s.duration_min, s.elapsed_min, s.started_at`
 
 // ListAdminSessions mirrors internal-admin/frontend's listSessions — every
 // session, newest first, with company and template names joined in.
@@ -108,7 +110,7 @@ func (d *DB) ListAdminSessions(ctx context.Context) ([]AdminSessionRow, error) {
 	var out []AdminSessionRow
 	for rows.Next() {
 		var r AdminSessionRow
-		err := rows.Scan(&r.ID, &r.AssessmentID, &r.CompanyID, &r.TemplateID, &r.CandidateID, &r.CandidateName, &r.Status, &r.SandboxHealth, &r.ProgressPct, &r.DurationMin, &r.ElapsedMin, &r.StartedAt, &r.CompanyName, &r.TemplateName)
+		err := rows.Scan(&r.ID, &r.AssessmentID, &r.CompanyID, &r.TemplateID, &r.CandidateID, &r.CandidateName, &r.Status, &r.SandboxHealth, &r.SandboxID, &r.ProgressPct, &r.DurationMin, &r.ElapsedMin, &r.StartedAt, &r.CompanyName, &r.TemplateName)
 		if err != nil {
 			return nil, err
 		}
@@ -140,6 +142,16 @@ func (d *DB) MarkSubmitted(ctx context.Context, id string) error {
 		return ErrAlreadySubmitted
 	}
 	return nil
+}
+
+// SetSandboxID records (or clears, passing nil) which Daytona sandbox
+// belongs to a session — set once, right after CreateSandbox returns a real
+// ID, and cleared once DeleteSandbox has torn it down. A direct assignment,
+// not a coalesce like UpdateSessionState's patch below: clearing to NULL is
+// exactly the point once a sandbox is gone, and coalesce can't express that.
+func (d *DB) SetSandboxID(ctx context.Context, id string, sandboxID *string) error {
+	_, err := d.pool.Exec(ctx, `update sessions set sandbox_id = $2 where id = $1`, id, sandboxID)
+	return err
 }
 
 // SessionStatePatch is the support-override surface (PRD §1.11): reset a

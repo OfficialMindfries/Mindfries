@@ -8,7 +8,7 @@ import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import type { Company, GameTemplate, MemberRole, Plan } from "@/lib/types";
 import { Button, Field, Input, Modal, PageHeader, Pill, Select } from "@/components/ui";
 import { companyTone, fmtDate, planLabel } from "@/lib/format";
-import { onboardCompanyAccount, setCompanyStatusAction } from "@/app/admin/actions";
+import { inviteCandidate, onboardCompanyAccount, setCompanyStatusAction } from "@/app/admin/actions";
 import { toast } from "@/components/admin/toast";
 
 /**
@@ -100,6 +100,46 @@ export function CompaniesView({
     });
   }
 
+  // Invite-a-candidate form — the one piece of the invitation flow that
+  // wasn't reachable from anywhere but a direct database write until this
+  // pass. `inviteFor` is which company's modal is open; null means closed.
+  const [inviteFor, setInviteFor] = useState<Company | null>(null);
+  const [inviteTemplateId, setInviteTemplateId] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState("");
+  const [inviteDue, setInviteDue] = useState("");
+
+  function openInvite(c: Company) {
+    setInviteFor(c);
+    setInviteTemplateId(publishedTemplates[0]?.id ?? "");
+    setInviteEmail("");
+    setInviteName("");
+    setInviteRole("");
+    setInviteDue("");
+  }
+
+  function invite() {
+    if (!inviteFor) return;
+    const company = inviteFor;
+    start(async () => {
+      const res = await inviteCandidate({
+        companyId: company.id,
+        templateId: inviteTemplateId,
+        candidateEmail: inviteEmail,
+        candidateName: inviteName.trim() || undefined,
+        role: inviteRole.trim() || undefined,
+        dueDate: inviteDue || undefined,
+      });
+      if (!res.ok) {
+        toast.error("Couldn't send the invitation", res.error);
+        return;
+      }
+      toast.success("Candidate invited", `${inviteEmail} → ${company.name}`);
+      setInviteFor(null);
+    });
+  }
+
   const active = rows.filter((c) => c.status === "active").length;
   const onboarding = rows.filter((c) => c.status === "onboarding").length;
   const newThisMonth = countWithin(rows.map((c) => c.createdAt), asOf, 30 * DAY);
@@ -165,13 +205,23 @@ export function CompaniesView({
                     <td className="px-5 py-4 mono">{c.defaultTemplateIds.length}</td>
                     <td className="px-5 py-4 text-dim">{fmtDate(c.createdAt)}</td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={() => cyclePause(c)}
-                        disabled={pending}
-                        className="rounded-lg border border-hair px-3 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink disabled:opacity-50"
-                      >
-                        {c.status === "paused" ? "Activate" : c.status === "active" ? "Pause" : "Activate"}
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => openInvite(c)}
+                          disabled={pending || publishedTemplates.length === 0}
+                          title={publishedTemplates.length === 0 ? "No published assessments to invite someone to yet" : undefined}
+                          className="rounded-lg border border-hair px-3 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink disabled:opacity-50"
+                        >
+                          Invite
+                        </button>
+                        <button
+                          onClick={() => cyclePause(c)}
+                          disabled={pending}
+                          className="rounded-lg border border-hair px-3 py-1.5 text-xs font-semibold text-dim hover:border-hair-bright hover:text-ink disabled:opacity-50"
+                        >
+                          {c.status === "paused" ? "Activate" : c.status === "active" ? "Pause" : "Activate"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -257,6 +307,57 @@ export function CompaniesView({
             />
             <span className="text-sm font-medium">Activate immediately</span>
           </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={inviteFor !== null}
+        onClose={() => setInviteFor(null)}
+        title={inviteFor ? `Invite a candidate — ${inviteFor.name}` : "Invite a candidate"}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setInviteFor(null)}>
+              Cancel
+            </Button>
+            <Button onClick={invite} disabled={!inviteTemplateId || !inviteEmail.trim() || pending}>
+              {pending ? "Sending…" : "Send invitation"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Assessment">
+            <Select value={inviteTemplateId} onChange={(e) => setInviteTemplateId(e.target.value)}>
+              {publishedTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Candidate email">
+            <Input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="jane@example.com"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Candidate name" hint="Optional">
+              <Input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Jane Doe" />
+            </Field>
+            <Field label="Role" hint="Optional — shown on the candidate's dashboard">
+              <Input value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} placeholder="Backend Engineer" />
+            </Field>
+          </div>
+          <Field label="Due date" hint="Optional">
+            <Input type="date" value={inviteDue} onChange={(e) => setInviteDue(e.target.value)} />
+          </Field>
+          <p className="text-xs text-dim">
+            Shows up the next time {inviteEmail.trim() || "the candidate"} loads their dashboard — no email is sent yet
+            (see task.md: the PRD&apos;s candidate/company transactional email doesn&apos;t exist).
+          </p>
         </div>
       </Modal>
     </>

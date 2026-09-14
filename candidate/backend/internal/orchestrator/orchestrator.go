@@ -119,15 +119,63 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 // and the real-time broadcast every session start makes.
 func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session) db.Session {
 	if o.Sandbox != nil && o.Sandbox.Configured() {
-		if _, err := o.Sandbox.CreateSandbox(ctx, sandbox.CreateOptions{}); err != nil {
+		sb, err := o.Sandbox.CreateSandbox(ctx, sandbox.CreateOptions{})
+		if err != nil {
 			slog.Error("orchestrator: sandbox provisioning failed", "session", sess.ID, "error", err)
 			degraded := "degraded"
 			_ = o.DB.UpdateSessionState(ctx, sess.ID, db.SessionStatePatch{SandboxHealth: &degraded})
 			sess.SandboxHealth = degraded
+		} else {
+			// The ID CreateSandbox just returned used to be thrown away here —
+			// with no column to hold it and nothing left to find it by, a real
+			// DAYTONA_API_KEY would have started leaking real, billable
+			// sandboxes with no way to ever tear them down. Stored now so
+			// teardownSandbox (called from Submit and the admin reset path)
+			// has something to delete.
+			if err := o.DB.SetSandboxID(ctx, sess.ID, &sb.ID); err != nil {
+				slog.Error("orchestrator: recording sandbox id failed", "session", sess.ID, "sandbox", sb.ID, "error", err)
+			} else {
+				sess.SandboxID = &sb.ID
+			}
 		}
 	}
 	o.broadcast(sess.ID, "session_started", sess)
 	return sess
+}
+
+// TeardownSandbox is teardownSandbox's exported form, for a caller that
+// doesn't already have the session loaded — today, the admin reset
+// endpoint, which resets a session back to a fresh state and shouldn't
+// leave whatever sandbox it had running (or its ID pointing at nothing).
+func (o *Orchestrator) TeardownSandbox(ctx context.Context, sessionID string) error {
+	sess, err := o.DB.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("orchestrator: loading session to tear down its sandbox: %w", err)
+	}
+	o.teardownSandbox(ctx, sess)
+	return nil
+}
+
+// teardownSandbox deletes a session's sandbox, if it has one, and clears the
+// column either way — a delete failure shouldn't leave a stale ID pointing
+// at a sandbox this backend will never try to clean up again. Shared by
+// Submit (a session ending normally) and the admin reset support-override
+// (a session being forced back to a fresh state) — the two places a
+// session's sandbox actually needs to go away. Best-effort and never
+// returns an error: whoever calls this has a session-lifecycle action to
+// finish, and a Daytona API hiccup shouldn't block that.
+func (o *Orchestrator) teardownSandbox(ctx context.Context, sess db.Session) {
+	if sess.SandboxID == nil {
+		return
+	}
+	if o.Sandbox != nil && o.Sandbox.Configured() {
+		if err := o.Sandbox.DeleteSandbox(ctx, *sess.SandboxID); err != nil {
+			slog.Error("orchestrator: sandbox teardown failed", "session", sess.ID, "sandbox", *sess.SandboxID, "error", err)
+		}
+	}
+	if err := o.DB.SetSandboxID(ctx, sess.ID, nil); err != nil {
+		slog.Error("orchestrator: clearing sandbox id failed", "session", sess.ID, "error", err)
+	}
 }
 
 // RecordEvents stores a batch of telemetry (PRD §1.7) and fans it out live to
@@ -174,6 +222,10 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 			slog.Error("orchestrator: marking invitation submitted failed", "invitation", *sess.AssessmentID, "error", err)
 		}
 	}
+	// The candidate is done editing the moment they submit — the sandbox
+	// (if one was ever provisioned) has no further reason to exist, and
+	// evaluation reads recorded telemetry, not the live sandbox.
+	o.teardownSandbox(ctx, sess)
 
 	o.broadcast(sessionID, "session_submitted", map[string]string{"sessionId": sessionID})
 	return o.Evaluate(ctx, sessionID)

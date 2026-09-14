@@ -2,12 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  addOnboarded, addWaitlist, createCompany, createTemplate, recordEmailEvent, setCompanyStatus, setLeadStage,
-  setSessionState, setTemplateStatus,
+  addOnboarded, addWaitlist, createCompany, createInvitation, createTemplate, recordEmailEvent, setCompanyStatus,
+  setLeadStage, setSessionState, setTemplateStatus,
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
 import { targetsStore } from "@/lib/targets-store";
 import { requireAdminRole } from "@/lib/auth/admins";
+import { backendReady, resetSessionViaBackend, retriggerEvaluationViaBackend } from "@/lib/backend/client";
 import type { EmailTemplate } from "@/lib/email-templates";
 import type { CompanyStatus, LeadStage, MemberRole, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
 
@@ -161,11 +162,50 @@ export async function setCompanyStatusAction(id: string, status: CompanyStatus):
   }
 }
 
-// Session Monitor support overrides.
+// Invite a candidate: the admin-side half of a real per-candidate
+// invitation (candidate/backend's CreateInvitation is the other half, still
+// unused — see lib/db.ts's createInvitation for why this goes direct to
+// Supabase instead of calling it). Until this action existed, nothing could
+// create one except a direct database write.
+export async function inviteCandidate(input: {
+  companyId: string; templateId: string; candidateEmail: string; candidateName?: string; role?: string; dueDate?: string;
+}): Promise<Result> {
+  try {
+    await requireAdminRole();
+    if (!input.companyId) throw new Error("Pick a company");
+    if (!input.templateId) throw new Error("Pick an assessment");
+    const email = input.candidateEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("That doesn't look like an email address");
+    await createInvitation({ ...input, candidateEmail: email });
+    revalidatePath("/admin/companies");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Session Monitor support overrides — go through the real Go Admin API
+// (candidate/backend/internal/httpapi/admin.go) when it's reachable, rather
+// than internal-admin's own direct-to-Supabase write. This is the
+// consolidation task.md's "Gaps worth naming" #3 asked for: two separate
+// implementations of "reset a session" is a real maintenance hazard, and
+// for retrigger specifically the two aren't even equivalent today — the
+// direct-Supabase version below only ever flips sessions.status to
+// "evaluating"; it never actually calls an evaluation agent. The backend's
+// own /retrigger-evaluation runs the real pipeline. ADMIN_BACKEND_URL is
+// unset in every deployed environment right now (the Go backend isn't
+// deployed anywhere — see task.md), so the fallback below is what actually
+// runs today; it's kept, not deleted, so this feature doesn't regress the
+// moment nobody's set that variable yet. Once the backend has a real home,
+// removing the fallback finishes what this pass started.
 export async function resetSession(id: string): Promise<Result> {
   try {
     await requireAdminRole();
-    await setSessionState(id, { status: "live", sandboxHealth: "healthy", progressPct: 0, elapsedMin: 0 });
+    if (backendReady()) {
+      await resetSessionViaBackend(id);
+    } else {
+      await setSessionState(id, { status: "live", sandboxHealth: "healthy", progressPct: 0, elapsedMin: 0 });
+    }
     revalidatePath("/admin/sessions");
     return { ok: true };
   } catch (e) {
@@ -176,7 +216,15 @@ export async function resetSession(id: string): Promise<Result> {
 export async function retriggerEval(id: string): Promise<Result> {
   try {
     await requireAdminRole();
-    await setSessionState(id, { status: "evaluating" });
+    if (backendReady()) {
+      await retriggerEvaluationViaBackend(id);
+    } else {
+      // Honest about what this fallback actually does: it flips the status
+      // flag the Sessions page reads, but doesn't call an evaluation agent
+      // the way the real backend path (above) does. Configuring
+      // ADMIN_BACKEND_URL is what makes "retrigger" genuinely retrigger.
+      await setSessionState(id, { status: "evaluating" });
+    }
     revalidatePath("/admin/sessions");
     return { ok: true };
   } catch (e) {
