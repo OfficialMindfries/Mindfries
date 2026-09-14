@@ -97,6 +97,16 @@ func (s *Server) handleAdminReset(w http.ResponseWriter, r *http.Request) {
 		patch = db.SessionStatePatch{Status: &live, SandboxHealth: &healthy, ProgressPct: &zero, ElapsedMin: &zero}
 	}
 
+	// A reset means "back to a fresh state" — whatever sandbox this session
+	// had (if Daytona is configured at all) shouldn't keep running, and its
+	// id shouldn't stay pointing at something this backend has stopped
+	// tracking. Best-effort: a missing session here just means the patch
+	// below will also no-op, and any real Daytona error is already logged
+	// inside TeardownSandbox — neither should block the reset itself.
+	if err := s.orc.TeardownSandbox(r.Context(), sessionID); err != nil && !errors.Is(err, db.ErrNotFound) {
+		slog.Error("handleAdminReset: sandbox teardown", "error", err)
+	}
+
 	if err := s.db.UpdateSessionState(r.Context(), sessionID, patch); err != nil {
 		slog.Error("handleAdminReset", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not reset session")
