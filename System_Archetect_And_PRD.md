@@ -333,6 +333,78 @@ flowchart TB
     P1 --> P7
 ```
 
+### How "Repository Configuration" (A2) actually becomes a real codebase
+
+**Decision recorded 2026-09-15. Implementation deliberately deferred until
+the Company Portal exists (§2.1's Company #1–#4) — this is what those
+screens above (Role Management's Tech Stack/Assessment Configuration,
+Assessment Management's Repository/Task Configuration) resolve to
+mechanically, not a build instruction for right now.** This section exists
+so the shape is settled before that build starts, per this file's own
+"Still Open" convention — a decision written down beats one re-litigated
+mid-implementation.
+
+The data model in §1.10 already implies this — `JOB { tech_stack }` and
+`ASSESSMENT { job_id, repository_template }` — this section just makes the
+mechanism behind `repository_template` concrete, since the field existed in
+the diagram from the start without a stated answer for what fills it in.
+
+**The flow:**
+
+1. A company signs up and provides a profile beyond name/website — the
+   tech stack and domain they actually work in (§1.10's `JOB.tech_stack`,
+   plus whatever a company-level default turns out to need).
+2. The company creates a **Role** (a `JOB` row) and configures its
+   assessment shape: task-variant mix, duration, evaluation rubric — the
+   same *kind* of authoring `internal-admin`'s Library page already does
+   for `game_templates` today, just scoped to one company's role instead of
+   a library shared across all of them. `game_templates` doesn't go away —
+   it stays the admin-curated **skeleton** (task-variant mix, rubric
+   weights, duration) a role's assessment is shaped from, not the literal
+   codebase a candidate sees.
+3. The role is published — to the open candidate pool, or invite-only,
+   per the company's choice (both already real on the candidate side; see
+   `task.md`'s Candidate #1).
+4. A candidate applies or accepts an invitation. **At session-start time**,
+   a new generation step — a fifth agent alongside the four §1.9 already
+   defines (Code Evaluation, Reasoning, Workflow, Report), through the same
+   OpenRouter access layer — takes the company's profile, the role's
+   requirements, and the template skeleton, and generates a real,
+   company-specific starting codebase: bugs to fix, features to implement,
+   issues to triage, a PR to review, an API to exercise, in whatever mix
+   the template's task-variant configuration calls for. The output lands
+   in exactly the shape `game_templates.task_brief`/`starter_files`
+   already use (`0010_game_template_content.sql`) — this generation step
+   is what would *populate* those columns dynamically per session, instead
+   of an admin typing them in once per template. The authoring UI and
+   schema built for #37/#48 aren't superseded by this decision; they're
+   the target shape a generation step writes into.
+5. The candidate works the assessment exactly as today — real editor, real
+   terminal, real git, an AI coding assistant, an AI interviewer follow-up
+   (§1.6, §1.9) — and evidence is collected the same way (§1.7): activity
+   events, code artifacts, the AI interview conversation, *and* the
+   candidate's own external profile (GitHub/GitLab verified, LinkedIn
+   linked — the candidate Profile page already does this, unrelated to
+   this decision but part of the same evidence picture).
+
+**One question this doesn't settle, flagged rather than decided:** generate
+once per role (every candidate who applies gets the *same* generated
+codebase — consistent, fair, comparable across candidates, cheaper — one
+generation call per role, not per session) or fresh per candidate session
+(a genuinely different codebase per attempt — real anti-cheating value,
+at the cost of two candidates for the same role no longer being evaluated
+against the same task, and one generation call per session instead of per
+role). Worth its own decision when Company Portal work actually starts;
+leaning towards per-role for fairness/cost, not decided here.
+
+**What this is blocked on, concretely:** the Company Portal itself (§2.1
+Company #1–#4, `task.md`'s standing #1 priority) — profile fields, Role
+creation, public/invite-only publishing don't exist yet — and a real
+`OPENROUTER_API_KEY` (§2.4, `task.md`'s #38) for the generation call itself
+to do anything. Both already tracked; this section doesn't reopen either,
+it just gives the eventual Company Portal work a settled shape to build
+toward instead of another open question layered on top of it.
+
 ## 1.5 Candidate Application Architecture
 
 The candidate side has to feel simple — never like an exam platform. The framing that should hold at every screen:

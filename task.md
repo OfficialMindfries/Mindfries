@@ -129,6 +129,20 @@ two because they need a real hosting account and a real team decision
 respectively, neither of which this file-writing pass has standing to
 manufacture.
 
+**Same day, #40 partially resolved — the "decide" half, not the
+"implement" half.** A real product discussion settled how a
+company-specific assessment codebase should actually get generated —
+recorded in `System_Archetect_And_PRD.md` §1.4, linked rather than
+restated under "Blocked on a decision" #7 below. This does **not** touch
+#40's original question (does candidate code execution move server-side
+into a real Daytona sandbox, and what's the browser↔sandbox protocol) —
+that stays fully open, "Blocked on a decision" #1. What's settled is a
+different, previously-undecided question this session's own #37/#48 work
+surfaced: not just *whether* a real starting codebase exists, but *how* it
+becomes company-specific rather than one shared template everyone gets.
+Implementation is explicitly deferred until the Company Portal exists —
+nothing to build from this yet.
+
 ---
 
 ## Score against the MVP scope, item by item
@@ -663,7 +677,9 @@ Overview's unconditional mock import; Companies writing to nowhere.
    specifies Daytona sandboxes over a Go WebSocket. Both ends of that bridge
    exist in isolation (the backend's sandbox client and WS hub; the IDE's own
    telemetry and eventual terminal); nothing connects them, and that's a
-   deliberate scope decision, not a small wire-up.
+   deliberate scope decision, not a small wire-up. **Distinct from, but
+   related to, #7 below** — this is about *where code runs*; #7 is about
+   *what codebase it starts as*. Neither answers the other.
 2. **Backend hosting target** (PRD §2.4) — resolved in *language*, still open
    in *where*. The process still only runs on a developer's machine.
 3. **Per-agent LLM routing** (PRD §2.4) — the access *layer* is settled
@@ -696,6 +712,24 @@ Overview's unconditional mock import; Companies writing to nowhere.
    Platform #2): capture it by touching `vfs-shell.ts`'s line editor despite
    its test/automation fragility, or accept the git/npm/pip/file-save signal
    as sufficient for now.
+7. **Company-specific assessment generation — decided, not yet implemented.**
+   Recorded 2026-09-15 in `System_Archetect_And_PRD.md` §1.4 ("How
+   'Repository Configuration' (A2) actually becomes a real codebase," right
+   after the Company Admin Dashboard diagram) rather than restated here —
+   see that section for the full flow. The shape, briefly: a company's
+   profile (tech stack/domain) + a Role's requirements + an admin-curated
+   `game_templates` skeleton (task-variant mix, rubric, duration) feed a new
+   fifth agent (alongside §1.9's four) that generates a real, company-specific
+   codebase and task brief at session-start time — landing in exactly the
+   `task_brief`/`starter_files` shape #37/#48 already built, so that work
+   isn't superseded, it's the target shape a generation step would populate.
+   One sub-question flagged but not settled: generate once per Role (shared
+   across every candidate who applies — fairer, cheaper) or fresh per
+   session (real anti-cheating value, less comparable across candidates).
+   **Explicitly gated on the Company Portal existing (#35 — still this
+   file's #1 priority) and a real `OPENROUTER_API_KEY` (#38)** — nothing
+   about this decision changes what's next to build; it settles the shape
+   *for when* that work starts, so it doesn't get re-litigated mid-build.
 
 ## Next, in the order I'd do it
 
