@@ -21,6 +21,19 @@ current code or verified live against the running stack this pass — several
 things the previous version of this file called gaps are now closed; a few
 new, more precise gaps replaced them.
 
+**Reviewed again 2026-09-14 — no code changed, this pass only re-checked the
+claims above against the current tree and looked for what they'd missed.**
+Every "✅"/"🟡"/"❌" above still holds (`go test ./...` still green across
+`config`/`httpapi`/`llm`/`session`; the mock task brief, the hardcoded
+"Rishi", the duplicate admin support-overrides, and the empty-tables list are
+all still exactly as described). What this pass adds: a real Resend email
+integration exists now (§"Blocked on a decision" #4, corrected) that the
+previous version of this file didn't know about, and a substantial internal
+sales-CRM feature (`/admin/targets`) exists that no version of this file has
+ever scored or even mentioned — see the new note under "Gaps worth naming."
+Neither changes any MVP score; both were real gaps in what this *file* said,
+not in the product.
+
 ---
 
 ## Score against the MVP scope, item by item
@@ -31,7 +44,7 @@ new, more precise gaps replaced them.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Sign up | ❌ No Company Portal exists at all — no route, no page, nothing |
+| 1 | Sign up | ❌ No Company Portal exists at all — no route, no page, nothing. There *is* a real public `/waitlist` page (internal-admin) that writes a row and best-effort-emails the team — but that's pre-launch lead capture feeding the sales Tracker, not a company creating an account, so it doesn't count toward this item |
 | 2 | Create a role | ❌ |
 | 3 | Select or configure an assessment | ❌ Internal-admin authors templates; nothing lets a *company* pick one |
 | 4 | Invite a candidate | 🟡 The `assessments` table this needs is now genuinely wired end to end — a real invitation is visible on the candidate side, starts a real session, and moves through its lifecycle (see "The backend, concretely"). What's still missing is *anything that creates one*: no Company Portal, and no internal-admin UI either — `CreateInvitation` exists in `candidate/backend/internal/db` and is called by nothing |
@@ -69,11 +82,11 @@ behalf via a direct database write (there is no admin UI for even that yet).
 | 5 | Generate evaluation evidence | 🟡 The pipeline is real and tested; it can now actually receive real (if partial) evidence when a session has telemetry and `OPENROUTER_API_KEY` set — neither key has been configured anywhere yet, so every real run to date has honestly reported "not configured" or "no usable evidence," never a fabricated read |
 | 6 | Generate a final report | ✅ **Now real, end to end**, closing what was the previous version of this file's #3 named gap. `assessment_reports`/`evidence_items`, the generation pipeline, `GET /sessions/{id}/report`, and now a real candidate-facing page that polls while evaluation runs and shows the true terminal state (ready or honestly failed) |
 
-### Internal Admin (§2.1) — 4 of 4 items real; both known-wrong pages from last pass are now fixed
+### Internal Admin (§2.1) — 3 of 4 items fully real, 1 partial (a live bug on one onboarding path); both known-wrong pages from last pass are still fixed
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Onboard a company + assign team | ✅ **Now genuinely reconciled.** `addOnboarded()` (Tracker → `OnboardForm`) now creates a real `companies` row *and* the `onboarded_companies` sales record, linked by a new `company_id` FK (`0007_link_onboarded_companies.sql`). Verified against the real database: the join resolves, the company has the right name/status/team |
+| 1 | Onboard a company + assign team | 🟡 **The data model is genuinely reconciled; the path to it has a live bug.** `addOnboarded()` creates a real `companies` row *and* the `onboarded_companies` sales record, linked by a new `company_id` FK (`0007_link_onboarded_companies.sql`) — verified against the real database: the join resolves, the company has the right name/status/team. But the Tracker's own `OnboardForm` → `onboardCompany` action that's supposed to reach it sends an unguarded confirmation email first (see gap #2) and, with no `RESEND_API_KEY` configured anywhere, that throws before `addOnboarded()` runs — so right now this specific path fails outright. The Companies page's separate `onboardCompanyAccount` path still works standalone (see below) |
 | 2 | Author and publish assessment templates | ✅ Real (`game_templates`, `supabaseReady()`-gated with an honest sample fallback) |
 | 3 | View live/past sessions globally | ✅ Real — still a name-based join (company/template names), not yet reading the `candidate_id`/`assessment_id` FKs a Go-backend-created session now carries |
 | 4 | Reset a session / re-trigger evaluation | ✅ Real, wired to a UI, direct to Supabase. The Go backend's equivalent endpoints remain real but unused — still worth consolidating, still not urgent |
@@ -128,15 +141,40 @@ what carried this heading last time is fixed; what's left is more precise.
    shows "Authentication Bug Fix" (`MOCK_TASK_MARKDOWN`) regardless of which
    real assessment the candidate actually started — confirmed live. This is
    worse than "no task panel," because the panel exists and looks connected.
-2. **Telemetry captures a real but partial picture.** Stated plainly so
+2. **The Tracker's "onboard a company" action is currently broken outright,
+   and even working it would promise something false.** `onboardCompany` in
+   `internal-admin/frontend/app/admin/actions.ts` (wired to the Tracker's
+   `OnboardForm`, and the specific path Internal Admin #1's "verified against
+   the real database" check describes) calls `sendMail(...)` as its *first*
+   step, unguarded and with no `try/catch` of its own — unlike the waitlist
+   form's deliberately best-effort send. With `RESEND_API_KEY`/`RESEND_FROM`
+   unset, which is the actual state of every environment right now (see
+   "Blocked on a decision" #4), that `sendMail` call throws before
+   `addOnboarded()` ever runs, so the whole action fails and **no company or
+   `onboarded_companies` row gets created at all** — not a partial success,
+   a hard stop. (This is likely why that specific check passed during
+   verification: it needs a `RESEND_API_KEY` set, at least locally and
+   temporarily, to get past the first line — worth confirming with whoever
+   ran it.) Separately, and true even once a key exists: the email it sends
+   tells the company to "Sign in at `https://app.mindfries.com`" with a real
+   temp password — but there is no company login anywhere in this codebase.
+   No Company Portal exists (Company #1), and there's no `company_users`-style
+   table with a `password_hash` the way `admin_users`/`candidate_users` have
+   (migrations `0004`/`0005`) — `companies`/`onboarded_companies` store no
+   credentials at all, and `0001_tracker.sql` says so directly: "we do NOT
+   store the temp password — it's emailed once and discarded." The Companies
+   page's own onboarding path (`onboardCompanyAccount`, used by
+   `CompaniesView.tsx` — the one this file's Companies-page work actually
+   changed this pass) is unaffected: it never sends email and isn't broken.
+3. **Telemetry captures a real but partial picture.** Stated plainly so
    "the IDE sends telemetry now" isn't read as more than it is: git/npm/pip
    activity, preview rebuilds, and file saves are real; raw terminal command
    lines are not captured (see Platform #2 for why, and the deliberate scope
    line in `lib/ide/telemetry.ts`).
-3. **Two implementations of admin support-overrides still exist** — unchanged
+4. **Two implementations of admin support-overrides still exist** — unchanged
    from last time. Not a correctness bug, a maintenance one if they're ever
    edited separately.
-4. **Most tables that matter are still empty in production.** Checked while
+5. **Most tables that matter are still empty in production.** Checked while
    writing this: `game_templates`, `sessions`, `candidate_users`,
    `assessments`, `activity_events`, `assessment_reports` are all at (or
    very near) zero real rows; `companies` now has real write paths but no
@@ -144,9 +182,26 @@ what carried this heading last time is fixed; what's left is more precise.
    to work end to end against the real database, each time by creating test
    rows and deleting them immediately after — none of it has real production
    data behind it yet.
-5. **The IDE's own Explorer footer still shows a hardcoded candidate name
+6. **The IDE's own Explorer footer still shows a hardcoded candidate name
    ("Rishi")**, unrelated to and unfixed by the dashboard identity fix from
    this pass — confirmed live, still true, not yet threaded through.
+7. **This file has never scored or even mentioned a real feature that
+   exists: internal-admin's account-based-outreach CRM at `/admin/targets`.**
+   It's not sample data — `supabase/migrations/0003_targets.sql`, a real
+   `targetsStore()` with a `SchemaNotice` fallback when the migration isn't
+   applied yet, and a full set of validated server actions
+   (`internal-admin/frontend/app/admin/targets/actions.ts`: create/update/
+   delete a target, add a contact, log a touch that advances the pipeline
+   stage, bulk stage/owner updates, duplicate-detection against existing
+   targets/crawled leads/onboarded customers). It isn't one of the PRD
+   §2.1 Internal Admin MVP items — it's a sales tool for Mindfries' own team,
+   not a candidate/company/platform capability — so it changes no score
+   above. It's named here only because a file whose whole premise is "every
+   real thing, checked against the code" was silently missing a real,
+   substantial thing. `CLAUDE.md`'s repo map is stale in the same way (its
+   `/admin/{...}` route list omits `targets`, and lists `costs`/`waitlist`
+   which also go unmentioned in this file) — worth a pass of its own,
+   separate from this one.
 
 Resolved since the last version of this file (kept here briefly so the
 history is legible, not because they're still open): the dashboard's
@@ -169,8 +224,23 @@ Overview's unconditional mock import; Companies writing to nowhere.
 3. **Per-agent LLM routing** (PRD §2.4) — the access *layer* is settled
    (OpenRouter); *which* model runs each of the four agents is still the same
    open proposal (defaults to Claude, overridable per agent, unconfirmed).
-4. **Email.** `RESEND_API_KEY` is still unset everywhere. Nothing sends a
-   real email anywhere in either app.
+4. **Email — real, but not where the PRD needs it yet, and one call site is
+   actively broken by its absence (see gap #2 above).** internal-admin has a
+   genuine Resend integration: `lib/mailer.ts` (honestly refuses via
+   `mailerReady()` when `RESEND_API_KEY`/`RESEND_FROM` are unset, and exposes
+   that check *without* using it everywhere it's called — see gap #2),
+   `lib/email-templates.ts`, and an `/api/webhooks/resend` route that records
+   delivered/opened/clicked/bounced engagement back onto a lead. Three real
+   call sites, all in `app/admin/actions.ts`: `sendLeadEmail` (Tracker →
+   send a templated email to a lead), `joinWaitlist` (`/waitlist` signup —
+   deliberately best-effort, wrapped in its own `try/catch`), and
+   `onboardCompany` (Tracker's onboarding email — *not* best-effort, which is
+   the problem in gap #2). `RESEND_API_KEY` is still unset in any deployed
+   environment, so no email has actually sent — and none of this touches the
+   PRD's candidate/company transactional email (invitations, status
+   notifications), since neither of those flows exists yet either. The
+   honest-refusal wiring exists but isn't applied consistently, and none of
+   it is the product-facing email the PRD actually calls for.
 5. **Self-serve signup vs. invitation as the primary candidate entry point** —
    this pass made both genuinely work side by side rather than picking one,
    which is a real answer but possibly a provisional one: worth confirming
@@ -183,28 +253,36 @@ Overview's unconditional mock import; Companies writing to nowhere.
 
 ## Next, in the order I'd do it
 
-1. **Company Portal, from zero** (§1.4) — now unambiguously the largest
+1. **Fix `onboardCompany`** (gap #2) — cheap and currently broken: wrap its
+   `sendMail` in the same best-effort `try/catch` `joinWaitlist` already uses
+   so a missing Resend key doesn't block creating the company record, and
+   drop (or rewrite) the "sign in at app.mindfries.com" line until a company
+   login actually exists. Small, but it's the one item here that's an active
+   bug rather than a gap, and it sits directly in front of the Internal Admin
+   flow the rest of this file calls done.
+2. **Company Portal, from zero** (§1.4) — now unambiguously the largest
    single hole in the MVP scope, and the backend-side prerequisite it used to
    wait on (`assessments` being real) is done.
-2. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
+3. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
    and the candidate-side consumption of one are both real; only the
-   authoring surface is missing. Small relative to #1, and unblocks testing
+   authoring surface is missing. Small relative to #2, and unblocks testing
    the whole invitation flow without a direct database write.
-3. **Real task-brief content** (gap #1) — needs a schema field (`game_templates`
+4. **Real task-brief content** (gap #1) — needs a schema field (`game_templates`
    has no task-description column today) and an authoring UI in the Library
    page before the IDE side is worth touching.
-4. **Get real keys for OpenRouter and Daytona** — everything downstream of
+5. **Get real keys for OpenRouter and Daytona** — everything downstream of
    both has been built to the point where a real key is the only thing left
    between "honestly refuses" and "actually works."
-5. **Decide Gemini Live's timeline** — the one MVP item with no partial
+6. **Decide Gemini Live's timeline** — the one MVP item with no partial
    progress possible without committing to building the real-time bridge.
-6. **Raw terminal telemetry, if the decision above lands on "yes"** — the
+7. **Raw terminal telemetry, if the decision above lands on "yes"** — the
    remaining, harder half of Platform #2.
-7. **Wire the WebSocket hub to something** — live status/terminal streaming
+8. **Wire the WebSocket hub to something** — live status/terminal streaming
    exists server-side with zero consumers; the report page's polling and
    telemetry's REST batching both work without it today, so this is real but
    not urgent.
-8. **Consolidate the duplicate admin support-override implementations.**
+9. **Consolidate the duplicate admin support-override implementations**
+   (gap #4).
 
 ## Known limitations, accepted for now
 
