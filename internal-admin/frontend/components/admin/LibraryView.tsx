@@ -11,6 +11,7 @@ import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { fmtDate, taskVariantLabel } from "@/lib/format";
 import { createGameTemplate, toggleTemplateStatus } from "@/app/admin/actions";
 import { toast } from "@/components/admin/toast";
+import { parseStarterFiles } from "@/lib/starter-files";
 
 const variantTone: Record<TaskVariant, "violet" | "coral" | "amber" | "green"> = {
   bug_fix: "coral",
@@ -45,12 +46,16 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
   const [prompt, setPrompt] = useState("");
   const [rubric, setRubric] = useState<RubricCriterion[]>(defaultRubric());
   const [publishNow, setPublishNow] = useState(false);
+  const [taskBrief, setTaskBrief] = useState("");
+  const [starterFilesText, setStarterFilesText] = useState("");
 
   const rubricTotal = rubric.reduce((sum, r) => sum + (Number(r.weight) || 0), 0);
+  const starterFileCount = Object.keys(parseStarterFiles(starterFilesText)).length;
 
   function reset() {
     setName(""); setTaskVariant("bug_fix"); setRepoTemplate(""); setStack("");
     setDurationMin(60); setPrompt(""); setRubric(defaultRubric()); setPublishNow(false);
+    setTaskBrief(""); setStarterFilesText("");
   }
 
   function editCriterion(id: string, patch: Partial<RubricCriterion>) {
@@ -58,6 +63,7 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
   }
 
   function publishTemplate() {
+    const starterFiles = parseStarterFiles(starterFilesText);
     const input = {
       name: name.trim(),
       taskVariant,
@@ -67,13 +73,21 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
       interviewerPrompt: prompt.trim(),
       rubric,
       status: (publishNow ? "published" : "draft") as GameTemplate["status"],
+      taskBrief: taskBrief.trim() || undefined,
+      starterFiles: Object.keys(starterFiles).length > 0 ? starterFiles : undefined,
     };
     start(async () => {
       const res = await createGameTemplate(input);
       if (!res.ok) { toast.error("Couldn't save the game", res.error); return; }
       toast.success(input.status === "published" ? "Published to the library" : "Draft saved", input.name);
       // optimistic — the persisted row also arrives on next server render
-      setRows((r) => [{ ...input, id: crypto.randomUUID(), usedByCompanies: 0, createdAt: new Date().toISOString().slice(0, 10) }, ...r]);
+      setRows((r) => [
+        {
+          ...input, id: crypto.randomUUID(), usedByCompanies: 0, createdAt: new Date().toISOString().slice(0, 10),
+          taskBrief: input.taskBrief ?? null, starterFiles: input.starterFiles ?? {},
+        },
+        ...r,
+      ]);
       reset();
       setOpen(false);
     });
@@ -204,6 +218,32 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
           </div>
           <Field label="AI interviewer prompt" hint="How the AI interviewer probes the candidate's reasoning.">
             <Textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Probe how the candidate located the failing path…" />
+          </Field>
+
+          <Field
+            label="Task brief"
+            hint="Markdown. This is what the candidate actually reads in the IDE — without it, the workspace shows an honest 'no brief yet' state rather than a fake one."
+          >
+            <Textarea
+              rows={5}
+              value={taskBrief}
+              onChange={(e) => setTaskBrief(e.target.value)}
+              placeholder={"# Authentication Bug Fix\n\nUsers are intermittently unable to log in…\n\n## Your task\n\n1. Reproduce the failure.\n2. Find the root cause.\n3. Fix it."}
+              className="mono"
+            />
+          </Field>
+
+          <Field
+            label={`Starter files${starterFileCount > 0 ? ` — ${starterFileCount} file${starterFileCount === 1 ? "" : "s"}` : ""}`}
+            hint="What the candidate's workspace starts with, seeded verbatim. One file per --- path --- delimiter line — see the placeholder below for the exact format."
+          >
+            <Textarea
+              rows={6}
+              value={starterFilesText}
+              onChange={(e) => setStarterFilesText(e.target.value)}
+              placeholder={"--- src/auth.js ---\n// ...\n\n--- test/auth.test.js ---\n// ..."}
+              className="mono"
+            />
           </Field>
 
           <Field label={`Evaluation rubric — ${rubricTotal}%`} hint={rubricTotal === 100 ? "Weights sum to 100%." : "Tip: weights should sum to 100%."}>

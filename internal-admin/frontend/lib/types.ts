@@ -46,6 +46,10 @@ export interface GameTemplate {
   status: TemplateStatus;
   usedByCompanies: number;
   createdAt: string;
+  /** The markdown the IDE's TaskDescriptionPanel renders for a real session against this template — null means none authored yet. */
+  taskBrief: string | null;
+  /** Flat {path: content} starting files — the IDE's own VFS shape, seeded verbatim into a candidate's workspace. */
+  starterFiles: Record<string, string>;
 }
 
 // ── Lead Tracker (outbound growth pipeline) ─────────────────────────────────

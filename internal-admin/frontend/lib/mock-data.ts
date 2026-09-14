@@ -37,6 +37,18 @@ export const templates: GameTemplate[] = [
     status: "published",
     usedByCompanies: 7,
     createdAt: "2026-06-02",
+    taskBrief:
+      "# Authentication Bug Fix\n\nUsers are intermittently unable to log in. `POST /login` sometimes returns `401` for correct credentials.\n\n## Your task\n\n1. Reproduce the failure using the included test suite.\n2. Find the root cause in `src/auth.js`.\n3. Fix it, and explain your reasoning in a commit message.\n\nDon't just make the test pass — make sure you understand *why* it was failing.",
+    starterFiles: {
+      "src/auth.js":
+        "// Handles login. Somewhere in here, a valid password is sometimes rejected.\nconst users = require(\"./users\");\n\nfunction login(email, password) {\n  const user = users.find((u) => u.email === email);\n  if (!user) return { ok: false, status: 401 };\n  // TODO: candidates find the real bug here\n  if (user.password !== password) return { ok: false, status: 401 };\n  return { ok: true, status: 200, user };\n}\n\nmodule.exports = { login };\n",
+      "src/users.js":
+        "module.exports = [\n  { email: \"ada@example.com\", password: \"hunter2\" },\n  { email: \"grace@example.com\", password: \"correcthorse\" },\n];\n",
+      "test/auth.test.js":
+        "const { login } = require(\"../src/auth\");\n\n// Run this: it should always pass for a correct password.\n// Right now it doesn't, reliably.\nconst result = login(\"ada@example.com\", \"hunter2\");\nconsole.log(result.ok ? \"PASS\" : \"FAIL: \" + JSON.stringify(result));\n",
+      "README.md":
+        "# Auth Bug Hunt\n\nRun `node test/auth.test.js` to reproduce the failure.\n",
+    },
   },
   {
     id: "tpl_rate_limiter",
@@ -51,6 +63,9 @@ export const templates: GameTemplate[] = [
     status: "published",
     usedByCompanies: 4,
     createdAt: "2026-06-18",
+    taskBrief:
+      "# Feature: Rate Limiter\n\nAdd a per-user rate limiter to the API — no more than 100 requests per minute, backed by Redis.\n\n## Your task\n\n1. Implement the limiter as middleware.\n2. Return `429 Too Many Requests` with a `Retry-After` header once the limit is hit.\n3. Note in a short writeup how it behaves if Redis is briefly unavailable.",
+    starterFiles: {},
   },
   {
     id: "tpl_cart_refactor",
@@ -65,6 +80,9 @@ export const templates: GameTemplate[] = [
     status: "published",
     usedByCompanies: 3,
     createdAt: "2026-07-01",
+    taskBrief:
+      "# Refactor: Legacy Cart\n\n`Cart.tsx` has grown into a 400-line component mixing state, pricing logic, and rendering.\n\n## Your task\n\nExtract the pricing/discount logic into its own module with tests, without changing the cart's observable behavior. Keep every existing test passing throughout.",
+    starterFiles: {},
   },
   {
     id: "tpl_webhook",
@@ -79,6 +97,9 @@ export const templates: GameTemplate[] = [
     status: "published",
     usedByCompanies: 2,
     createdAt: "2026-07-20",
+    taskBrief:
+      "# Feature: Webhook Delivery\n\nBuild an outbound webhook delivery system: when an event fires, POST it to a subscriber's URL, retrying with backoff on failure.\n\n## Your task\n\n1. Guarantee at-least-once delivery.\n2. Make deliveries idempotent for the receiver (include an event id they can dedupe on).\n3. Cap retries and record final failures somewhere inspectable.",
+    starterFiles: {},
   },
   {
     id: "tpl_flaky_pipeline",
@@ -93,6 +114,9 @@ export const templates: GameTemplate[] = [
     status: "draft",
     usedByCompanies: 0,
     createdAt: "2026-08-14",
+    taskBrief:
+      "# Debug: Flaky Pipeline\n\nA CI test suite fails intermittently — roughly 1 in 10 runs, no obvious pattern.\n\n## Your task\n\nFind the source of the non-determinism and fix it. A passing run after your fix isn't enough on its own — explain what made it flaky in the first place.",
+    starterFiles: {},
   },
 ];
 

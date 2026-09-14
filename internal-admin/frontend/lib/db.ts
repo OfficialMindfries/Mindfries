@@ -263,6 +263,8 @@ function toTemplate(r: any): GameTemplate {
     status: r.status as TemplateStatus,
     usedByCompanies: r.used_by_companies ?? 0,
     createdAt: r.created_at,
+    taskBrief: r.task_brief ?? null,
+    starterFiles: (r.starter_files ?? {}) as Record<string, string>,
   };
 }
 
@@ -276,12 +278,14 @@ export async function listTemplates(): Promise<GameTemplate[]> {
 export async function createTemplate(t: {
   name: string; taskVariant: TaskVariant; repoTemplate: string; techStack: string[];
   durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
+  taskBrief?: string; starterFiles?: Record<string, string>;
 }): Promise<void> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");
   const { error } = await c.from("game_templates").insert({
     name: t.name, task_variant: t.taskVariant, repo_template: t.repoTemplate, tech_stack: t.techStack,
     duration_min: t.durationMin, interviewer_prompt: t.interviewerPrompt, rubric: t.rubric, status: t.status,
+    task_brief: t.taskBrief || null, starter_files: t.starterFiles ?? {},
   });
   if (error) throw error;
 }

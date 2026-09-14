@@ -111,6 +111,7 @@ Reply to this email if you need a hand in the meantime.
 export async function createGameTemplate(input: {
   name: string; taskVariant: TaskVariant; repoTemplate: string; techStack: string[];
   durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
+  taskBrief?: string; starterFiles?: Record<string, string>;
 }): Promise<Result> {
   try {
     await requireAdminRole();
