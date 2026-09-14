@@ -69,10 +69,29 @@ there now.
 button's missing session id and removing the option entirely, the answer
 was to remove it — a candidate shouldn't be able to re-enter an in-progress
 assessment from the dashboard at all. `AssessmentWall.tsx` now renders no
-action for that state. This closes the UI path into the finding above, not
-the finding itself — `handleSubmit`/`handlePostEvents` still don't check
-session status, so a candidate who still has the `/ide?session=<id>` URL can
-re-enter directly. That part is still open as this file's #1 priority below.
+action for that state. At the time, this closed only the UI path into the
+session-integrity finding above, not the finding itself — see the next
+entry for that part.
+
+**Same day, the fixes.** Five of this pass's findings — the ones ranked
+**high** in "Security and guardrails," plus one live bug found alongside
+them — are fixed, not just documented: **no session invalidation** (the
+biggest finding above) — `handleSubmit`/`handlePostEvents` now refuse once
+a session is no longer `live`, with the status transition made atomic
+against a race between concurrent submits; **the admin `viewer` role** now
+actually restricts every mutating internal-admin action and the Go
+backend's own admin endpoints, not just internal-admin's own; **`CRON_SECRET`
+and `RESEND_WEBHOOK_SECRET`** now fail closed when unset instead of
+default-allowing, verified live; **telemetry ingestion** is now bounded
+(request size, event count, per-event payload, `event_type` shape); and
+**`onboardCompany`**, found broken outright while writing the first version
+of this section, now degrades gracefully instead of failing the whole
+action over a missing Resend key, and no longer promises a company login
+that doesn't exist. Detail on each is inline where the finding was
+originally described — search this file for "fixed this pass." What's
+*not* fixed and stays this file's actual #1 priority: no per-candidate
+codebase exists yet, and the self-serve open pool still has no limit on how
+many separate sessions one candidate can start from the same template.
 
 ---
 
@@ -113,27 +132,27 @@ while re-tallying this pass, along with downgrading #3 and #5 below.)
 | 6 | Use terminal and tests | 🟡 Terminal is fully real. "Tests" isn't: no test runner or results panel |
 | 7 | Interact with an AI assistant | 🟡 Chat panel UI is real; no model behind it. The backend's OpenRouter client could answer it — nothing connects the two |
 | 8 | Complete an AI follow-up interview | ❌ Gemini Live API needs a real-time bidirectional-audio bridge that doesn't exist; the backend says so honestly (`ErrInterviewNotImplemented`) |
-| 9 | Submit | ✅ **Now real, end to end.** The header's Submit → confirm → real `POST /sessions/{id}/submit` call → redirect to a new report page. Verified live: signed up a candidate, started a session, clicked through to Submit, watched it redirect to `/assessments/{id}/report` showing the honest "OpenRouter is not configured" failure, confirmed in the database that the session was `submitted` and the report row matched exactly |
+| 9 | Submit | ✅ **Now real, end to end, and now single-shot.** The header's Submit → confirm → real `POST /sessions/{id}/submit` call → redirect to a new report page. Verified live: signed up a candidate, started a session, clicked through to Submit, watched it redirect to `/assessments/{id}/report` showing the honest "OpenRouter is not configured" failure, confirmed in the database that the session was `submitted` and the report row matched exactly. A later pass closed the gap this row didn't originally check for: submitting twice used to silently reset and re-run evaluation — `handleSubmit` now refuses once a session is no longer `live` (see "Sandbox, codebases, and session integrity") |
 
 ### Platform (§2.1) — 6 items: 2 done, 4 partial
 
 | # | Item | Status |
 |---|---|---|
 | 1 | Provision an isolated sandbox | 🟡 The Go backend's Daytona client is real and wired into session start, but no `DAYTONA_API_KEY` exists anywhere, so it always answers "not configured." **Worth knowing even once a key exists:** `orchestrator.go`'s provisioning call discards the sandbox ID it gets back (`CreateSandbox(ctx, sandbox.CreateOptions{})` — no repo, no image, no env, and the returned ID is never stored; `sessions` has no `sandbox_id` column to hold it in). `DeleteSandbox` has zero callers anywhere. So configuring the key today would create real, billable, unaddressable Daytona sandboxes with no way to find or clean them up — see "Sandbox, codebases, and session integrity" |
-| 2 | Track candidate events | 🟡 **Real signal now flows, deliberately scoped — and unvalidated.** The workspace's Output-channel store (git/npm/pip activity, preview rebuild results — already real, already tested) is relayed into a telemetry buffer, plus file saves, batched and POSTed to a new same-origin `/api/telemetry` route that forwards to the backend's real ingestion endpoint. Verified live: an authenticated POST returned `202 {recorded:1}` and the row landed in `activity_events`. **Not captured:** raw terminal command lines — that would mean touching `vfs-shell.ts`'s line editor, the one surface with both the heaviest test coverage (30/30, 18/18) and the most documented automation fragility in the repo. A deliberate, disclosed scope cut, not an oversight. **Newly found this pass, and not a deliberate cut:** neither the Next.js relay nor the Go handler enforces any payload size or event-count limit, and `event_type` is free text with no schema constraint — see "Security and guardrails" findings F1/F2 |
+| 2 | Track candidate events | 🟡 **Real signal now flows, deliberately scoped, and now bounded.** The workspace's Output-channel store (git/npm/pip activity, preview rebuild results — already real, already tested) is relayed into a telemetry buffer, plus file saves, batched and POSTed to a same-origin `/api/telemetry` route that forwards to the backend's real ingestion endpoint. Verified live: an authenticated POST returned `202 {recorded:1}` and the row landed in `activity_events`. **Not captured:** raw terminal command lines — that would mean touching `vfs-shell.ts`'s line editor, the one surface with both the heaviest test coverage (30/30, 18/18) and the most documented automation fragility in the repo. A deliberate, disclosed scope cut, not an oversight. **Fixed since last found:** neither the Next.js relay nor the Go handler used to enforce any payload size or event-count limit, and `event_type` was free text with no shape check — `handlePostEvents` now caps the request body (512KB), the events per request (100), each event's payload (16KB), and validates `event_type`'s shape (not the stale closed enum the schema comment documents, which doesn't even include `workspace_output`, a type the real client already sends) |
 | 3 | Run tests | ❌ |
 | 4 | Store code changes | 🟡 Unchanged: real locally (IndexedDB via isomorphic-git), nothing syncs to the backend |
 | 5 | Generate evaluation evidence | 🟡 The pipeline is real and tested; it can now actually receive real (if partial) evidence when a session has telemetry and `OPENROUTER_API_KEY` set — neither key has been configured anywhere yet, so every real run to date has honestly reported "not configured" or "no usable evidence," never a fabricated read |
 | 6 | Generate a final report | ✅ **Now real, end to end**, closing what was the previous version of this file's #3 named gap. `assessment_reports`/`evidence_items`, the generation pipeline, `GET /sessions/{id}/report`, and now a real candidate-facing page that polls while evaluation runs and shows the true terminal state (ready or honestly failed) |
 
-### Internal Admin (§2.1) — 3 of 4 items fully real, 1 partial (a live bug on one onboarding path); both known-wrong pages from last pass are still fixed
+### Internal Admin (§2.1) — 4 of 4 items fully real
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Onboard a company + assign team | 🟡 **The data model is genuinely reconciled; the path to it has a live bug.** `addOnboarded()` creates a real `companies` row *and* the `onboarded_companies` sales record, linked by a new `company_id` FK (`0007_link_onboarded_companies.sql`) — verified against the real database: the join resolves, the company has the right name/status/team. But the Tracker's own `OnboardForm` → `onboardCompany` action that's supposed to reach it sends an unguarded confirmation email first (see gap #2) and, with no `RESEND_API_KEY` configured anywhere, that throws before `addOnboarded()` runs — so right now this specific path fails outright. The Companies page's separate `onboardCompanyAccount` path still works standalone (see below) |
+| 1 | Onboard a company + assign team | ✅ **Fixed this pass — was a live bug, verified through it now.** `addOnboarded()` creates a real `companies` row *and* the `onboarded_companies` sales record, linked by a `company_id` FK (`0007_link_onboarded_companies.sql`) — verified against the real database: the join resolves, the company has the right name/status/team. The Tracker's `OnboardForm` → `onboardCompany` action used to send an unguarded confirmation email first that threw before `addOnboarded()` ran with no `RESEND_API_KEY` configured, failing the whole path outright — `sendMail` is now wrapped in the same best-effort `try/catch` `joinWaitlist` already used, and the email no longer promises a company login ("sign in at app.mindfries.com") that doesn't exist. The Companies page's separate `onboardCompanyAccount` path was never affected |
 | 2 | Author and publish assessment templates | ✅ Real (`game_templates`, `supabaseReady()`-gated with an honest sample fallback) |
 | 3 | View live/past sessions globally | ✅ Real — still a name-based join (company/template names), not yet reading the `candidate_id`/`assessment_id` FKs a Go-backend-created session now carries |
-| 4 | Reset a session / re-trigger evaluation | ✅ Real, wired to a UI, direct to Supabase. The Go backend's equivalent endpoints remain real but unused — still worth consolidating, still not urgent |
+| 4 | Reset a session / re-trigger evaluation | ✅ Real, wired to a UI, direct to Supabase. The Go backend's equivalent endpoints remain real but unused — still worth consolidating, still not urgent. **Now actually restricted to the `admin` role**, not just any signed-in admin session — see "Security and guardrails" finding B1/B3, fixed this pass on both the internal-admin server actions and the Go backend's own endpoints |
 
 **The two pages that were actively wrong, not just incomplete, are both
 fixed this pass.** Overview (`app/admin/page.tsx`) imported mock data
@@ -210,47 +229,50 @@ select that column. So "modify a real codebase" (Candidate #5, downgraded
 above) is real *editing machinery* over a codebase that doesn't exist yet,
 for anyone.
 
-**2. Nothing invalidates a session, ever — not on submit, not on a timer,
-not on anything.** Concretely, all verified against the current code:
-- `sessions` has `duration_min`/`elapsed_min`/`started_at` and no
-  `expires_at`, no `ended_at`, no attempt counter, anywhere in any migration.
-- `POST /sessions/{id}/submit` (`candidate.go`'s `handleSubmit`) checks only
-  that the caller owns the session — never its current status. A candidate
-  can submit, then submit again.
-- Submitting again **resets the report**: `CreatePendingReport`'s upsert is
-  `on conflict (session_id) do update set status='pending', error=null` — a
-  second submit wipes a finished report back to pending and re-evaluates
-  whatever's changed since.
-- Telemetry ingestion has the same gap: ownership is checked, submitted
-  status is not, so events keep landing in `activity_events` after
-  submission — which the re-submit above then evaluates.
-- The self-serve open pool (as opposed to an invitation) has no attempt
-  limit at all: every published template always shows "Start," and nothing
-  stops minting an unlimited number of sessions from the same one.
-- `/ide` itself carries no auth check (see Candidate #3, downgraded above) —
-  so this isn't gated by "you'd need to still be signed in," either.
+**2. Fixed this pass, on both ends.** Nothing used to invalidate a session —
+not on submit, not on a timer, not on anything:
+- `sessions` still has `duration_min`/`elapsed_min`/`started_at` and no
+  `expires_at`, no `ended_at`, no attempt counter, anywhere in any
+  migration — that part is unchanged and still worth knowing.
+- `POST /sessions/{id}/submit` (`candidate.go`'s `handleSubmit`) used to
+  check only that the caller owns the session, never its current status, so
+  a candidate could submit, then submit again — silently resetting an
+  already-generated report back to pending (`CreatePendingReport`'s
+  `on conflict … do update set status='pending'`) and re-evaluating
+  whatever changed since.
+- Telemetry ingestion (`handlePostEvents`) had the identical gap: ownership
+  checked, submitted status not, so events kept landing in
+  `activity_events` after submission.
 
-  **What this means concretely:** a candidate can submit, reload `/ide`
-  (their `localStorage` workspace comes back exactly as left), keep editing,
-  keep emitting telemetry into the already-submitted session, and press
-  Submit again — wiping and regenerating the evidence report on demand,
-  as many times as they like, with no record that this happened.
+  **Now fixed:** both handlers refuse with `409 Conflict` once a session's
+  status has moved past `live`. The submit path is additionally hardened
+  against a race between two concurrent submits: `db.MarkSubmitted` does the
+  status transition as one conditional `UPDATE … WHERE status = 'live'`
+  rather than an unconditional write, so only one request can ever actually
+  trigger evaluation even if both pass the handler's earlier read. The admin
+  "re-trigger evaluation" support override is untouched on purpose — it
+  calls `Evaluate` directly, not `Submit`, and still works on a session in
+  any status, exactly as before.
 
-**3. Fixed this pass — the direct way, not the patched way.** The
-dashboard's "Resume" button for an in-progress assessment
-(`AssessmentWall.tsx`) linked to a bare `href="/ide"` — no `?session=` — so
-resuming silently detached the workspace from its session entirely
-(`IdeShell.tsx`'s telemetry and Submit-wiring both early-return without a
-`sessionId`). The product decision, once this was found: an in-progress
-assessment shouldn't be re-enterable at all, so rather than giving the
-button its missing session id back, **the button is gone** —
-`AssessmentWall.tsx` now renders no action for `in-progress`, the same as
-`closed` already had none. **This does not close the underlying gap above**
-— the backend still doesn't refuse a submit or telemetry event once a
-session has moved past `live`, so a candidate who still has the
-`/ide?session=<id>` URL (browser history, a bookmark) can still re-enter
-directly. Removing the dashboard's own link to it closes the normal,
-UI-driven path; #1 and #2 above are what actually closes the door.
+  **Still open, and not fixed by the above:** the self-serve open pool (as
+  opposed to an invitation) has no attempt limit at all — every published
+  template always shows "Start," and nothing stops minting an unlimited
+  number of *separate* sessions from the same one. That's a different
+  problem (too many sessions) from the one this fix closes (one session
+  replayed past its own end), and is still open.
+
+**3. Fixed this pass too.** The dashboard's "Resume" button for an
+in-progress assessment (`AssessmentWall.tsx`) linked to a bare `href="/ide"`
+— no `?session=` — so resuming silently detached the workspace from its
+session entirely (`IdeShell.tsx`'s telemetry and Submit-wiring both
+early-return without a `sessionId`). The product decision, once this was
+found: an in-progress assessment shouldn't be re-enterable at all, so
+rather than giving the button its missing session id back, **the button is
+gone** — `AssessmentWall.tsx` now renders no action for `in-progress`, the
+same as `closed` already had none. Combined with #2's fix above, this is no
+longer a partial fix — the UI path is gone *and* the backend now refuses a
+replayed submit/telemetry event even for someone who still has the
+`/ide?session=<id>` URL directly (browser history, a bookmark).
 
 **4. Even a configured sandbox would leak.** Separately from all of the
 above (see Platform #1, updated): the Daytona provisioning call in
@@ -260,7 +282,8 @@ in and `DeleteSandbox` has zero callers anywhere in the codebase. Configuring
 a real `DAYTONA_API_KEY` today would start creating real, billable,
 permanently unaddressable sandboxes, on top of everything above.
 
-None of this is softened by "no production data yet" the way some other
+None of what's still open here (#1 and #4, plus the open-pool attempt limit
+noted under #2) is softened by "no production data yet" the way some other
 gaps in this file are — these are missing checks, not scope cuts, and they
 become live the moment a real candidate uses this for a real assessment.
 
@@ -414,35 +437,39 @@ pass's judgment, not a formal scoring system.
 
 ### Findings, worst first
 
+Five of the six findings originally marked **high** are fixed as of this
+pass — struck through below rather than removed, so the history of what was
+wrong and what closed it stays legible in one place.
+
 | ID | Severity | Finding |
 |---|---|---|
-| — | **high** | **No session invalidation, ever** — detailed above in "Sandbox, codebases, and session integrity." Re-submitting resets an already-generated report; post-submit telemetry is still accepted. |
-| — | ~~high~~ **fixed** | ~~The "Resume" button drops `?session=`~~ — fixed this pass by removing the button entirely rather than repairing its link; see "Sandbox, codebases, and session integrity" #3. |
-| B1 | **high** | **The admin `viewer` role is carried in the session cookie and validated by the Go backend, but never enforced anywhere in internal-admin.** A repo-wide check for anywhere the frontend reads `role` found only the two type declarations — no server action, no page, checks it. A `viewer` account today can create/delete companies, publish templates, reset sessions, or send lead email exactly like an `admin` account. Real and exploitable the moment a second admin account with the `viewer` role exists — currently moot only because every admin account created so far has presumably been full `admin`. |
-| C1 | **high** | **`CRON_SECRET` default-allows when unset.** `app/api/cron/discover/route.ts`'s check is `if (secret && header !== …)` — with the env var unset (its current state, per `.env.example`), the condition is simply false and the route runs for anyone. This is a **deployed, unauthenticated** endpoint (wired into `vercel.json`'s daily cron) that triggers a full lead crawl and writes to the database on any GET request from anyone who finds the URL. |
-| F1 | **high** | **No payload size or event-count limit on telemetry ingestion**, on either the Next.js relay or the Go handler. The real client caps itself at 25 events per batch, but that's a courtesy an attacker ignores — an authenticated candidate session can push unbounded data into `activity_events` and into the Go process's request-handling memory. A storage-exhaustion / memory-pressure vector against a shared database, from a signed-in candidate account. |
-| A3 | medium | **No server-side session revocation.** Signing out only deletes the cookie client-side; a copied/stolen `mf_candidate` or `mf_admin` cookie stays valid for its full lifetime (14 days for a candidate) with nothing server-side able to kill it early. Disabling a `candidate_users`/`admin_users` row is checked only at sign-in, never on an existing session. |
-| B2 | medium | **No server action independently re-checks admin auth.** `app/admin/actions.ts` and `app/admin/targets/actions.ts` rely entirely on the page-level middleware match — a single point of failure. Currently safe (they're only imported from gated pages, and `joinWaitlist`'s public exposure in the same file is intentional), but one misplaced import would remove protection with no second layer to catch it. |
-| B3 | medium | **The Go backend's own admin endpoints (`reset`, `retrigger-evaluation`) have no role check either** — same shape as B1, one layer down. Currently dead code (nothing calls them — see the endpoint table above), but they're mounted and running, reachable by any valid `mf_admin` cookie including a `viewer`'s. |
-| C2 | medium | **`RESEND_WEBHOOK_SECRET` has the identical default-allow-when-unset shape as C1.** Lower impact (forged delivery/open/click/bounce events poison lead-engagement data; no database write amplification), and the route's own comment already flags it as a stopgap worth upgrading. |
-| C4 | medium | **`ssl: { rejectUnauthorized: false }` on every direct-Postgres script** (`migrate.mts` ×2, `admin.mts`) — TLS certificate verification disabled on the connection that carries the database password and writes admin password hashes. A common Supabase-script convention, still a real MITM exposure if anyone runs these off a untrusted network. |
-| D1/D2 | medium | **Login throttling is per-account, not per-IP** — password-spraying across many accounts is unthrottled — **and the env-configured root admin account is explicitly exempt from lockout** (it returns before touching the database at all, which is also *why* it can't lock the operator out — a deliberate tradeoff, but worth naming since it's the single highest-value credential in the system). |
-| F2/F3 | medium (→ **high** once `OPENROUTER_API_KEY` is set) | **`event_type`/`payload` on a telemetry event are never schema- or content-validated**, and raw payload text is string-joined directly into the evaluation agents' prompts (`orchestrator.go`). Not exploitable today (no OpenRouter key configured anywhere), but a candidate fully controls the exact text handed to their own evaluators the moment one is — a live prompt-injection surface against the evidence report itself. This is squarely inside `task.md`'s own "Next" item on getting a real OpenRouter key: that item should include this fix, not just the key. |
-| G2 | medium | `/ide` has no auth check at all — see Candidate #3 above and "Sandbox, codebases, and session integrity." |
-| D4 | low | `joinWaitlist` is a public, unauthenticated write with no rate limit and no length caps beyond the email regex — a spam/storage-fill vector on `/waitlist`. |
-| C3 | low | The `CRON_SECRET`/`RESEND_WEBHOOK_SECRET` comparisons use plain `!==`, not constant-time — a real but lesser issue given C1/C2 already bypass them entirely when unset. Contrast with the root admin password check, which *is* constant-time — the codebase clearly knows how; these two routes just don't do it. |
+| — | ~~high~~ **fixed** | ~~No session invalidation, ever~~ — `handleSubmit`/`handlePostEvents` now refuse once a session is no longer `live`; the status transition is atomic (`db.MarkSubmitted`) against a race between two concurrent submits. See "Sandbox, codebases, and session integrity" #2. |
+| — | ~~high~~ **fixed** | ~~The "Resume" button drops `?session=`~~ — fixed by removing the button entirely rather than repairing its link; see "Sandbox, codebases, and session integrity" #3. |
+| B1 | ~~high~~ **fixed** | ~~The admin `viewer` role is carried and validated but never enforced~~ — every mutating server action in `app/admin/actions.ts`/`app/admin/targets/actions.ts` now calls `requireAdminRole()` first; a `viewer` account gets a refused action, not a silent success. |
+| C1 | ~~high~~ **fixed** | ~~`CRON_SECRET` default-allows when unset~~ — the check now fails closed (`if (!secret \|\| !safeEqual(...))`) and uses a constant-time comparison. Verified live: with the env var unset, the route now returns `401` instead of running the crawl. |
+| F1 | ~~high~~ **fixed** | ~~No payload size or event-count limit on telemetry ingestion~~ — `handlePostEvents` now caps the request body (512KB via `http.MaxBytesReader`), events per request (100), and each event's payload (16KB). |
+| A3 | medium | **No server-side session revocation.** Signing out only deletes the cookie client-side; a copied/stolen `mf_candidate` or `mf_admin` cookie stays valid for its full lifetime (14 days for a candidate) with nothing server-side able to kill it early. Disabling a `candidate_users`/`admin_users` row is checked only at sign-in, never on an existing session. Still open. |
+| B2 | medium | **No server action independently re-checks admin auth** *beyond the role check landed this pass.* `requireAdminRole()` confirms a signed-in session has the `admin` role, but still relies on the page-level middleware match to establish that a session exists at all in the first place — a single point of failure for authentication (not authorization, which B1's fix now covers). Still open. |
+| B3 | ~~medium~~ **fixed** | ~~The Go backend's own admin endpoints (`reset`, `retrigger-evaluation`) have no role check either~~ — both now go through a new `requireFullAdmin` middleware (`requireAdmin` plus a role check); the two read-only admin endpoints (list sessions, WS) are unaffected on purpose. |
+| C2 | ~~medium~~ **fixed** | ~~`RESEND_WEBHOOK_SECRET` has the identical default-allow-when-unset shape as C1~~ — same fix, same commit: fails closed, constant-time comparison. |
+| C4 | medium | **`ssl: { rejectUnauthorized: false }` on every direct-Postgres script** (`migrate.mts` ×2, `admin.mts`) — TLS certificate verification disabled on the connection that carries the database password and writes admin password hashes. A common Supabase-script convention, still a real MITM exposure if anyone runs these off a untrusted network. Still open. |
+| D1/D2 | medium | **Login throttling is per-account, not per-IP** — password-spraying across many accounts is unthrottled — **and the env-configured root admin account is explicitly exempt from lockout** (it returns before touching the database at all, which is also *why* it can't lock the operator out — a deliberate tradeoff, but worth naming since it's the single highest-value credential in the system). Still open. |
+| F2/F3 | medium (→ **high** once `OPENROUTER_API_KEY` is set) | **`event_type`/`payload` on a telemetry event weren't schema- or content-validated**, and raw payload text is string-joined directly into the evaluation agents' prompts (`orchestrator.go`). *Partially addressed this pass:* `event_type` is now shape-checked (F1's fix covers this half). **Still open:** payload *content* is still unsanitized before reaching the LLM prompt — not exploitable today (no OpenRouter key configured anywhere), but a candidate fully controls the exact text handed to their own evaluators the moment one is. Whoever picks up a real OpenRouter key should treat this as part of that work, not a separate follow-up. |
+| G2 | medium | `/ide` has no auth check at all — see Candidate #3 above and "Sandbox, codebases, and session integrity." Still open. |
+| D4 | low | `joinWaitlist` is a public, unauthenticated write with no rate limit and no length caps beyond the email regex — a spam/storage-fill vector on `/waitlist`. Still open. |
+| C3 | ~~low~~ **fixed** | ~~The `CRON_SECRET`/`RESEND_WEBHOOK_SECRET` comparisons use plain `!==`, not constant-time~~ — both switched to the existing `safeEqual` helper as part of C1/C2's fix. |
 | E1/E2 | informational | The Go backend's CORS preflight answers 204 for any origin (harmless without the actual `Access-Control-Allow-Origin`, since the browser still blocks the real request); the WebSocket hub's `CheckOrigin` allows an empty Origin for non-browser clients, which is fine because the cookie check still gates the handshake. |
 | G1 | informational now, **high if reused as-is** | The Go admin endpoints have no per-company scoping — correct for an *internal* admin tool today, but `sessions.company_id` exists and nothing filters on it. Flagging now because a future Company Portal (this file's own #1 priority) must not let Company A read Company B's sessions/reports, and reusing these endpoints unchanged for that would do exactly that. |
 
 ### What "no production data yet" does and doesn't excuse
 
-It genuinely softens C2, C4, D4, and the reputational cost of the fake task
+It genuinely softens C4, D4, and the reputational cost of the fake task
 brief — low-stakes while nobody real is using this. **It does not excuse**
-the remaining unlabeled high finding (no session invalidation — the Resume
-button that used to compound it is fixed, see above), B1, or C1/F1 — those
-become exploitable on literally the first day a real
-candidate or a second admin account exists, which is not a hypothetical
-future state, it's the very next step after this file's own "Next" list.
+A3 or B2, which stay open below the fold: both become exploitable on
+literally the first day a real candidate or a second admin account exists,
+which is not a hypothetical future state. The five findings this reasoning
+used to apply most urgently to — no session invalidation, the Resume bug,
+B1, C1, F1 — are fixed as of this pass; see the table above.
 
 ### RLS — stated plainly, once
 
@@ -506,40 +533,15 @@ what carried this heading last time is fixed; what's left is more precise.
    shows "Authentication Bug Fix" (`MOCK_TASK_MARKDOWN`) regardless of which
    real assessment the candidate actually started — confirmed live. This is
    worse than "no task panel," because the panel exists and looks connected.
-2. **The Tracker's "onboard a company" action is currently broken outright,
-   and even working it would promise something false.** `onboardCompany` in
-   `internal-admin/frontend/app/admin/actions.ts` (wired to the Tracker's
-   `OnboardForm`, and the specific path Internal Admin #1's "verified against
-   the real database" check describes) calls `sendMail(...)` as its *first*
-   step, unguarded and with no `try/catch` of its own — unlike the waitlist
-   form's deliberately best-effort send. With `RESEND_API_KEY`/`RESEND_FROM`
-   unset, which is the actual state of every environment right now (see
-   "Blocked on a decision" #4), that `sendMail` call throws before
-   `addOnboarded()` ever runs, so the whole action fails and **no company or
-   `onboarded_companies` row gets created at all** — not a partial success,
-   a hard stop. (This is likely why that specific check passed during
-   verification: it needs a `RESEND_API_KEY` set, at least locally and
-   temporarily, to get past the first line — worth confirming with whoever
-   ran it.) Separately, and true even once a key exists: the email it sends
-   tells the company to "Sign in at `https://app.mindfries.com`" with a real
-   temp password — but there is no company login anywhere in this codebase.
-   No Company Portal exists (Company #1), and there's no `company_users`-style
-   table with a `password_hash` the way `admin_users`/`candidate_users` have
-   (migrations `0004`/`0005`) — `companies`/`onboarded_companies` store no
-   credentials at all, and `0001_tracker.sql` says so directly: "we do NOT
-   store the temp password — it's emailed once and discarded." The Companies
-   page's own onboarding path (`onboardCompanyAccount`, used by
-   `CompaniesView.tsx` — the one this file's Companies-page work actually
-   changed this pass) is unaffected: it never sends email and isn't broken.
-3. **Telemetry captures a real but partial picture.** Stated plainly so
+2. **Telemetry captures a real but partial picture.** Stated plainly so
    "the IDE sends telemetry now" isn't read as more than it is: git/npm/pip
    activity, preview rebuilds, and file saves are real; raw terminal command
    lines are not captured (see Platform #2 for why, and the deliberate scope
    line in `lib/ide/telemetry.ts`).
-4. **Two implementations of admin support-overrides still exist** — unchanged
+3. **Two implementations of admin support-overrides still exist** — unchanged
    from last time. Not a correctness bug, a maintenance one if they're ever
    edited separately.
-5. **Most tables that matter are still empty in production.** Checked while
+4. **Most tables that matter are still empty in production.** Checked while
    writing this: `game_templates`, `sessions`, `candidate_users`,
    `assessments`, `activity_events`, `assessment_reports` are all at (or
    very near) zero real rows; `companies` now has real write paths but no
@@ -547,10 +549,10 @@ what carried this heading last time is fixed; what's left is more precise.
    to work end to end against the real database, each time by creating test
    rows and deleting them immediately after — none of it has real production
    data behind it yet.
-6. **The IDE's own Explorer footer still shows a hardcoded candidate name
+5. **The IDE's own Explorer footer still shows a hardcoded candidate name
    ("Rishi")**, unrelated to and unfixed by the dashboard identity fix from
    this pass — confirmed live, still true, not yet threaded through.
-7. **This file has never scored or even mentioned a real feature that
+6. **This file has never scored or even mentioned a real feature that
    exists: internal-admin's account-based-outreach CRM at `/admin/targets`.**
    It's not sample data — `supabase/migrations/0003_targets.sql`, a real
    `targetsStore()` with a `SchemaNotice` fallback when the migration isn't
@@ -567,27 +569,21 @@ what carried this heading last time is fixed; what's left is more precise.
    `/admin/{...}` route list omits `targets`, and lists `costs`/`waitlist`
    which also go unmentioned in this file) — worth a pass of its own,
    separate from this one.
-8. **The single most important thing this file implied without ever
-   checking: a session, once submitted, is still fully live.** Detailed in
-   full under "Sandbox, codebases, and session integrity" above — a
-   candidate can submit, keep editing, keep sending telemetry, and submit
-   again, wiping and regenerating their own evidence report each time, with
-   nothing anywhere that notices or prevents it. Every previous version of
-   this file scored Candidate #9 ("Submit") ✅ and Platform #6 ("Generate a
-   final report") ✅ without this ever being checked — both scores are still
-   accurate for what they claim (the mechanism is real), but neither claim
-   ever said "and it can't be replayed," which is the part that was untrue
-   by omission.
-9. **The admin `viewer` role is real data with no real effect.** It's
-   generated, stored, put in the session cookie, and validated by the Go
-   backend — every piece of plumbing for a permission system exists except
-   the one check that would make it a permission system. See "Security and
-   guardrails" finding B1.
 
 Resolved since the last version of this file (kept here briefly so the
-history is legible, not because they're still open): the dashboard's Resume
-button silently breaking the session it resumed — fixed by removing Resume
-entirely, a product decision rather than a link fix, see "Sandbox,
+history is legible, not because they're still open): **a session, once
+submitted, used to still be fully live** — a candidate could submit, keep
+editing, keep sending telemetry, and submit again, wiping and regenerating
+their own evidence report each time; `handleSubmit`/`handlePostEvents` now
+refuse once a session is no longer `live` (see "Sandbox, codebases, and
+session integrity" #2); **the admin `viewer` role used to be real data with
+no real effect** — every mutating internal-admin server action and the Go
+backend's own admin endpoints now enforce it (security finding B1/B3); **the
+Tracker's "onboard a company" action used to fail outright** without a
+Resend key and promised a company login that doesn't exist — `sendMail` is
+now best-effort and the email no longer makes that claim; the dashboard's
+Resume button silently breaking the session it resumed — fixed by removing
+Resume entirely, a product decision rather than a link fix, see "Sandbox,
 codebases, and session integrity" #3; the dashboard's
 StatNotes/AssessmentNotes self-contradiction; the sample-name dashboard
 greeting; the missing report-viewing surface; `assessments` never being
@@ -608,23 +604,24 @@ Overview's unconditional mock import; Companies writing to nowhere.
 3. **Per-agent LLM routing** (PRD §2.4) — the access *layer* is settled
    (OpenRouter); *which* model runs each of the four agents is still the same
    open proposal (defaults to Claude, overridable per agent, unconfirmed).
-4. **Email — real, but not where the PRD needs it yet, and one call site is
-   actively broken by its absence (see gap #2 above).** internal-admin has a
+4. **Email — real, but not where the PRD needs it yet.** internal-admin has a
    genuine Resend integration: `lib/mailer.ts` (honestly refuses via
-   `mailerReady()` when `RESEND_API_KEY`/`RESEND_FROM` are unset, and exposes
-   that check *without* using it everywhere it's called — see gap #2),
-   `lib/email-templates.ts`, and an `/api/webhooks/resend` route that records
-   delivered/opened/clicked/bounced engagement back onto a lead. Three real
-   call sites, all in `app/admin/actions.ts`: `sendLeadEmail` (Tracker →
-   send a templated email to a lead), `joinWaitlist` (`/waitlist` signup —
-   deliberately best-effort, wrapped in its own `try/catch`), and
-   `onboardCompany` (Tracker's onboarding email — *not* best-effort, which is
-   the problem in gap #2). `RESEND_API_KEY` is still unset in any deployed
-   environment, so no email has actually sent — and none of this touches the
-   PRD's candidate/company transactional email (invitations, status
+   `mailerReady()` when `RESEND_API_KEY`/`RESEND_FROM` are unset),
+   `lib/email-templates.ts`, and an `/api/webhooks/resend` route (now
+   fails closed when its own secret is unset — see "Security and
+   guardrails" C2) that records delivered/opened/clicked/bounced engagement
+   back onto a lead. Three real call sites, all in `app/admin/actions.ts`:
+   `sendLeadEmail` (Tracker → send a templated email to a lead),
+   `joinWaitlist` (`/waitlist` signup), and `onboardCompany` (Tracker's
+   onboarding email) — all three are now consistently best-effort, wrapped
+   in their own `try/catch` (`onboardCompany` used to be the one exception,
+   unguarded; fixed this pass, see the resolved items under "Gaps worth
+   naming"). `RESEND_API_KEY` is still unset in any deployed environment, so
+   no email has actually sent — and none of this touches the PRD's
+   candidate/company transactional email (invitations, status
    notifications), since neither of those flows exists yet either. The
-   honest-refusal wiring exists but isn't applied consistently, and none of
-   it is the product-facing email the PRD actually calls for.
+   honest-refusal wiring is real and now applied consistently; it's just not
+   yet the product-facing email the PRD actually calls for.
 5. **Self-serve signup vs. invitation as the primary candidate entry point** —
    this pass made both genuinely work side by side rather than picking one,
    which is a real answer but possibly a provisional one: worth confirming
@@ -637,71 +634,67 @@ Overview's unconditional mock import; Companies writing to nowhere.
 
 ## Next, in the order I'd do it
 
-Re-ordered last pass: four items moved to the front because they're cheap
-*and* were the most severe things in this file — none of them were here
-before because none of them were known before. One of the five that
-originally led this list — fixing the "Resume" button — is done; see
-"Sandbox, codebases, and session integrity" #3.
+The five items that used to lead this list — session re-entry/re-submit,
+the Resume button, the admin `viewer` role, the two default-allow secrets,
+telemetry's missing limits, and `onboardCompany`'s live bug (six, not five;
+see below) — are done. Rather than delete the record of what they were,
+they're kept struck through here for the same reason the security findings
+table keeps its fixed rows: so "what was wrong and what closed it" stays in
+one place. The list resumes at what's still actually next.
 
-1. **Stop a submitted session from being re-entered and re-submitted**
-   (gap #8) — the most important fix in this file, and now the only part of
-   the session-integrity problem still open (removing the Resume button
-   closed the UI path into it, not the underlying gap). At minimum:
-   `handleSubmit` and `handlePostEvents` should refuse once a session's
-   status has moved past `live`, and `CreatePendingReport`'s upsert
-   shouldn't silently overwrite a completed report.
-2. **Enforce the admin `viewer` role, or remove it** — either add the one
-   check that's missing everywhere `role` is currently just carried and
-   validated but never read, or stop implying a permission system exists.
-   Same fix should extend to the Go backend's own admin endpoints (B3).
-3. **Make `CRON_SECRET` and `RESEND_WEBHOOK_SECRET` fail closed when
-   unset**, not open — both currently default-allow (`if (secret && …)`);
-   should be "no secret configured → refuse," not "no secret configured →
-   let anyone through." `/api/cron/discover` is the more urgent of the two:
-   it's deployed and unauthenticated right now.
-4. **Add a payload/event-count limit to telemetry ingestion** on both the
-   Next.js relay and the Go handler, and constrain `event_type` to the
-   values the schema comment already documents — cheap, and directly ahead
-   of item 9 below.
-5. **Fix `onboardCompany`** (gap #2) — wrap its `sendMail` in the same
-   best-effort `try/catch` `joinWaitlist` already uses so a missing Resend
-   key doesn't block creating the company record, and drop (or rewrite) the
-   "sign in at app.mindfries.com" line until a company login actually
-   exists.
-6. **Company Portal, from zero** (§1.4) — still unambiguously the largest
+1. ~~Stop a submitted session from being re-entered and re-submitted~~ —
+   **fixed.** `handleSubmit`/`handlePostEvents` refuse once a session's
+   status has moved past `live`; `db.MarkSubmitted` closes the race between
+   two concurrent submits atomically.
+2. ~~Fix the "Resume" button~~ — **fixed, the direct way.** Removed rather
+   than repaired; see "Sandbox, codebases, and session integrity" #3.
+3. ~~Enforce the admin `viewer` role, or remove it~~ — **fixed, enforced.**
+   `requireAdminRole()` on every mutating internal-admin server action;
+   `requireFullAdmin` on the Go backend's own reset/retrigger endpoints.
+4. ~~Make `CRON_SECRET` and `RESEND_WEBHOOK_SECRET` fail closed when
+   unset~~ — **fixed**, and switched to a constant-time comparison
+   (`safeEqual`) while there. Verified live.
+5. ~~Add a payload/event-count limit to telemetry ingestion~~ — **fixed.**
+   Request body (512KB), events per request (100), per-event payload
+   (16KB), and `event_type` shape are all bounded now on the Go handler.
+6. ~~Fix `onboardCompany`~~ — **fixed.** Best-effort email, matching
+   `joinWaitlist`'s pattern; no longer claims a company login that doesn't
+   exist.
+7. **Company Portal, from zero** (§1.4) — still unambiguously the largest
    *structural* hole in the MVP scope, and the backend-side prerequisite it
    used to wait on (`assessments` being real) is done. When it's built, give
    it real per-company scoping from day one rather than reusing the
    unscoped Go admin endpoints as-is (security finding G1).
-7. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
+8. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
    and the candidate-side consumption of one are both real; only the
-   authoring surface is missing. Small relative to #6, and unblocks testing
+   authoring surface is missing. Small relative to #7, and unblocks testing
    the whole invitation flow without a direct database write.
-8. **Give the IDE a real per-candidate codebase.** Needs `repo_template` (or
+9. **Give the IDE a real per-candidate codebase.** Needs `repo_template` (or
    its replacement) to actually resolve into starting files the IDE seeds
    from, instead of the empty `initialTree`/`initialFiles` every candidate
    gets today — see "Sandbox, codebases, and session integrity." This and
-   #9 are naturally one piece of work with the same root cause: the IDE has
+   #10 are naturally one piece of work with the same root cause: the IDE has
    never been wired to which assessment is actually running.
-9. **Real task-brief content** (gap #1) — needs a schema field
-   (`game_templates` has no task-description column today) and an authoring
-   UI in the Library page before the IDE side is worth touching.
-10. **Get real keys for OpenRouter and Daytona** — for OpenRouter, do item
-    4 and F2/F3's validation *first*, or a real key turns the telemetry gap
-    above into live prompt injection against the evidence report on day one.
-    For Daytona, fix the discarded-sandbox-ID / uncalled-`DeleteSandbox`
+10. **Real task-brief content** (gap #1) — needs a schema field
+    (`game_templates` has no task-description column today) and an authoring
+    UI in the Library page before the IDE side is worth touching.
+11. **Get real keys for OpenRouter and Daytona** — for OpenRouter, still do
+    F2/F3's remaining half first (payload *content* isn't sanitized before
+    it reaches the LLM prompt, even though `event_type` now is) — a real key
+    turns that into live prompt injection against the evidence report on day
+    one. For Daytona, fix the discarded-sandbox-ID / uncalled-`DeleteSandbox`
     problem before the key goes in, or a real key starts leaking real,
     billable, unaddressable sandboxes immediately.
-11. **Decide Gemini Live's timeline** — the one MVP item with no partial
+12. **Decide Gemini Live's timeline** — the one MVP item with no partial
     progress possible without committing to building the real-time bridge.
-12. **Raw terminal telemetry, if the decision above lands on "yes"** — the
+13. **Raw terminal telemetry, if the decision above lands on "yes"** — the
     remaining, harder half of Platform #2.
-13. **Wire the WebSocket hub to something** — live status/terminal streaming
+14. **Wire the WebSocket hub to something** — live status/terminal streaming
     exists server-side with zero consumers; the report page's polling and
     telemetry's REST batching both work without it today, so this is real
     but not urgent.
-14. **Consolidate the duplicate admin support-override implementations**
-    (gap #4).
+15. **Consolidate the duplicate admin support-override implementations**
+    (gap #3).
 
 ## Known limitations, accepted for now
 
@@ -726,11 +719,13 @@ originally led this list — fixing the "Resume" button — is done; see
   `CLIENT_ID`/`CLIENT_SECRET` before its button does anything but honestly
   say so — see "Social sign-in is now real."
 - Every candidate's IDE starts from the same empty workspace — there is no
-  per-candidate or per-template codebase yet, and no assessment session
-  currently expires or gets invalidated once used — see "Sandbox, codebases,
-  and session integrity." Listed here for completeness; both are serious
-  enough to also carry their own gap entries (#8, #9) above, not softened
-  scope cuts the way the rest of this list is.
+  per-candidate or per-template codebase yet (see "Sandbox, codebases, and
+  session integrity" #1, and "Gaps worth naming" isn't where this lives
+  since it's a missing feature, not an untrue claim — Candidate #5 above is
+  scored to match). A submitted session can no longer be replayed (fixed
+  this pass), but the self-serve open pool still has no limit on how many
+  *separate* sessions can be started from the same template — see "Sandbox,
+  codebases, and session integrity" #2.
 
 ## Testing note
 
@@ -769,3 +764,19 @@ needs a registered OAuth app this session can't create. The security and API
 findings above came from reading the actual source at the cited paths and
 lines, not from running an automated scanner — every finding names the exact
 file and behavior it's based on so it can be checked independently.
+
+**Same day, the fix pass:** every Go change built (`go build ./...`), vetted
+(`go vet ./...`), and passed the full suite (`go test ./...`), including new
+tests for `sessionIsLive`, the event-type shape check, and three new
+middleware tests for `requireFullAdmin` (rejects a viewer, accepts an admin,
+still rejects a missing cookie). Every TypeScript change passed `tsc
+--noEmit` (both apps, after `next typegen`) and `eslint` clean. Two fixes
+were confirmed live against a real dev server rather than just by reading
+the diff: `CRON_SECRET`/`RESEND_WEBHOOK_SECRET` unset now return `401` on
+`/api/cron/discover` and `/api/webhooks/resend` (previously ran/accepted
+unauthenticated). The admin `viewer`-role fix was verified by unit test
+(Go) and type-check/lint (TypeScript) rather than a live click-through — a
+real `viewer` account needs a live Supabase-backed `admin_users` row this
+environment has no credentials to create; the root admin account this
+environment *can* reach is always full `admin` by design, so it can't
+exercise the refused path.
