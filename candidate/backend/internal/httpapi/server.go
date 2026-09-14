@@ -51,11 +51,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/sessions/{id}/ws", s.requireCandidate(s.handleCandidateWS))
 
 	// Admin Portal API — every route requires the "mf_admin" cookie
-	// internal-admin/frontend issues.
+	// internal-admin/frontend issues. The two mutating routes additionally
+	// require the "admin" role, not just "viewer" — see requireFullAdmin.
 	mux.HandleFunc("GET /api/v1/admin/sessions", s.requireAdmin(s.handleAdminListSessions))
 	mux.HandleFunc("GET /api/v1/admin/sessions/{id}/ws", s.requireAdmin(s.handleAdminWS))
-	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/reset", s.requireAdmin(s.handleAdminReset))
-	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/retrigger-evaluation", s.requireAdmin(s.handleAdminRetrigger))
+	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/reset", s.requireFullAdmin(s.handleAdminReset))
+	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/retrigger-evaluation", s.requireFullAdmin(s.handleAdminRetrigger))
 
 	return s.recoverPanic(s.logging(s.cors(mux)))
 }

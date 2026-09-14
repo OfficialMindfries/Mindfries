@@ -114,3 +114,28 @@ export async function currentAdmin(): Promise<Session | null> {
   const jar = await cookies();
   return readSession(jar.get(SESSION_COOKIE)?.value, sessionSecret());
 }
+
+/**
+ * Thrown by requireAdminRole — a distinct type so a caller that wants to
+ * tell "you're not allowed" apart from any other failure can, without
+ * string-matching an error message.
+ */
+export class ForbiddenError extends Error {}
+
+/**
+ * Every mutating server action calls this first. `role` has existed on the
+ * session cookie since it was introduced — carried, and validated by the Go
+ * backend's own session package — but nothing here ever actually read it:
+ * a "viewer" account could call any of these exactly like a full "admin"
+ * could. This is the one check that makes the role mean something, and it's
+ * deliberately independent of which page the action happened to be invoked
+ * from — a server action is its own HTTP endpoint (its id ships in the
+ * page's JavaScript), so the page-level gate in app/admin/layout.tsx isn't
+ * a substitute for checking here too.
+ */
+export async function requireAdminRole(): Promise<Session> {
+  const session = await currentAdmin();
+  if (!session) throw new ForbiddenError("Not signed in.");
+  if (session.role !== "admin") throw new ForbiddenError("Your account is view-only — ask an admin to make this change.");
+  return session;
+}

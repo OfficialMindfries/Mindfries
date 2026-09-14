@@ -8,6 +8,7 @@ import {
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
 import { targetsStore } from "@/lib/targets-store";
+import { requireAdminRole } from "@/lib/auth/admins";
 import type { EmailTemplate } from "@/lib/email-templates";
 import type { CompanyStatus, LeadStage, MemberRole, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
 
@@ -19,6 +20,7 @@ export async function sendLeadEmail(input: {
   leadId: string; template: EmailTemplate; to: string; subject: string; body: string;
 }): Promise<Result> {
   try {
+    await requireAdminRole();
     if (!input.to.trim()) throw new Error("No recipient email — fill in a contact address first");
     const id = await sendMail({ to: input.to, subject: input.subject, text: input.body, replyTo: NOTIFY_EMAIL });
     await recordEmailEvent({ leadId: input.leadId, type: "sent", template: input.template, resendId: id });
@@ -31,6 +33,7 @@ export async function sendLeadEmail(input: {
 
 export async function changeLeadStage(leadId: string, stage: LeadStage): Promise<Result> {
   try {
+    await requireAdminRole();
     await setLeadStage(leadId, stage);
     // A manual "mark replied" is also a tracked reply event.
     if (stage === "replied") await recordEmailEvent({ leadId, type: "replied" });
@@ -47,6 +50,7 @@ export async function onboardCompany(input: {
   leadId?: string; company: string; adminEmail: string; plan: Plan; monthlyCost: number; targetId?: string;
 }): Promise<Result> {
   try {
+    await requireAdminRole();
     if (!input.company.trim() || !input.adminEmail.trim()) throw new Error("Company and admin email are required");
     const tempPassword = randomBytes(9).toString("base64url"); // ~12 chars, emailed once
     await sendMail({
@@ -99,6 +103,7 @@ export async function createGameTemplate(input: {
   durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
 }): Promise<Result> {
   try {
+    await requireAdminRole();
     if (!input.name.trim()) throw new Error("Game name is required");
     await createTemplate(input);
     revalidatePath("/admin/library");
@@ -110,6 +115,7 @@ export async function createGameTemplate(input: {
 
 export async function toggleTemplateStatus(id: string, status: TemplateStatus): Promise<Result> {
   try {
+    await requireAdminRole();
     await setTemplateStatus(id, status);
     revalidatePath("/admin/library");
     return { ok: true };
@@ -125,6 +131,7 @@ export async function onboardCompanyAccount(input: {
   team: { email: string; role: MemberRole }[]; defaultTemplateIds: string[];
 }): Promise<Result> {
   try {
+    await requireAdminRole();
     if (!input.name.trim()) throw new Error("Company name is required");
     await createCompany(input);
     revalidatePath("/admin/companies");
@@ -136,6 +143,7 @@ export async function onboardCompanyAccount(input: {
 
 export async function setCompanyStatusAction(id: string, status: CompanyStatus): Promise<Result> {
   try {
+    await requireAdminRole();
     await setCompanyStatus(id, status);
     revalidatePath("/admin/companies");
     return { ok: true };
@@ -147,6 +155,7 @@ export async function setCompanyStatusAction(id: string, status: CompanyStatus):
 // Session Monitor support overrides.
 export async function resetSession(id: string): Promise<Result> {
   try {
+    await requireAdminRole();
     await setSessionState(id, { status: "live", sandboxHealth: "healthy", progressPct: 0, elapsedMin: 0 });
     revalidatePath("/admin/sessions");
     return { ok: true };
@@ -157,6 +166,7 @@ export async function resetSession(id: string): Promise<Result> {
 
 export async function retriggerEval(id: string): Promise<Result> {
   try {
+    await requireAdminRole();
     await setSessionState(id, { status: "evaluating" });
     revalidatePath("/admin/sessions");
     return { ok: true };
