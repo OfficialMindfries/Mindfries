@@ -42,9 +42,11 @@ interface IdeShellProps {
    * in which case Submit stays local-only, same as before this was wired.
    */
   sessionId?: string;
+  /** The signed-in candidate's real name from the active session. */
+  candidateName?: string;
 }
 
-export function IdeShell({ sessionId }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -510,6 +512,7 @@ export function IdeShell({ sessionId }: IdeShellProps) {
               tree={tree}
               activePath={activePath}
               theme={theme}
+              candidateName={candidateName}
               onOpenFile={openFile}
               onCreate={createEntry}
               onRename={renameEntry}
