@@ -179,3 +179,26 @@ export async function submitSession(sessionId: string): Promise<{ sessionId: str
 export async function getSessionReport(sessionId: string): Promise<ReportView> {
   return request<ReportView>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/report`);
 }
+
+export interface SessionAssessmentView {
+  taskBrief?: string;
+  starterFiles?: Record<string, string>;
+}
+
+/**
+ * The real task brief + starting files behind a session — what makes the
+ * IDE's task panel and workspace real instead of MOCK_TASK_MARKDOWN and an
+ * empty VFS (see IdeShell.tsx). Fetched once, server-side, when the IDE
+ * page renders — not polled the way session status is, since starterFiles
+ * can be real file content.
+ */
+export async function getSessionAssessmentOrUndefined(sessionId: string): Promise<SessionAssessmentView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return await request<SessionAssessmentView>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assessment`);
+  } catch (err) {
+    if (err instanceof BackendAuthError) return undefined; // no session cookie / not this candidate's — the page itself already redirects for the former
+    console.error("backend: getSessionAssessment failed, falling back to the IDE's own honest defaults:", err);
+    return undefined;
+  }
+}
