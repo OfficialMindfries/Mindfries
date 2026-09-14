@@ -187,6 +187,16 @@ type postEventsRequest struct {
 	} `json:"events"`
 }
 
+// sessionIsLive is the one gate between "still being worked on" and
+// "finished" — everything past `live` (submitted, evaluating, completed,
+// failed) is a session no further candidate action should touch. `stuck` is
+// deliberately excluded: it's an admin support-override target
+// (SessionStatePatch), not a state a candidate action ever produces or
+// should be able to write around.
+func sessionIsLive(status string) bool {
+	return status == "live"
+}
+
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
 // §1.7). candidate/frontend's workspace does not call this yet (see
 // CANDIDATE_BACKEND_PLAN.md) — this is the real endpoint waiting for that
@@ -194,7 +204,12 @@ type postEventsRequest struct {
 func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 	c := candidateFrom(r)
 	sessionID := r.PathValue("id")
-	if _, ok := s.ownsSession(w, r, sessionID, c.ID); !ok {
+	sess, ok := s.ownsSession(w, r, sessionID, c.ID)
+	if !ok {
+		return
+	}
+	if !sessionIsLive(sess.Status) {
+		writeError(w, http.StatusConflict, "this session is no longer active ("+sess.Status+") — new activity can't be recorded")
 		return
 	}
 
@@ -232,7 +247,16 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	c := candidateFrom(r)
 	sessionID := r.PathValue("id")
-	if _, ok := s.ownsSession(w, r, sessionID, c.ID); !ok {
+	sess, ok := s.ownsSession(w, r, sessionID, c.ID)
+	if !ok {
+		return
+	}
+	if !sessionIsLive(sess.Status) {
+		// Already submitted (or further along) — refuse rather than let a
+		// second submit silently re-run evaluation and overwrite whatever
+		// report already came out of the first one. See task.md's "Sandbox,
+		// codebases, and session integrity" for why this mattered.
+		writeError(w, http.StatusConflict, "this session has already been submitted")
 		return
 	}
 

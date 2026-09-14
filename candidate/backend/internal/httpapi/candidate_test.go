@@ -96,3 +96,20 @@ func TestToInvitationViewFormatsDueDate(t *testing.T) {
 		t.Fatalf("Due = %q", got.Due)
 	}
 }
+
+func TestSessionIsLiveOnlyForTheLiveStatus(t *testing.T) {
+	cases := map[string]bool{
+		"live":       true,
+		"submitted":  false,
+		"evaluating": false,
+		"completed":  false,
+		"failed":     false,
+		"stuck":      false, // an admin support-override target, not something a candidate action should write around
+		"":           false,
+	}
+	for status, want := range cases {
+		if got := sessionIsLive(status); got != want {
+			t.Errorf("sessionIsLive(%q) = %v, want %v", status, got, want)
+		}
+	}
+}

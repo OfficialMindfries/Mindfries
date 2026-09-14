@@ -9,6 +9,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -153,8 +154,15 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("orchestrator: loading session to submit: %w", err)
 	}
 
-	submitted := "submitted"
-	if err := o.DB.UpdateSessionState(ctx, sessionID, db.SessionStatePatch{Status: &submitted}); err != nil {
+	// Conditional on the session still being "live" at write time — the
+	// HTTP handler already checked this on read, but only this atomic update
+	// is what actually decides between two concurrent submits (see
+	// db.MarkSubmitted's own comment). Losing this race is the expected,
+	// safe outcome, not an error worth logging as one.
+	if err := o.DB.MarkSubmitted(ctx, sessionID); err != nil {
+		if errors.Is(err, db.ErrAlreadySubmitted) {
+			return nil
+		}
 		return err
 	}
 	if sess.AssessmentID != nil {
