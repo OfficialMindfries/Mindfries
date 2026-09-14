@@ -31,9 +31,13 @@ export async function hashPassword(password: string): Promise<string> {
 
 /**
  * Constant-time check. Returns false for a malformed record rather than
- * throwing, so one bad row can't turn into a 500 on the login page.
+ * throwing, so one bad row can't turn into a 500 on the login page. `stored`
+ * is nullable because an account created purely through OAuth (see
+ * oauth-login.ts) has no password to check against — that's a clean refusal,
+ * not a crash.
  */
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
+  if (stored === null) return false;
   const parts = stored.split("$");
   if (parts.length !== 6 || parts[0] !== "scrypt") return false;
   const [, n, r, p, saltB64, hashB64] = parts;

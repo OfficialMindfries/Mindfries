@@ -14,7 +14,8 @@ export interface CandidateRow {
   id: string;
   email: string;
   name: string;
-  password_hash: string;
+  /** Null for an account created purely through OAuth — see oauth-login.ts. */
+  password_hash: string | null;
   status: "active" | "disabled";
   failed_attempts: number;
   locked_until: string | null;
