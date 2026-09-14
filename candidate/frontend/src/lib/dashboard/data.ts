@@ -67,7 +67,7 @@ export interface Stat {
  */
 export const stats: Stat[] = [
   { kind: "invited", label: "Open invitations", value: 1, hint: "1 closes in 3 days" },
-  { kind: "in-progress", label: "In progress", value: 1, hint: "Resume where you left off" },
+  { kind: "in-progress", label: "In progress", value: 1, hint: "Can't be re-entered once started" },
   { kind: "submitted", label: "Submitted", value: 2, hint: "Both under review" },
   { kind: "practice", label: "Practice runs", value: 4, hint: "Unlimited, never scored" },
 ];
@@ -100,7 +100,7 @@ export function deriveStats(items: Assessment[]): Stat[] {
       kind: "in-progress",
       label: "In progress",
       value: inProgress,
-      hint: inProgress === 0 ? "Nothing in progress" : "Resume where you left off",
+      hint: inProgress === 0 ? "Nothing in progress" : "Can't be re-entered once started",
     },
     {
       kind: "submitted",

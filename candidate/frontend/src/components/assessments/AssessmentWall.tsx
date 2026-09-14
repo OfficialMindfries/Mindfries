@@ -13,13 +13,15 @@ import { TONE } from "@/components/dashboard/noteTones";
 /**
  * The note-wall grid, shared by the dashboard's preview and the full
  * Assessments page — moved out of AssessmentNotes so both render assessments
- * exactly the same way and share one Start/Resume implementation rather than
- * two that could drift apart.
+ * exactly the same way and share one Start implementation rather than two
+ * that could drift apart.
  *
- * Every button still goes somewhere: Start begins the onboarding wizard,
- * Resume is a real link into the workspace, Submitted shows its state rather
- * than a button wired to nothing. See AssessmentNotes for the fuller
- * rationale — it hasn't moved, only the rendering has.
+ * Every button still goes somewhere: Start begins the onboarding wizard;
+ * Submitted shows its state rather than a button wired to nothing.
+ * In-progress has no action at all — deliberately: nothing lets a candidate
+ * re-enter a session once it's underway (see the "in-progress" case below
+ * for why), so there's nothing honest to link it to. See AssessmentNotes for
+ * the fuller rationale — it hasn't moved, only the rendering has.
  */
 export function AssessmentWall({
   items,
@@ -108,18 +110,12 @@ function AssessmentNote({
           </Button>
         )}
 
-        {/* A plain <a>, not a Link: entering the workspace is a full page load
-            on purpose, so the IDE starts from a clean slate. */}
-        {status === "in-progress" && (
-          <a
-            href="/ide"
-            className="btn-wipe inline-flex shrink-0 items-center justify-center gap-1 px-3.5 py-2 text-[12.5px] font-semibold"
-            style={{ "--btn-bg": "#0A1931", "--btn-fg": "#F6FAFD", "--btn-fill": "#4A7FA7", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
-          >
-            Resume
-            <ArrowRight size={13} />
-          </a>
-        )}
+        {/* No "Resume": a session, once underway, can't be re-entered — see
+            candidate.go's handleSubmit/handlePostEvents and task.md's
+            "Sandbox, codebases, and session integrity" for why re-entry is
+            deliberately not offered rather than pointed at a session that
+            (today) has nothing stopping it from being replayed. The status
+            chip above is the only thing shown for this state. */}
 
         {status === "submitted" && (
           <span className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63]")}>
