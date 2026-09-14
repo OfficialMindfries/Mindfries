@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  addOnboarded, addWaitlist, createCompany, createTemplate, recordEmailEvent, setCompanyStatus, setLeadStage,
-  setSessionState, setTemplateStatus,
+  addOnboarded, addWaitlist, createCompany, createInvitation, createTemplate, recordEmailEvent, setCompanyStatus,
+  setLeadStage, setSessionState, setTemplateStatus,
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
 import { targetsStore } from "@/lib/targets-store";
@@ -155,6 +155,28 @@ export async function setCompanyStatusAction(id: string, status: CompanyStatus):
   try {
     await requireAdminRole();
     await setCompanyStatus(id, status);
+    revalidatePath("/admin/companies");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// Invite a candidate: the admin-side half of a real per-candidate
+// invitation (candidate/backend's CreateInvitation is the other half, still
+// unused — see lib/db.ts's createInvitation for why this goes direct to
+// Supabase instead of calling it). Until this action existed, nothing could
+// create one except a direct database write.
+export async function inviteCandidate(input: {
+  companyId: string; templateId: string; candidateEmail: string; candidateName?: string; role?: string; dueDate?: string;
+}): Promise<Result> {
+  try {
+    await requireAdminRole();
+    if (!input.companyId) throw new Error("Pick a company");
+    if (!input.templateId) throw new Error("Pick an assessment");
+    const email = input.candidateEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("That doesn't look like an email address");
+    await createInvitation({ ...input, candidateEmail: email });
     revalidatePath("/admin/companies");
     return { ok: true };
   } catch (e) {

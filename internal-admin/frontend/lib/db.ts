@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import type {
-  Company, CompanyStatus, GameTemplate, Lead, LeadStage, MemberRole, OnboardedCompany, Plan, RubricCriterion,
+  Assessment, Company, CompanyStatus, GameTemplate, Lead, LeadStage, MemberRole, OnboardedCompany, Plan, RubricCriterion,
   Session, SessionStatus, SandboxHealth, TaskVariant, TeamMember, TemplateStatus, WaitlistEntry,
 } from "./types";
 import type { RawLead } from "./icp";
@@ -199,6 +199,53 @@ export async function setCompanyStatus(id: string, status: CompanyStatus): Promi
   if (!c) return;
   const { error } = await c.from("companies").update({ status }).eq("id", id);
   if (error) throw error;
+}
+
+function toAssessment(r: any): Assessment {
+  return {
+    id: r.id,
+    companyId: r.company_id ?? null,
+    templateId: r.template_id ?? null,
+    candidateName: r.candidate_name ?? null,
+    candidateEmail: r.candidate_email,
+    role: r.role ?? null,
+    status: r.status as Assessment["status"],
+    dueDate: r.due_date ?? null,
+    matchScore: r.match_score ?? null,
+    createdAt: r.created_at,
+  };
+}
+
+/**
+ * Invite a candidate: a real row in `assessments`, the same table
+ * candidate/backend's CreateInvitation writes (internal/db/invitations.go)
+ * — this is the direct-Supabase counterpart the Go function's own doc
+ * comment describes as the admin-side half of the same feature, chosen
+ * over adding a new Go admin endpoint to keep this consistent with how
+ * every other admin write here already works (createCompany, createTemplate)
+ * rather than requiring the Go backend to be deployed just to invite
+ * someone. Until this pass, nothing called either one — a candidate's real
+ * invitation could only ever be created by hand-writing SQL.
+ */
+export async function createInvitation(input: {
+  companyId: string; templateId: string; candidateEmail: string; candidateName?: string; role?: string; dueDate?: string;
+}): Promise<Assessment> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("assessments")
+    .insert({
+      company_id: input.companyId,
+      template_id: input.templateId,
+      candidate_email: input.candidateEmail,
+      candidate_name: input.candidateName || null,
+      role: input.role || null,
+      due_date: input.dueDate || null,
+    })
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+  return toAssessment(data);
 }
 
 // The Assessment/Game Library — internal-admin authors, candidate app consumes.
