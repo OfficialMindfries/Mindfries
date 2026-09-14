@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
@@ -187,6 +188,32 @@ type postEventsRequest struct {
 	} `json:"events"`
 }
 
+// Telemetry ingestion limits. None of this existed before: an authenticated
+// candidate session could push an unbounded body, an unbounded number of
+// events per request, and an event_type of any shape at all into
+// activity_events — a storage-exhaustion / memory-pressure vector, not just
+// a hypothetical one, since nothing here is CORS-protected against a
+// non-browser client holding a stolen session cookie. The real client caps
+// itself at 25 events per batch (lib/ide/telemetry.ts's MAX_BATCH) — these
+// are server-side limits with real headroom above that, not a mirror of it,
+// since the server is the actual trust boundary.
+const (
+	maxEventsPerRequest      = 100
+	maxRequestBodyBytes      = 512 * 1024 // 512KB — generous for 100 small JSON events, not for an attempted dump
+	maxEventTypePayloadBytes = 16 * 1024  // per event; activity_events.payload is jsonb, not unbounded text
+)
+
+// eventTypePattern is deliberately a shape check, not the closed enum
+// activity_events' own schema comment documents (navigation|file_edit|git|
+// terminal|test_run|ai_usage) — the real client already sends
+// "workspace_output", outside that list, and more types are a stated,
+// expected follow-up (raw terminal capture, once that's decided). A closed
+// enum here would need updating every time telemetry scope grows and would
+// currently reject real, already-flowing events; a shape check still stops
+// garbage/oversized/control-character event types without needing to know
+// the full list in advance.
+var eventTypePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
 // sessionIsLive is the one gate between "still being worked on" and
 // "finished" — everything past `live` (submitted, evaluating, completed,
 // failed) is a session no further candidate action should touch. `stuck` is
@@ -198,9 +225,9 @@ func sessionIsLive(status string) bool {
 }
 
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
-// §1.7). candidate/frontend's workspace does not call this yet (see
-// CANDIDATE_BACKEND_PLAN.md) — this is the real endpoint waiting for that
-// wiring, not a placeholder that only looks real.
+// §1.7), real and in real use — candidate/frontend's workspace batches
+// git/npm/pip activity, preview rebuilds, and file saves here via
+// lib/ide/telemetry.ts, through the same-origin /api/telemetry relay.
 func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 	c := candidateFrom(r)
 	sessionID := r.PathValue("id")
@@ -213,8 +240,15 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	var body postEventsRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "malformed request body")
 		return
 	}
@@ -222,11 +256,19 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "events must be a non-empty array")
 		return
 	}
+	if len(body.Events) > maxEventsPerRequest {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("too many events in one request (max %d)", maxEventsPerRequest))
+		return
+	}
 
 	events := make([]db.NewActivityEvent, 0, len(body.Events))
 	for _, e := range body.Events {
-		if e.Type == "" {
-			writeError(w, http.StatusBadRequest, "every event needs a type")
+		if e.Type == "" || !eventTypePattern.MatchString(e.Type) {
+			writeError(w, http.StatusBadRequest, "event type must be lowercase letters, digits and underscores, starting with a letter, 64 characters or fewer")
+			return
+		}
+		if len(e.Payload) > maxEventTypePayloadBytes {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("event payload too large for type %q (max %d bytes)", e.Type, maxEventTypePayloadBytes))
 			return
 		}
 		events = append(events, db.NewActivityEvent{EventType: e.Type, Payload: e.Payload})

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { BackendAuthError, BackendError, postSessionEvents } from "@/lib/backend/client";
 
+// The real client (lib/ide/telemetry.ts) never sends more than this in one
+// batch. Matches the Go backend's own maxEventsPerRequest — this check is
+// just a cheap, fast rejection for an obviously malformed request before it
+// makes a backend round-trip; the authoritative limit (and the only one that
+// also bounds request-body bytes) lives server-side in candidate/backend,
+// since this relay is deliberately not a second trust boundary — see below.
+const MAX_EVENTS_PER_REQUEST = 100;
+
 /**
  * Same-origin bridge between the browser (which can't call candidate/backend
  * directly and keep the httpOnly "mf_candidate" cookie — it's scoped to
@@ -21,6 +29,9 @@ export async function POST(request: Request) {
   const { sessionId, events } = body;
   if (!sessionId || !Array.isArray(events) || events.length === 0) {
     return NextResponse.json({ error: "sessionId and a non-empty events array are required" }, { status: 400 });
+  }
+  if (events.length > MAX_EVENTS_PER_REQUEST) {
+    return NextResponse.json({ error: `too many events in one request (max ${MAX_EVENTS_PER_REQUEST})` }, { status: 400 });
   }
 
   try {
