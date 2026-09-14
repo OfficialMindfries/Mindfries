@@ -65,6 +65,15 @@ integrity was never a named MVP line item), but several of these are more
 serious than anything previously in "Gaps worth naming," and are added
 there now.
 
+**Same day, a follow-up:** given the choice between fixing the "Resume"
+button's missing session id and removing the option entirely, the answer
+was to remove it — a candidate shouldn't be able to re-enter an in-progress
+assessment from the dashboard at all. `AssessmentWall.tsx` now renders no
+action for that state. This closes the UI path into the finding above, not
+the finding itself — `handleSubmit`/`handlePostEvents` still don't check
+session status, so a candidate who still has the `/ide?session=<id>` URL can
+re-enter directly. That part is still open as this file's #1 priority below.
+
 ---
 
 ## Score against the MVP scope, item by item
@@ -227,16 +236,21 @@ not on anything.** Concretely, all verified against the current code:
   Submit again — wiping and regenerating the evidence report on demand,
   as many times as they like, with no record that this happened.
 
-**3. A real, live bug makes this worse in the most common case.** The
+**3. Fixed this pass — the direct way, not the patched way.** The
 dashboard's "Resume" button for an in-progress assessment
-(`AssessmentWall.tsx`) links to a bare `href="/ide"` — **no `?session=`**.
-Resuming an assessment therefore silently detaches the workspace from its
-session entirely: `IdeShell.tsx`'s telemetry and Submit-wiring both
-early-return without a `sessionId`, so a candidate who reloads their
-dashboard mid-assessment and clicks *Resume* lands in a workspace that can
-no longer send telemetry or actually submit — it degrades to a local-only
-confirmation screen. This is not a disclosed scope cut anywhere in this
-file; it's a genuine defect, found this pass.
+(`AssessmentWall.tsx`) linked to a bare `href="/ide"` — no `?session=` — so
+resuming silently detached the workspace from its session entirely
+(`IdeShell.tsx`'s telemetry and Submit-wiring both early-return without a
+`sessionId`). The product decision, once this was found: an in-progress
+assessment shouldn't be re-enterable at all, so rather than giving the
+button its missing session id back, **the button is gone** —
+`AssessmentWall.tsx` now renders no action for `in-progress`, the same as
+`closed` already had none. **This does not close the underlying gap above**
+— the backend still doesn't refuse a submit or telemetry event once a
+session has moved past `live`, so a candidate who still has the
+`/ide?session=<id>` URL (browser history, a bookmark) can still re-enter
+directly. Removing the dashboard's own link to it closes the normal,
+UI-driven path; #1 and #2 above are what actually closes the door.
 
 **4. Even a configured sandbox would leak.** Separately from all of the
 above (see Platform #1, updated): the Daytona provisioning call in
@@ -403,7 +417,7 @@ pass's judgment, not a formal scoring system.
 | ID | Severity | Finding |
 |---|---|---|
 | — | **high** | **No session invalidation, ever** — detailed above in "Sandbox, codebases, and session integrity." Re-submitting resets an already-generated report; post-submit telemetry is still accepted. |
-| — | **high** | **The "Resume" button drops `?session=`** — detailed above. A silent, undisclosed, real bug. |
+| — | ~~high~~ **fixed** | ~~The "Resume" button drops `?session=`~~ — fixed this pass by removing the button entirely rather than repairing its link; see "Sandbox, codebases, and session integrity" #3. |
 | B1 | **high** | **The admin `viewer` role is carried in the session cookie and validated by the Go backend, but never enforced anywhere in internal-admin.** A repo-wide check for anywhere the frontend reads `role` found only the two type declarations — no server action, no page, checks it. A `viewer` account today can create/delete companies, publish templates, reset sessions, or send lead email exactly like an `admin` account. Real and exploitable the moment a second admin account with the `viewer` role exists — currently moot only because every admin account created so far has presumably been full `admin`. |
 | C1 | **high** | **`CRON_SECRET` default-allows when unset.** `app/api/cron/discover/route.ts`'s check is `if (secret && header !== …)` — with the env var unset (its current state, per `.env.example`), the condition is simply false and the route runs for anyone. This is a **deployed, unauthenticated** endpoint (wired into `vercel.json`'s daily cron) that triggers a full lead crawl and writes to the database on any GET request from anyone who finds the URL. |
 | F1 | **high** | **No payload size or event-count limit on telemetry ingestion**, on either the Next.js relay or the Go handler. The real client caps itself at 25 events per batch, but that's a courtesy an attacker ignores — an authenticated candidate session can push unbounded data into `activity_events` and into the Go process's request-handling memory. A storage-exhaustion / memory-pressure vector against a shared database, from a signed-in candidate account. |
@@ -424,8 +438,9 @@ pass's judgment, not a formal scoring system.
 
 It genuinely softens C2, C4, D4, and the reputational cost of the fake task
 brief — low-stakes while nobody real is using this. **It does not excuse**
-the two unlabeled high findings (no session invalidation, the Resume bug),
-B1, or C1/F1 — those become exploitable on literally the first day a real
+the remaining unlabeled high finding (no session invalidation — the Resume
+button that used to compound it is fixed, see above), B1, or C1/F1 — those
+become exploitable on literally the first day a real
 candidate or a second admin account exists, which is not a hypothetical
 future state, it's the very next step after this file's own "Next" list.
 
@@ -563,19 +578,17 @@ what carried this heading last time is fixed; what's left is more precise.
    accurate for what they claim (the mechanism is real), but neither claim
    ever said "and it can't be replayed," which is the part that was untrue
    by omission.
-9. **The dashboard's "Resume" button silently breaks the session it's
-   resuming.** `AssessmentWall.tsx` links to bare `/ide`, no `?session=` —
-   also detailed above. A candidate doing exactly what the UI tells them to
-   do (reload, then Resume) lands in a workspace that can no longer submit
-   or send telemetry, with no error shown anywhere.
-10. **The admin `viewer` role is real data with no real effect.** It's
-    generated, stored, put in the session cookie, and validated by the Go
-    backend — every piece of plumbing for a permission system exists except
-    the one check that would make it a permission system. See "Security and
-    guardrails" finding B1.
+9. **The admin `viewer` role is real data with no real effect.** It's
+   generated, stored, put in the session cookie, and validated by the Go
+   backend — every piece of plumbing for a permission system exists except
+   the one check that would make it a permission system. See "Security and
+   guardrails" finding B1.
 
 Resolved since the last version of this file (kept here briefly so the
-history is legible, not because they're still open): the dashboard's
+history is legible, not because they're still open): the dashboard's Resume
+button silently breaking the session it resumed — fixed by removing Resume
+entirely, a product decision rather than a link fix, see "Sandbox,
+codebases, and session integrity" #3; the dashboard's
 StatNotes/AssessmentNotes self-contradiction; the sample-name dashboard
 greeting; the missing report-viewing surface; `assessments` never being
 read or written; `companies`/`onboarded_companies` being unlinked;
@@ -624,70 +637,70 @@ Overview's unconditional mock import; Companies writing to nowhere.
 
 ## Next, in the order I'd do it
 
-Re-ordered this pass: five items moved to the front because they're cheap
-*and* now the most severe things in this file — none of them were here
-before because none of them were known before.
+Re-ordered last pass: four items moved to the front because they're cheap
+*and* were the most severe things in this file — none of them were here
+before because none of them were known before. One of the five that
+originally led this list — fixing the "Resume" button — is done; see
+"Sandbox, codebases, and session integrity" #3.
 
 1. **Stop a submitted session from being re-entered and re-submitted**
-   (gap #8) — the most important fix in this file. At minimum: `handleSubmit`
-   and `handlePostEvents` should refuse once a session's status has moved
-   past `live`, and `CreatePendingReport`'s upsert shouldn't silently
-   overwrite a completed report. Everything else in "Sandbox, codebases, and
-   session integrity" compounds this one.
-2. **Fix the "Resume" button** (gap #9) — `AssessmentWall.tsx`'s bare `/ide`
-   link needs its session id back. One line, once someone's looking at it;
-   currently silent and undisclosed.
-3. **Enforce the admin `viewer` role, or remove it** — either add the one
+   (gap #8) — the most important fix in this file, and now the only part of
+   the session-integrity problem still open (removing the Resume button
+   closed the UI path into it, not the underlying gap). At minimum:
+   `handleSubmit` and `handlePostEvents` should refuse once a session's
+   status has moved past `live`, and `CreatePendingReport`'s upsert
+   shouldn't silently overwrite a completed report.
+2. **Enforce the admin `viewer` role, or remove it** — either add the one
    check that's missing everywhere `role` is currently just carried and
    validated but never read, or stop implying a permission system exists.
    Same fix should extend to the Go backend's own admin endpoints (B3).
-4. **Make `CRON_SECRET` and `RESEND_WEBHOOK_SECRET` fail closed when
+3. **Make `CRON_SECRET` and `RESEND_WEBHOOK_SECRET` fail closed when
    unset**, not open — both currently default-allow (`if (secret && …)`);
    should be "no secret configured → refuse," not "no secret configured →
    let anyone through." `/api/cron/discover` is the more urgent of the two:
    it's deployed and unauthenticated right now.
-5. **Add a payload/event-count limit to telemetry ingestion** on both the
+4. **Add a payload/event-count limit to telemetry ingestion** on both the
    Next.js relay and the Go handler, and constrain `event_type` to the
    values the schema comment already documents — cheap, and directly ahead
-   of item 10 below.
-6. **Fix `onboardCompany`** (gap #2) — wrap its `sendMail` in the same
+   of item 9 below.
+5. **Fix `onboardCompany`** (gap #2) — wrap its `sendMail` in the same
    best-effort `try/catch` `joinWaitlist` already uses so a missing Resend
    key doesn't block creating the company record, and drop (or rewrite) the
    "sign in at app.mindfries.com" line until a company login actually
    exists.
-7. **Company Portal, from zero** (§1.4) — still unambiguously the largest
+6. **Company Portal, from zero** (§1.4) — still unambiguously the largest
    *structural* hole in the MVP scope, and the backend-side prerequisite it
    used to wait on (`assessments` being real) is done. When it's built, give
    it real per-company scoping from day one rather than reusing the
    unscoped Go admin endpoints as-is (security finding G1).
-8. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
+7. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
    and the candidate-side consumption of one are both real; only the
-   authoring surface is missing. Small relative to #7, and unblocks testing
+   authoring surface is missing. Small relative to #6, and unblocks testing
    the whole invitation flow without a direct database write.
-9. **Give the IDE a real per-candidate codebase.** Needs `repo_template` (or
+8. **Give the IDE a real per-candidate codebase.** Needs `repo_template` (or
    its replacement) to actually resolve into starting files the IDE seeds
    from, instead of the empty `initialTree`/`initialFiles` every candidate
    gets today — see "Sandbox, codebases, and session integrity." This and
-   #10 are naturally one piece of work with the same root cause: the IDE has
+   #9 are naturally one piece of work with the same root cause: the IDE has
    never been wired to which assessment is actually running.
-10. **Real task-brief content** (gap #1) — needs a schema field
-    (`game_templates` has no task-description column today) and an authoring
-    UI in the Library page before the IDE side is worth touching.
-11. **Get real keys for OpenRouter and Daytona** — for OpenRouter, do items
-    5 and F2/F3's validation *first*, or a real key turns the telemetry gap
+9. **Real task-brief content** (gap #1) — needs a schema field
+   (`game_templates` has no task-description column today) and an authoring
+   UI in the Library page before the IDE side is worth touching.
+10. **Get real keys for OpenRouter and Daytona** — for OpenRouter, do item
+    4 and F2/F3's validation *first*, or a real key turns the telemetry gap
     above into live prompt injection against the evidence report on day one.
     For Daytona, fix the discarded-sandbox-ID / uncalled-`DeleteSandbox`
     problem before the key goes in, or a real key starts leaking real,
     billable, unaddressable sandboxes immediately.
-12. **Decide Gemini Live's timeline** — the one MVP item with no partial
+11. **Decide Gemini Live's timeline** — the one MVP item with no partial
     progress possible without committing to building the real-time bridge.
-13. **Raw terminal telemetry, if the decision above lands on "yes"** — the
+12. **Raw terminal telemetry, if the decision above lands on "yes"** — the
     remaining, harder half of Platform #2.
-14. **Wire the WebSocket hub to something** — live status/terminal streaming
+13. **Wire the WebSocket hub to something** — live status/terminal streaming
     exists server-side with zero consumers; the report page's polling and
     telemetry's REST batching both work without it today, so this is real
     but not urgent.
-15. **Consolidate the duplicate admin support-override implementations**
+14. **Consolidate the duplicate admin support-override implementations**
     (gap #4).
 
 ## Known limitations, accepted for now
