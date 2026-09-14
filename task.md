@@ -93,6 +93,22 @@ originally described — search this file for "fixed this pass." What's
 codebase exists yet, and the self-serve open pool still has no limit on how
 many separate sessions one candidate can start from the same template.
 
+**Next pass, by request — everything except the Company Portal.** Three
+more items from "Next, in the order I'd do it" closed: the Daytona
+sandbox-ID-discard fix (`sessions.sandbox_id`, a new `teardownSandbox`
+called from `Submit` and the admin reset endpoint — a real
+`DAYTONA_API_KEY` is now safe to add on that specific front); internal-admin's
+session reset/retrigger now *prefer* the real Go Admin API over a
+direct-Supabase write via a new `lib/backend/client.ts` (the old path stays
+as an honest fallback until `ADMIN_BACKEND_URL` is actually set somewhere —
+worth knowing that fallback's "retrigger" still only flips a status flag,
+it doesn't call an evaluation agent); and internal-admin's Companies page
+now has a real "Invite a candidate" action, closing the last piece of the
+invitation flow that needed a direct database write. **Company Portal was
+deliberately not touched this pass** — still open, still this list's
+largest remaining item, held back on request rather than for lack of
+importance.
+
 ---
 
 ## Score against the MVP scope, item by item
@@ -106,15 +122,15 @@ many separate sessions one candidate can start from the same template.
 | 1 | Sign up | ❌ No Company Portal exists at all — no route, no page, nothing. There *is* a real public `/waitlist` page (internal-admin) that writes a row and best-effort-emails the team — but that's pre-launch lead capture feeding the sales Tracker, not a company creating an account, so it doesn't count toward this item |
 | 2 | Create a role | ❌ |
 | 3 | Select or configure an assessment | ❌ Internal-admin authors templates; nothing lets a *company* pick one |
-| 4 | Invite a candidate | 🟡 The `assessments` table this needs is now genuinely wired end to end — a real invitation is visible on the candidate side, starts a real session, and moves through its lifecycle (see "The backend, concretely"). What's still missing is *anything that creates one*: no Company Portal, and no internal-admin UI either — `CreateInvitation` exists in `candidate/backend/internal/db` and is called by nothing |
+| 4 | Invite a candidate | 🟡 **A company still can't do this — there's no Company Portal for them to do it from — but Mindfries ops now can, on a company's behalf.** The `assessments` table is wired end to end (a real invitation is visible on the candidate side, starts a real session, moves through its lifecycle — see "The backend, concretely"), and as of this pass a real "Invite a candidate" action exists on internal-admin's Companies page (`CompaniesView.tsx` → `inviteCandidate` → `lib/db.ts`'s `createInvitation`) — no more direct database write needed. Still not the MVP item as written, which is a *company* doing this themselves |
 | 5 | See assessment status | ❌ |
 | 6 | Review an evidence-based report | ❌ A report can now be generated and viewed on the *candidate* side (see Candidate #9) — nothing on a company-facing surface exists to review one, because no company-facing surface exists |
 
 **Still the single largest hole in the MVP.** Every other portal has
 meaningful coverage now; the Company Portal has none. A company today has no
-way to do anything the product exists for except author templates from the
-*internal* admin side, or have Mindfries ops create an invitation on their
-behalf via a direct database write (there is no admin UI for even that yet).
+way to do anything the product exists for except author templates — or now,
+invite a candidate — from the *internal* admin side; nothing here lets a
+company act on its own behalf.
 
 ### Candidate (§2.1) — 9 items: 2 fully done, 5 partial, 2 not started
 
@@ -274,17 +290,24 @@ longer a partial fix — the UI path is gone *and* the backend now refuses a
 replayed submit/telemetry event even for someone who still has the
 `/ide?session=<id>` URL directly (browser history, a bookmark).
 
-**4. Even a configured sandbox would leak.** Separately from all of the
-above (see Platform #1, updated): the Daytona provisioning call in
-`orchestrator.go` passes empty `CreateOptions{}` (no repo, no image, no env)
-and **discards the sandbox ID it gets back** — there's no column to store it
-in and `DeleteSandbox` has zero callers anywhere in the codebase. Configuring
-a real `DAYTONA_API_KEY` today would start creating real, billable,
-permanently unaddressable sandboxes, on top of everything above.
+**4. Fixed since found.** A configured sandbox used to leak: the Daytona
+provisioning call in `orchestrator.go` passed empty `CreateOptions{}` (still
+does — no repo, no image, no env, unrelated to this fix) and discarded the
+sandbox ID it got back, with no column to store it in and `DeleteSandbox`
+never called anywhere. A real `DAYTONA_API_KEY` would have started creating
+real, billable, permanently unaddressable sandboxes. `sessions.sandbox_id`
+(`0009_session_sandbox_id.sql`) now holds the ID; a new `teardownSandbox`
+deletes it and clears the column, called from `Submit` (a session ending
+normally) and the admin reset endpoint (a forced reset). One real caveat:
+internal-admin's own reset button now *prefers* that Go endpoint (see below)
+but still falls back to a direct Supabase write when `ADMIN_BACKEND_URL`
+isn't set — which is every deployed environment today — so this cleanup
+only actually fires via a direct call to the Go backend until that's
+configured.
 
-None of what's still open here (#1 and #4, plus the open-pool attempt limit
-noted under #2) is softened by "no production data yet" the way some other
-gaps in this file are — these are missing checks, not scope cuts, and they
+None of what's still open here (#1, plus the open-pool attempt limit noted
+under #2) is softened by "no production data yet" the way some other gaps
+in this file are — these are missing checks, not scope cuts, and they
 become live the moment a real candidate uses this for a real assessment.
 
 ---
@@ -538,9 +561,18 @@ what carried this heading last time is fixed; what's left is more precise.
    activity, preview rebuilds, and file saves are real; raw terminal command
    lines are not captured (see Platform #2 for why, and the deliberate scope
    line in `lib/ide/telemetry.ts`).
-3. **Two implementations of admin support-overrides still exist** — unchanged
-   from last time. Not a correctness bug, a maintenance one if they're ever
-   edited separately.
+3. **Two implementations of admin support-overrides — improved, not fully
+   resolved.** internal-admin's `resetSession`/`retriggerEval` now prefer
+   the real Go Admin API (`lib/backend/client.ts`, new this pass) when
+   `ADMIN_BACKEND_URL` is set, closing the drift risk this item originally
+   named — there's one real implementation now, not two maintained
+   independently. But the direct-Supabase path is still there as a
+   fallback, since the Go backend isn't deployed anywhere yet and deleting
+   it outright would break a currently-working feature — and that fallback
+   is honestly worse than a duplicate: its "retrigger" only flips a status
+   flag, it doesn't call an evaluation agent the way the real path does.
+   Fully resolved once `ADMIN_BACKEND_URL` is set somewhere and the
+   fallback gets deleted.
 4. **Most tables that matter are still empty in production.** Checked while
    writing this: `game_templates`, `sessions`, `candidate_users`,
    `assessments`, `activity_events`, `assessment_reports` are all at (or
@@ -640,7 +672,12 @@ telemetry's missing limits, and `onboardCompany`'s live bug (six, not five;
 see below) — are done. Rather than delete the record of what they were,
 they're kept struck through here for the same reason the security findings
 table keeps its fixed rows: so "what was wrong and what closed it" stays in
-one place. The list resumes at what's still actually next.
+one place. Three more are done as of the very next pass after that: the
+Daytona sandbox-ID-discard fix (folded into #11 below), the admin
+support-override consolidation (#15, mostly), and the invitation UI (#8).
+**Company Portal (#7) was explicitly held back this pass, by request** —
+not skipped for lack of importance, and still the largest single item on
+this list. The list resumes below at what's still actually open.
 
 1. ~~Stop a submitted session from being re-entered and re-submitted~~ —
    **fixed.** `handleSubmit`/`handlePostEvents` refuse once a session's
@@ -660,15 +697,17 @@ one place. The list resumes at what's still actually next.
 6. ~~Fix `onboardCompany`~~ — **fixed.** Best-effort email, matching
    `joinWaitlist`'s pattern; no longer claims a company login that doesn't
    exist.
-7. **Company Portal, from zero** (§1.4) — still unambiguously the largest
-   *structural* hole in the MVP scope, and the backend-side prerequisite it
-   used to wait on (`assessments` being real) is done. When it's built, give
-   it real per-company scoping from day one rather than reusing the
-   unscoped Go admin endpoints as-is (security finding G1).
-8. **An admin UI for creating an invitation** — the backend (`CreateInvitation`)
-   and the candidate-side consumption of one are both real; only the
-   authoring surface is missing. Small relative to #7, and unblocks testing
-   the whole invitation flow without a direct database write.
+7. **Company Portal, from zero** (§1.4) — deliberately not picked up this
+   pass (see the note at the top of this section). Still unambiguously the
+   largest *structural* hole in the MVP scope, and the backend-side
+   prerequisite it used to wait on (`assessments` being real) is done. When
+   it's built, give it real per-company scoping from day one rather than
+   reusing the unscoped Go admin endpoints as-is (security finding G1).
+8. ~~An admin UI for creating an invitation~~ — **fixed.** internal-admin's
+   Companies page now has a real "Invite" action per company, writing
+   directly to `assessments`. Not the same thing as the Company Portal item
+   above — this is ops inviting on a company's behalf, not a company doing
+   it themselves.
 9. **Give the IDE a real per-candidate codebase.** Needs `repo_template` (or
    its replacement) to actually resolve into starting files the IDE seeds
    from, instead of the empty `initialTree`/`initialFiles` every candidate
@@ -678,13 +717,13 @@ one place. The list resumes at what's still actually next.
 10. **Real task-brief content** (gap #1) — needs a schema field
     (`game_templates` has no task-description column today) and an authoring
     UI in the Library page before the IDE side is worth touching.
-11. **Get real keys for OpenRouter and Daytona** — for OpenRouter, still do
+11. **Get real keys for OpenRouter and Daytona.** For OpenRouter, still do
     F2/F3's remaining half first (payload *content* isn't sanitized before
     it reaches the LLM prompt, even though `event_type` now is) — a real key
     turns that into live prompt injection against the evidence report on day
-    one. For Daytona, fix the discarded-sandbox-ID / uncalled-`DeleteSandbox`
-    problem before the key goes in, or a real key starts leaking real,
-    billable, unaddressable sandboxes immediately.
+    one. For Daytona: ~~fix the discarded-sandbox-ID / uncalled-`DeleteSandbox`
+    problem~~ — **fixed** (`sessions.sandbox_id`, `teardownSandbox`) — a real
+    key is safe to add now on that front specifically.
 12. **Decide Gemini Live's timeline** — the one MVP item with no partial
     progress possible without committing to building the real-time bridge.
 13. **Raw terminal telemetry, if the decision above lands on "yes"** — the
@@ -693,8 +732,11 @@ one place. The list resumes at what's still actually next.
     exists server-side with zero consumers; the report page's polling and
     telemetry's REST batching both work without it today, so this is real
     but not urgent.
-15. **Consolidate the duplicate admin support-override implementations**
-    (gap #3).
+15. ~~Consolidate the duplicate admin support-override implementations~~
+    (gap #3) — **improved, not fully done.** internal-admin now prefers the
+    real Go Admin API; a direct-Supabase fallback remains until
+    `ADMIN_BACKEND_URL` is actually set somewhere. Deleting that fallback is
+    what finishes this one.
 
 ## Known limitations, accepted for now
 
