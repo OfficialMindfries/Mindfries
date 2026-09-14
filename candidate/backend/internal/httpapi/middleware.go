@@ -92,7 +92,11 @@ func (s *Server) requireCandidate(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// requireAdmin is the same rule for internal-admin's "mf_admin" cookie.
+// requireAdmin is the same rule for internal-admin's "mf_admin" cookie. Any
+// signed-in admin session — "admin" or "viewer" — passes this; it's the
+// authentication gate, not the authorization one. Read-only admin routes
+// (list sessions, watch the WS feed) stop here deliberately: a viewer is
+// supposed to be able to see everything, just not change anything.
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.AdminSessionSecret == "" {
@@ -111,4 +115,19 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next.ServeHTTP(w, withAdmin(r, claims))
 	}
+}
+
+// requireFullAdmin is requireAdmin plus the one check that used to be
+// missing entirely: every support-override endpoint (reset a session,
+// re-trigger evaluation) mutates state and should never have been reachable
+// by a "viewer" cookie just because it happened to verify. Composed on top
+// of requireAdmin rather than duplicating the cookie check.
+func (s *Server) requireFullAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		if adminFrom(r).Role != "admin" {
+			writeError(w, http.StatusForbidden, "your account is view-only — ask an admin to do this")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

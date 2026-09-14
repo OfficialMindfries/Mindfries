@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mindfries/candidate-backend/internal/db"
@@ -94,5 +95,41 @@ func TestToInvitationViewFormatsDueDate(t *testing.T) {
 	got := toInvitationView(db.Invitation{ID: "a4", TemplateName: "X", Status: "invited", DueDate: &due})
 	if got.Due != "Due 2026-09-30" {
 		t.Fatalf("Due = %q", got.Due)
+	}
+}
+
+func TestEventTypePatternAcceptsRealEventTypesAndRejectsGarbage(t *testing.T) {
+	valid := []string{"workspace_output", "file_edit", "navigation", "git", "terminal", "test_run", "ai_usage", "a"}
+	for _, s := range valid {
+		if !eventTypePattern.MatchString(s) {
+			t.Errorf("eventTypePattern rejected real event type %q", s)
+		}
+	}
+	invalid := []string{
+		"", "Workspace_Output", "1_starts_with_digit", "has space", "has-dash",
+		"has.dot", "has/slash", "sql'; drop table activity_events; --",
+		"a" + strings.Repeat("b", 64), // 65 chars, otherwise valid charset — length is the point
+	}
+	for _, s := range invalid {
+		if eventTypePattern.MatchString(s) {
+			t.Errorf("eventTypePattern accepted invalid event type %q", s)
+		}
+	}
+}
+
+func TestSessionIsLiveOnlyForTheLiveStatus(t *testing.T) {
+	cases := map[string]bool{
+		"live":       true,
+		"submitted":  false,
+		"evaluating": false,
+		"completed":  false,
+		"failed":     false,
+		"stuck":      false, // an admin support-override target, not something a candidate action should write around
+		"":           false,
+	}
+	for status, want := range cases {
+		if got := sessionIsLive(status); got != want {
+			t.Errorf("sessionIsLive(%q) = %v, want %v", status, got, want)
+		}
 	}
 }

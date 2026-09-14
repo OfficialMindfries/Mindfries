@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { listLeads, listOnboarded } from "@/lib/db";
 import { targetsStore, type TargetPatch } from "@/lib/targets-store";
 import { applyTouch, findDuplicate, touchSummary, type KnownCompany } from "@/lib/targets-rules";
+import { requireAdminRole } from "@/lib/auth/admins";
 import type {
   ContactPersona, ContactWarmth, TargetPriority, TargetSource, TargetStage, TouchChannel,
   TouchDirection, TouchOutcome,
@@ -116,6 +117,7 @@ export async function createTarget(input: {
   whyTarget?: unknown; contact?: ContactInput | null;
 }): Promise<Ok<{ id: string; linkedLead: string | null }> | Fail> {
   try {
+    await requireAdminRole();
     const name = text(input.name, 160);
     if (!name) throw new Error("Company name is required");
     const website = optUrl(input.website);
@@ -158,6 +160,7 @@ export async function createTarget(input: {
 /** The Tracker's "→ Target": turns a crawled lead into a hand-worked target, or opens the one it already became. */
 export async function promoteLead(leadId: string): Promise<Ok<{ id: string }> | Fail> {
   try {
+    await requireAdminRole();
     const store = targetsStore();
     const existing = (await store.listTargets()).find((t) => t.leadId === leadId);
     if (existing) return { ok: true, id: existing.id };
@@ -203,6 +206,7 @@ export async function updateTarget(
   },
 ): Promise<Ok | Fail> {
   try {
+    await requireAdminRole();
     const patch: TargetPatch = {};
     if (input.name !== undefined) {
       const name = text(input.name, 160);
@@ -237,6 +241,7 @@ export async function updateTarget(
 
 export async function deleteTarget(id: string): Promise<Ok | Fail> {
   try {
+    await requireAdminRole();
     await targetsStore().deleteTarget(id);
     refresh();
     revalidatePath("/admin/tracker");
@@ -248,6 +253,7 @@ export async function deleteTarget(id: string): Promise<Ok | Fail> {
 
 export async function addContact(targetId: string, input: ContactInput): Promise<Ok | Fail> {
   try {
+    await requireAdminRole();
     const store = targetsStore();
     if (!(await store.getTarget(targetId))) throw new Error("Target not found");
     await store.insertContact({ targetId, ...cleanContact(input) });
@@ -260,6 +266,7 @@ export async function addContact(targetId: string, input: ContactInput): Promise
 
 export async function setDoNotContact(targetId: string, contactId: string, value: boolean): Promise<Ok | Fail> {
   try {
+    await requireAdminRole();
     const contact = (await targetsStore().listContacts(targetId)).find((c) => c.id === contactId);
     if (!contact) throw new Error("Person not found");
     await targetsStore().updateContact(contactId, { doNotContact: !!value });
@@ -285,6 +292,7 @@ export async function logTouch(
   },
 ): Promise<Ok | Fail> {
   try {
+    await requireAdminRole();
     const store = targetsStore();
     const target = await store.getTarget(targetId);
     if (!target) throw new Error("Target not found");
@@ -343,6 +351,7 @@ export async function bulkUpdateTargets(
   input: { stage?: unknown; owner?: unknown },
 ): Promise<Ok<{ updated: number }> | Fail> {
   try {
+    await requireAdminRole();
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500) throw new Error("Select some targets first");
     const patch: TargetPatch = {};
     if (input.stage !== undefined) patch.stage = oneOf(input.stage, STAGES, "stage");
@@ -362,6 +371,7 @@ export async function bulkUpdateTargets(
 
 export async function bulkDeleteTargets(ids: unknown): Promise<Ok<{ deleted: number }> | Fail> {
   try {
+    await requireAdminRole();
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500) throw new Error("Select some targets first");
     const store = targetsStore();
     const known = new Set((await store.listTargets()).map((t) => t.id));

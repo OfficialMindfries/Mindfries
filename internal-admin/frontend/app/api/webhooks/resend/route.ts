@@ -1,11 +1,18 @@
 import { leadIdForResendId, recordEmailEvent } from "@/lib/db";
+import { safeEqual } from "@/lib/auth/scrypt";
 
 export const dynamic = "force-dynamic";
 
 // Resend engagement webhook (delivered / opened / clicked / bounced). Point
 // Resend at /api/webhooks/resend?token=$RESEND_WEBHOOK_SECRET.
-// ponytail: shared-secret query gate. Upgrade to Svix signature verification
-// (svix headers on the request) if the endpoint ever gets abused.
+// A poor man's shared-secret query gate — real, but worth upgrading to Svix
+// signature verification (svix headers on the request) if this ever needs
+// to be more than that.
+//
+// Fails closed: an unset RESEND_WEBHOOK_SECRET used to mean "skip the
+// check" (the guard was `if (secret && ...)`), so anyone could POST forged
+// delivered/opened/clicked/bounced events and poison lead-engagement data.
+// "Not configured" now means "refuse," matching the cron route's fix.
 const MAP: Record<string, "delivered" | "opened" | "clicked" | "bounced"> = {
   "email.delivered": "delivered",
   "email.opened": "opened",
@@ -17,7 +24,8 @@ const MAP: Record<string, "delivered" | "opened" | "clicked" | "bounced"> = {
 export async function POST(request: Request) {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   const url = new URL(request.url);
-  if (secret && url.searchParams.get("token") !== secret) {
+  const token = url.searchParams.get("token") ?? "";
+  if (!secret || !safeEqual(token, secret)) {
     return new Response("Unauthorized", { status: 401 });
   }
   try {

@@ -81,6 +81,55 @@ func TestRequireCandidateRejectsAnAdminToken(t *testing.T) {
 	}
 }
 
+func TestRequireFullAdminRejectsAViewer(t *testing.T) {
+	s := newTestServer("", testSecret)
+	token, err := session.SignAdmin(session.AdminClaims{Email: "v@mindfries.com", Name: "V", Role: "viewer", Exp: time.Now().Add(time.Hour).Unix()}, testSecret)
+	if err != nil {
+		t.Fatalf("SignAdmin: %v", err)
+	}
+
+	h := s.requireFullAdmin(func(w http.ResponseWriter, r *http.Request) { t.Error("handler must not run for a viewer") })
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/sessions/s1/reset", nil)
+	req.AddCookie(&http.Cookie{Name: session.AdminCookie, Value: token})
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (viewer, not admin)", rec.Code)
+	}
+}
+
+func TestRequireFullAdminAcceptsAnAdmin(t *testing.T) {
+	s := newTestServer("", testSecret)
+	token, err := session.SignAdmin(session.AdminClaims{Email: "a@mindfries.com", Name: "A", Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}, testSecret)
+	if err != nil {
+		t.Fatalf("SignAdmin: %v", err)
+	}
+
+	called := false
+	h := s.requireFullAdmin(func(w http.ResponseWriter, r *http.Request) { called = true })
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/sessions/s1/reset", nil)
+	req.AddCookie(&http.Cookie{Name: session.AdminCookie, Value: token})
+	h(httptest.NewRecorder(), req)
+
+	if !called {
+		t.Fatal("handler should run for a full admin")
+	}
+}
+
+func TestRequireFullAdminStillRejectsAMissingCookie(t *testing.T) {
+	// requireFullAdmin composes on top of requireAdmin — the authentication
+	// check still applies, not just the role check.
+	s := newTestServer("", testSecret)
+	h := s.requireFullAdmin(func(w http.ResponseWriter, r *http.Request) { t.Error("handler must not run") })
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodPost, "/api/v1/admin/sessions/s1/reset", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
 func TestCORSOnlyReflectsAllowlistedOrigins(t *testing.T) {
 	s := newTestServer(testSecret, "")
 	h := s.cors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))

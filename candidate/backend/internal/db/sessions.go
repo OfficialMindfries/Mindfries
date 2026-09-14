@@ -117,6 +117,31 @@ func (d *DB) ListAdminSessions(ctx context.Context) ([]AdminSessionRow, error) {
 	return out, rows.Err()
 }
 
+// ErrAlreadySubmitted means a session's status was no longer "live" at the
+// moment this tried to move it to "submitted" — either it was already
+// submitted, or a concurrent request beat this one to it. Distinct from a
+// plain write failure so the caller can tell "someone already did this" from
+// "the database is unhappy."
+var ErrAlreadySubmitted = errors.New("db: session already submitted")
+
+// MarkSubmitted is the one conditional write that makes "a session can only
+// be submitted once" true even under a race — two concurrent submit requests
+// (a double-click, a retried request) can both pass an earlier read-then-check
+// in the HTTP handler; only the `where status = 'live'` here decides which
+// one, if either, actually gets to run evaluation. Loses the same way a
+// unique constraint would, just phrased as a conditional update instead of a
+// second column.
+func (d *DB) MarkSubmitted(ctx context.Context, id string) error {
+	tag, err := d.pool.Exec(ctx, `update sessions set status = 'submitted' where id = $1 and status = 'live'`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrAlreadySubmitted
+	}
+	return nil
+}
+
 // SessionStatePatch is the support-override surface (PRD §1.11): reset a
 // stuck sandbox, or hand-adjust progress. Only non-nil fields are written.
 type SessionStatePatch struct {
