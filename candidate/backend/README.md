@@ -74,8 +74,9 @@ isolation guards against.
 | `GET /api/v1/assessments` | candidate | Published templates, same shape as the old `listAvailableAssessments` |
 | `POST /api/v1/assessments/{templateId}/sessions` | candidate | Starts a session — real `candidate_id` FK, not just a name |
 | `GET /api/v1/sessions/{id}` | candidate (owner) | Session status |
-| `POST /api/v1/sessions/{id}/events` | candidate (owner) | Telemetry ingestion (PRD §1.7) — nothing calls this from the IDE yet |
-| `POST /api/v1/sessions/{id}/submit` | candidate (owner) | Ends the session, runs evaluation in the background |
+| `GET /api/v1/sessions/{id}/assessment` | candidate (owner) | The session's real task brief + starter files, from `game_templates.task_brief`/`starter_files` — what the IDE seeds its task panel and workspace from |
+| `POST /api/v1/sessions/{id}/events` | candidate (owner) | Telemetry ingestion (PRD §1.7) — scoped (git/npm/pip/preview/file-save), see `candidate/frontend/src/lib/ide/telemetry.ts` |
+| `POST /api/v1/sessions/{id}/submit` | candidate (owner) | Ends the session, runs evaluation in the background — refuses once the session is no longer `live` |
 | `GET /api/v1/sessions/{id}/report` | candidate (owner) | Poll for the report; `pending` → `generating` → `ready`/`failed` |
 | `GET /api/v1/sessions/{id}/ws` | candidate (owner) | Live event/status stream for that session |
 | `GET /api/v1/admin/sessions` | admin | Global Session Monitor feed |
@@ -109,14 +110,18 @@ migration before it).
 
 ## Known gaps worth tracking
 
-- Neither frontend calls this service yet (see "Status" above).
-- No telemetry is actually posted to `/sessions/{id}/events` by the IDE —
-  until `candidate/frontend/src/app/ide` is wired to send it, the Reasoning
-  and Workflow agents will honestly report "no evidence" on every real
-  submission.
-- `internal-admin`'s `admin_users.role` (`admin` | `viewer`) is verified for
-  shape but not enforced as permission tiers here — neither is it enforced
-  anywhere in `internal-admin/frontend` today, so this matches existing
-  behavior rather than inventing new policy. Worth deciding once viewer vs.
-  admin distinctions actually matter.
-- Daytona's `DELETE /sandbox/{id}` route (see above) needs confirming.
+- `internal-admin/frontend` calls this service's Admin API when
+  `ADMIN_BACKEND_URL` is set (`lib/backend/client.ts`); unset in every
+  deployed environment today, so it falls back to writing directly to
+  Supabase instead — see `task.md`'s "Blocked on a decision" #2 (this
+  service isn't deployed anywhere yet).
+- Telemetry is real and scoped (see the endpoint table above) — not raw
+  terminal command lines, a deliberate scope cut documented in
+  `candidate/frontend/src/lib/ide/telemetry.ts`.
+- `internal-admin`'s `admin_users.role` (`admin` | `viewer`) is enforced on
+  both sides now: `requireFullAdmin` here (this service's own admin
+  mutating endpoints), and `requireAdminRole()` in
+  `internal-admin/frontend`'s server actions.
+- Daytona's `DELETE /sandbox/{id}` route (see above) needs confirming
+  against Daytona's current docs — the call site itself (`sessions.sandbox_id`,
+  freed on submit and on an admin reset) is real as of this pass.

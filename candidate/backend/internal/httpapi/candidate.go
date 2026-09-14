@@ -181,6 +181,42 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessionView(sess))
 }
 
+type sessionAssessmentResponse struct {
+	TaskBrief    *string           `json:"taskBrief,omitempty"`
+	StarterFiles map[string]string `json:"starterFiles,omitempty"`
+}
+
+// handleGetSessionAssessment is what makes the IDE's task brief and
+// starting files real instead of MOCK_TASK_MARKDOWN and an empty VFS
+// (task.md's gap #1, and "Sandbox, codebases, and session integrity" #1) —
+// fetched once when the IDE mounts for this session, not polled, since
+// starter files can be real file content and there's no reason to resend
+// it on every status check the way sessionView's fields are.
+//
+// A session with no template (shouldn't happen in practice — every session
+// is created from one) or a template authored before 0010's columns
+// existed both resolve to an empty response rather than an error: the IDE
+// falls back to its own honest "no real brief yet" state either way.
+func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Request) {
+	c := candidateFrom(r)
+	sess, ok := s.ownsSession(w, r, r.PathValue("id"), c.ID)
+	if !ok {
+		return
+	}
+	if sess.TemplateID == nil {
+		writeJSON(w, http.StatusOK, sessionAssessmentResponse{})
+		return
+	}
+
+	content, err := s.db.GetTemplateContent(r.Context(), *sess.TemplateID)
+	if err != nil {
+		slog.Error("handleGetSessionAssessment", "session", sess.ID, "template", *sess.TemplateID, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not load assessment content")
+		return
+	}
+	writeJSON(w, http.StatusOK, sessionAssessmentResponse{TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
+}
+
 type postEventsRequest struct {
 	Events []struct {
 		Type    string          `json:"type"`
