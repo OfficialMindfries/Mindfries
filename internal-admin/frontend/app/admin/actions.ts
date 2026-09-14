@@ -1,6 +1,5 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
   addOnboarded, addWaitlist, createCompany, createTemplate, recordEmailEvent, setCompanyStatus, setLeadStage,
@@ -44,44 +43,54 @@ export async function changeLeadStage(leadId: string, stage: LeadStage): Promise
   }
 }
 
-// Onboard a company as a user: generate a temp password, email the credentials,
-// store the record (never the password), and mark the source lead onboarded.
+// Onboard a company: create the real record, mark the source lead onboarded,
+// and best-effort notify the company contact — no login credentials, because
+// there is no company login for them to sign in with yet (no Company Portal,
+// no company_users table; see 0001_tracker.sql's own note that a temp
+// password is deliberately never stored). This used to generate and email
+// one anyway, claiming "sign in at https://app.mindfries.com" — a URL that
+// doesn't exist. Removed rather than fixed forward: send it for real once a
+// company login exists, not before.
 export async function onboardCompany(input: {
   leadId?: string; company: string; adminEmail: string; plan: Plan; monthlyCost: number; targetId?: string;
 }): Promise<Result> {
   try {
     await requireAdminRole();
     if (!input.company.trim() || !input.adminEmail.trim()) throw new Error("Company and admin email are required");
-    const tempPassword = randomBytes(9).toString("base64url"); // ~12 chars, emailed once
-    await sendMail({
-      to: input.adminEmail,
-      subject: `Your Mindfries workspace for ${input.company} is ready`,
-      text:
+    try {
+      await sendMail({
+        to: input.adminEmail,
+        subject: `You're onboarded with Mindfries, ${input.company}!`,
+        text:
 `Welcome to Mindfries, ${input.company}!
 
-Your workspace is live. Sign in at https://app.mindfries.com with:
+Your account is set up on our end — we'll be in touch shortly with next steps to get your team started.
 
-  Email:    ${input.adminEmail}
-  Password: ${tempPassword}
-
-Please change your password after first login. Reply to this email if you need a hand.
+Reply to this email if you need a hand in the meantime.
 
 — The Mindfries team`,
-    });
+      });
+    } catch {
+      // Best-effort, same as the waitlist form's own notification (below).
+      // This used to be unguarded: a missing Resend key made the whole
+      // action fail here, before the real company record below was ever
+      // created — with RESEND_API_KEY unset (true everywhere today), that
+      // meant onboarding a company via the Tracker failed outright.
+    }
     await addOnboarded({
       leadId: input.leadId, company: input.company, adminEmail: input.adminEmail,
       plan: input.plan, monthlyCost: input.monthlyCost,
     });
     // Came from a target: close the loop so it doesn't sit in "Pilot" forever.
-    // Only after the email and the record both succeeded — a failed onboarding
-    // must not mark anything won. A note, not a touch: it isn't contact with them.
+    // Only after the record was created — a failed onboarding must not mark
+    // anything won. A note, not a touch: it isn't contact with them.
     if (typeof input.targetId === "string" && input.targetId) {
       const store = targetsStore();
       if (await store.getTarget(input.targetId)) {
         await store.updateTarget(input.targetId, { stage: "won", nextAction: null, nextActionDue: null });
         await store.insertActivity({
           targetId: input.targetId, contactId: null, channel: "note", direction: null, outcome: null,
-          summary: `Onboarded on the ${input.plan} plan — credentials sent to ${input.adminEmail}.`,
+          summary: `Onboarded on the ${input.plan} plan — ${input.adminEmail} notified.`,
           happenedAt: new Date().toISOString(), by: null,
         });
         revalidatePath("/admin/targets");
