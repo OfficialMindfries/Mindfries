@@ -109,6 +109,26 @@ deliberately not touched this pass** — still open, still this list's
 largest remaining item, held back on request rather than for lack of
 importance.
 
+**Next pass again, closing #37 and #48.** Candidate #4 ("Read the task")
+and #5 ("Modify a real codebase") are both ✅ now, conditionally:
+`game_templates` gained `task_brief` and `starter_files`
+(`0010_game_template_content.sql`) — the latter a flat `{path: content}`
+map, the same shape the IDE's own VFS already uses. Both are authored
+together in the Library page, served per-session via a new
+`GET /sessions/{id}/assessment`, and fetched server-side in
+`app/ide/page.tsx` before the IDE ever renders — a real brief and a real
+starting codebase for any template an admin actually filled them in for; a
+new, honest "no brief authored yet" message (never the old fake content)
+for one that hasn't been. Also folded in while re-verifying: issue #51
+(the IDE's Explorer footer hardcoding "Rishi") was already fixed by a
+teammate's own contribution between this session's passes — noted here,
+not claimed as this pass's own work. **Company Portal, #39 (deploying the
+Go backend), and #40 (the sandbox execution architecture decision) were
+all explicitly left alone** — the first by standing request, the latter
+two because they need a real hosting account and a real team decision
+respectively, neither of which this file-writing pass has standing to
+manufacture.
+
 ---
 
 ## Score against the MVP scope, item by item
@@ -132,19 +152,18 @@ way to do anything the product exists for except author templates — or now,
 invite a candidate — from the *internal* admin side; nothing here lets a
 company act on its own behalf.
 
-### Candidate (§2.1) — 9 items: 2 fully done, 5 partial, 2 not started
+### Candidate (§2.1) — 9 items: 4 fully done, 4 partial, 1 not started
 
-(The previous header here — "6 done, 3 partial, 0 fully not-started" —
-didn't actually match its own table, which had #4 and #8 marked ❌; fixed
-while re-tallying this pass, along with downgrading #3 and #5 below.)
+(#4 and #5 moved from ❌/🟡 to ✅ this pass — real task brief, real starter
+files, both conditional on a template actually being authored with them.)
 
 | # | Item | Status |
 |---|---|---|
 | 1 | Accept invitation | 🟡 Improved, not resolved: a real invitation now works end to end once one exists (see Company #4) — but nothing can create one except a direct database write, so in practice every candidate today still arrives via self-serve sign up. Sign-up itself now has a second real path: Google/GitHub/GitLab/LinkedIn OAuth, per-provider-configured — see "Social sign-in is now real," below |
 | 2 | Complete basic setup | ✅ Onboarding wizard — consent, device/camera check, instructions lobby — all real, all gated by middleware |
 | 3 | Enter the coding environment | 🟡 Backed by a real session row (real `candidate_id`, and now real `assessment_id`/`company_id` when started from an invitation) when reached through the normal flow — but `/ide` itself carries no auth check at all (deliberately excluded from `middleware.ts`'s matcher, and the page does no session check of its own), so it's reachable by anyone, signed in or not, with or without a session id. See "Sandbox, codebases, and session integrity" for what that combines with |
-| 4 | Read the task | ❌ **More precisely wrong than "missing":** `TaskDescriptionPanel` exists and renders in the IDE, but its content is `MOCK_TASK_MARKDOWN` — a hardcoded "Authentication Bug Fix" brief shown for every assessment regardless of which one is actually running. Confirmed live: a candidate starting "UI Submit Flow Test" still saw the fake auth-bug task. There's no schema field for a real task brief to come from yet |
-| 5 | Modify a real codebase | 🟡 **The editing machinery is real; the codebase isn't.** Monaco, real git (isomorphic-git), the full VFS — all genuine, see the IDE's own task.md. But every candidate starts from the exact same thing: `lib/ide/mock-project.ts`'s `initialTree = []` / `initialFiles = {}`, an empty workspace, every time, for every assessment. `game_templates.repo_template` exists in the schema and is written by the admin Library form — but nothing ever reads it back into the IDE to seed real starting files, so it's a column that goes nowhere. There is no per-candidate (or even per-template) codebase anywhere in this product yet — see "Sandbox, codebases, and session integrity" |
+| 4 | Read the task | ✅ **Real now, conditionally.** `game_templates.task_brief` (`0010_game_template_content.sql`), authored in the Library page, served via `GET /sessions/{id}/assessment`, and rendered by the same `TaskDescriptionPanel` that used to always show `MOCK_TASK_MARKDOWN`. A real session with a real brief authored shows it; a real session whose template has none yet shows a new, honest "No task brief yet" message — never the old fake auth-bug content for a real assessment. The mock content is now shown *only* when there's no session at all (open `/ide` directly, or the onboarding fallback) |
+| 5 | Modify a real codebase | ✅ **Real now, conditionally — same caveat as #4.** `game_templates.starter_files` (same migration) — a flat `{path: content}` map, the IDE's own VFS shape exactly — is authored alongside the brief and seeded into a candidate's actual workspace (`buildInitialWorkspace`) instead of the empty `initialTree`/`initialFiles` every candidate used to get. Monaco, real git (isomorphic-git), the full VFS were always real — see the IDE's own task.md — what was missing was a real codebase to point them at. **Depends on authoring:** a template nobody's added starter files to still seeds empty, honestly, same as before |
 | 6 | Use terminal and tests | 🟡 Terminal is fully real. "Tests" isn't: no test runner or results panel |
 | 7 | Interact with an AI assistant | 🟡 Chat panel UI is real; no model behind it. The backend's OpenRouter client could answer it — nothing connects the two |
 | 8 | Complete an AI follow-up interview | ❌ Gemini Live API needs a real-time bidirectional-audio bridge that doesn't exist; the backend says so honestly (`ErrInterviewNotImplemented`) |
@@ -226,24 +245,34 @@ for whoever owns those developer-console accounts, not a code gap.
 ## Sandbox, codebases, and session integrity
 
 Prompted directly by the question "does each candidate get an isolated
-sandbox/codebase, and does a session expire once attempted." Short answer to
-both: no. This is the most serious pair of findings in this file to date —
-more serious than anything previously under "Gaps worth naming" — because
-unlike a missing feature, this is the assessment's integrity while it's
-being used.
+sandbox/codebase, and does a session expire once attempted." The short
+answer when this was first written was no to both — this is the most
+serious pair of findings in this file's history, more serious than anything
+previously under "Gaps worth naming," because unlike a missing feature,
+this was the assessment's integrity while it was being used. Both have
+since had real work land on them; read each numbered point for exactly
+what's fixed and what's still conditional or open.
 
-**1. There is no per-candidate (or even per-template) codebase.** Every
-candidate's IDE starts from the exact same thing:
+**1. Fixed since found — a real per-template codebase now exists, when
+authored.** Every candidate's IDE used to start from the exact same thing:
 `lib/ide/mock-project.ts`'s `initialTree = []` / `initialFiles = {}` — an
-empty workspace, every time. `IdeShell.tsx` seeds React state directly from
-those two constants; nothing about which assessment or which candidate ever
-reaches it. `game_templates.repo_template` exists in the schema
-(`0002_product.sql`) and the admin Library form writes it (defaulting to the
-literal string `"custom-repo"`) — but nothing ever reads it back to seed
-real starting files. The Go backend's own `Template` struct doesn't even
-select that column. So "modify a real codebase" (Candidate #5, downgraded
-above) is real *editing machinery* over a codebase that doesn't exist yet,
-for anyone.
+empty workspace, every time, regardless of which assessment or candidate.
+`game_templates` now has `task_brief` and `starter_files`
+(`0010_game_template_content.sql` — the latter a flat `{path: content}` map,
+the same shape as the IDE's own VFS), authored in the Library page and
+served per-session via a new `GET /sessions/{id}/assessment`, fetched
+server-side in `app/ide/page.tsx` before the IDE ever renders.
+`IdeShell.tsx` seeds its initial state from real `starterFiles` when
+present (`buildInitialWorkspace`, not through the live `vfsWrite` API,
+which needs a file's parent folder to already exist one write at a time —
+wrong for seeding however many nested folders a real starter repo has) —
+so "modify a real codebase" (Candidate #5, upgraded above) is now real
+editing machinery *over a real codebase*, conditional on one actually
+being authored for that template. `repo_template` stays exactly the
+free-text label it always was, deliberately not repurposed as a git URL to
+clone — this IDE's VFS is virtual, local-only, and text-only by design (see
+its own `CLAUDE.md`), and a flat file map fits that; a clone-at-runtime
+model would need real network/CORS handling nothing here has.
 
 **2. Fixed this pass, on both ends.** Nothing used to invalidate a session —
 not on submit, not on a timer, not on anything:
@@ -305,10 +334,11 @@ isn't set — which is every deployed environment today — so this cleanup
 only actually fires via a direct call to the Go backend until that's
 configured.
 
-None of what's still open here (#1, plus the open-pool attempt limit noted
-under #2) is softened by "no production data yet" the way some other gaps
-in this file are — these are missing checks, not scope cuts, and they
-become live the moment a real candidate uses this for a real assessment.
+The one thing genuinely still open here — the self-serve open pool's
+missing attempt limit, noted under #2 — isn't softened by "no production
+data yet" the way some other gaps in this file are: it's a missing check,
+not a scope cut, and becomes live the moment a real candidate uses this for
+a real assessment.
 
 ---
 
@@ -552,16 +582,12 @@ Not "not built yet" — places where the app currently says or implies
 something untrue, or two things exist that contradict each other. Most of
 what carried this heading last time is fixed; what's left is more precise.
 
-1. **The task brief inside the IDE is fake, specifically.** Every assessment
-   shows "Authentication Bug Fix" (`MOCK_TASK_MARKDOWN`) regardless of which
-   real assessment the candidate actually started — confirmed live. This is
-   worse than "no task panel," because the panel exists and looks connected.
-2. **Telemetry captures a real but partial picture.** Stated plainly so
+1. **Telemetry captures a real but partial picture.** Stated plainly so
    "the IDE sends telemetry now" isn't read as more than it is: git/npm/pip
    activity, preview rebuilds, and file saves are real; raw terminal command
    lines are not captured (see Platform #2 for why, and the deliberate scope
    line in `lib/ide/telemetry.ts`).
-3. **Two implementations of admin support-overrides — improved, not fully
+2. **Two implementations of admin support-overrides — improved, not fully
    resolved.** internal-admin's `resetSession`/`retriggerEval` now prefer
    the real Go Admin API (`lib/backend/client.ts`, new this pass) when
    `ADMIN_BACKEND_URL` is set, closing the drift risk this item originally
@@ -573,7 +599,7 @@ what carried this heading last time is fixed; what's left is more precise.
    flag, it doesn't call an evaluation agent the way the real path does.
    Fully resolved once `ADMIN_BACKEND_URL` is set somewhere and the
    fallback gets deleted.
-4. **Most tables that matter are still empty in production.** Checked while
+3. **Most tables that matter are still empty in production.** Checked while
    writing this: `game_templates`, `sessions`, `candidate_users`,
    `assessments`, `activity_events`, `assessment_reports` are all at (or
    very near) zero real rows; `companies` now has real write paths but no
@@ -581,10 +607,7 @@ what carried this heading last time is fixed; what's left is more precise.
    to work end to end against the real database, each time by creating test
    rows and deleting them immediately after — none of it has real production
    data behind it yet.
-5. **The IDE's own Explorer footer still shows a hardcoded candidate name
-   ("Rishi")**, unrelated to and unfixed by the dashboard identity fix from
-   this pass — confirmed live, still true, not yet threaded through.
-6. **This file has never scored or even mentioned a real feature that
+4. **This file has never scored or even mentioned a real feature that
    exists: internal-admin's account-based-outreach CRM at `/admin/targets`.**
    It's not sample data — `supabase/migrations/0003_targets.sql`, a real
    `targetsStore()` with a `SchemaNotice` fallback when the migration isn't
@@ -603,8 +626,18 @@ what carried this heading last time is fixed; what's left is more precise.
    separate from this one.
 
 Resolved since the last version of this file (kept here briefly so the
-history is legible, not because they're still open): **a session, once
-submitted, used to still be fully live** — a candidate could submit, keep
+history is legible, not because they're still open): **the task brief
+inside the IDE used to be fake, specifically** — every assessment showed
+"Authentication Bug Fix" regardless of which one was actually running; a
+real session now shows its real `game_templates.task_brief`, or an honest
+"no brief authored yet" message, never the old fake content (see
+"Sandbox, codebases, and session integrity" #1); **the IDE's own Explorer
+footer used to show a hardcoded candidate name ("Rishi")** — fixed by a
+teammate's own contribution (issue #51 → PR #55, threading the real
+signed-in candidate's name through), independent of this session's own
+work but confirmed still in place while re-verifying this pass; **a
+session, once submitted, used to still be fully live** — a candidate could
+submit, keep
 editing, keep sending telemetry, and submit again, wiping and regenerating
 their own evidence report each time; `handleSubmit`/`handlePostEvents` now
 refuse once a session is no longer `live` (see "Sandbox, codebases, and
@@ -672,12 +705,16 @@ telemetry's missing limits, and `onboardCompany`'s live bug (six, not five;
 see below) — are done. Rather than delete the record of what they were,
 they're kept struck through here for the same reason the security findings
 table keeps its fixed rows: so "what was wrong and what closed it" stays in
-one place. Three more are done as of the very next pass after that: the
-Daytona sandbox-ID-discard fix (folded into #11 below), the admin
-support-override consolidation (#15, mostly), and the invitation UI (#8).
-**Company Portal (#7) was explicitly held back this pass, by request** —
-not skipped for lack of importance, and still the largest single item on
-this list. The list resumes below at what's still actually open.
+one place. Three more closed the pass after that: the Daytona
+sandbox-ID-discard fix (folded into #11 below), the admin support-override
+consolidation (#15, mostly), and the invitation UI (#8). Two more closed
+the pass after *that*: the real task brief and real starter files (#9 and
+#10, genuinely one piece of work — both conditional on a template actually
+being authored with them). **Company Portal (#7) was explicitly held back
+across all of this, by request** — not skipped for lack of importance, and
+still the largest single item on this list, and now the largest item left
+open here by a wide margin. The list resumes below at what's still
+actually open.
 
 1. ~~Stop a submitted session from being re-entered and re-submitted~~ —
    **fixed.** `handleSubmit`/`handlePostEvents` refuse once a session's
@@ -708,15 +745,15 @@ this list. The list resumes below at what's still actually open.
    directly to `assessments`. Not the same thing as the Company Portal item
    above — this is ops inviting on a company's behalf, not a company doing
    it themselves.
-9. **Give the IDE a real per-candidate codebase.** Needs `repo_template` (or
-   its replacement) to actually resolve into starting files the IDE seeds
-   from, instead of the empty `initialTree`/`initialFiles` every candidate
-   gets today — see "Sandbox, codebases, and session integrity." This and
-   #10 are naturally one piece of work with the same root cause: the IDE has
-   never been wired to which assessment is actually running.
-10. **Real task-brief content** (gap #1) — needs a schema field
-    (`game_templates` has no task-description column today) and an authoring
-    UI in the Library page before the IDE side is worth touching.
+9. ~~Give the IDE a real per-candidate codebase~~ — **fixed.**
+   `game_templates.starter_files`, authored in the Library page, seeded
+   into a real session's workspace via `buildInitialWorkspace`. Conditional
+   on a template actually having starter files authored — an unauthored
+   template still seeds empty, honestly, same as before.
+10. ~~Real task-brief content~~ — **fixed**, alongside #9 as one piece of
+    work, same authoring surface (`game_templates.task_brief`, the Library
+    page). A real session shows its real brief, or an honest "no brief
+    authored yet" message — never the old fake content.
 11. **Get real keys for OpenRouter and Daytona.** For OpenRouter, still do
     F2/F3's remaining half first (payload *content* isn't sanitized before
     it reaches the LLM prompt, even though `event_type` now is) — a real key
@@ -733,7 +770,7 @@ this list. The list resumes below at what's still actually open.
     telemetry's REST batching both work without it today, so this is real
     but not urgent.
 15. ~~Consolidate the duplicate admin support-override implementations~~
-    (gap #3) — **improved, not fully done.** internal-admin now prefers the
+    (gap #2) — **improved, not fully done.** internal-admin now prefers the
     real Go Admin API; a direct-Supabase fallback remains until
     `ADMIN_BACKEND_URL` is actually set somewhere. Deleting that fallback is
     what finishes this one.

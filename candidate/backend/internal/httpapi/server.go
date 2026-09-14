@@ -45,6 +45,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/assessments", s.requireCandidate(s.handleListAssessments))
 	mux.HandleFunc("POST /api/v1/assessments/{id}/sessions", s.requireCandidate(s.handleStartSession))
 	mux.HandleFunc("GET /api/v1/sessions/{id}", s.requireCandidate(s.handleGetSession))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/assessment", s.requireCandidate(s.handleGetSessionAssessment))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/events", s.requireCandidate(s.handlePostEvents))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/submit", s.requireCandidate(s.handleSubmit))
 	mux.HandleFunc("GET /api/v1/sessions/{id}/report", s.requireCandidate(s.handleGetReport))

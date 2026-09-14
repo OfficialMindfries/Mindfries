@@ -14,10 +14,11 @@ import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
 import { EndSessionDialog, SessionEnded } from "./EndSession";
 import { HeaderPanel, SubmitConfirmDialog } from "./HeaderPanel";
-import { TaskDescriptionPanel, MOCK_TASK_MARKDOWN } from "./TaskDescriptionPanel";
+import { TaskDescriptionPanel, MOCK_TASK_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
 import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
+import { buildInitialWorkspace } from "@/lib/ide/seed-workspace";
 import { addNode, collectFilePaths, findNode, moveNode, removeNode } from "@/lib/ide/tree";
 import type { FileContents, TreeNode } from "@/lib/ide/types";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
@@ -44,15 +45,37 @@ interface IdeShellProps {
   sessionId?: string;
   /** The signed-in candidate's real name from the active session. */
   candidateName?: string;
+  /**
+   * The real assessment content behind `sessionId` — its task brief and
+   * starting files, from `game_templates.task_brief`/`starter_files` via
+   * GET /sessions/{id}/assessment (see app/ide/page.tsx, which fetches this
+   * server-side before the IDE ever renders). Undefined whenever `sessionId`
+   * is, when the backend isn't configured, or when the fetch itself failed
+   * — every one of those degrades to the same honest fallback content
+   * (MOCK_TASK_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
+   * than a special case for each.
+   */
+  taskBrief?: string;
+  starterFiles?: FileContents;
 }
 
-export function IdeShell({ sessionId, candidateName }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
-  const [tree, setTree] = useState<TreeNode[]>(initialTree);
-  const [files, setFiles] = useState<FileContents>(initialFiles);
-  const [savedFiles, setSavedFiles] = useState<FileContents>(initialFiles);
+  // A real starting codebase when one was authored for this assessment;
+  // the same empty workspace as always otherwise. Computed once, from
+  // props already resolved server-side before this component ever mounted
+  // — not re-derived on every render — since useState only reads its
+  // initializer on the very first render anyway.
+  const [seeded] = useState(() =>
+    starterFiles && Object.keys(starterFiles).length > 0
+      ? buildInitialWorkspace(starterFiles)
+      : { tree: initialTree, files: initialFiles },
+  );
+  const [tree, setTree] = useState<TreeNode[]>(seeded.tree);
+  const [files, setFiles] = useState<FileContents>(seeded.files);
+  const [savedFiles, setSavedFiles] = useState<FileContents>(seeded.files);
   const [openPaths, setOpenPaths] = useState<string[]>(DEFAULT_OPEN_PATH ? [DEFAULT_OPEN_PATH] : []);
   const [activePath, setActivePath] = useState<string | null>(DEFAULT_OPEN_PATH);
 
@@ -491,7 +514,7 @@ export function IdeShell({ sessionId, candidateName }: IdeShellProps) {
         >
           <TaskDescriptionPanel
             theme={theme}
-            taskMarkdown={MOCK_TASK_MARKDOWN}
+            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : MOCK_TASK_MARKDOWN}
             collapsed={taskCollapsed}
             onToggle={() => setTaskCollapsed((prev) => !prev)}
           />

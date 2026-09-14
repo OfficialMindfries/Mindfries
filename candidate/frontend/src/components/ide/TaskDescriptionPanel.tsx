@@ -94,9 +94,17 @@ export function TaskDescriptionPanel({
 }
 
 /**
- * Mock task description used until the backend provides real assessment
- * content. Written to feel like a genuine engineering problem, not a toy
- * example — the kind of task the PRD envisions (§1.3, §1.5).
+ * Sample task description shown only when there's no real session to fetch
+ * a real brief for — opening `/ide` directly, or onboarding's own honest
+ * fallback when the backend isn't configured (see IdeShell's own doc
+ * comment on `sessionId`). A real session with a real
+ * `game_templates.task_brief` authored shows that instead
+ * (GET /sessions/{id}/assessment); a real session whose template has none
+ * authored yet shows NO_BRIEF_MARKDOWN below, not this — showing this
+ * content for a real assessment would be exactly the "looks connected and
+ * isn't" bug this used to be everywhere. Written to feel like a genuine
+ * engineering problem, not a toy example, since it's still what a candidate
+ * sees while exploring without a tracked session.
  */
 export const MOCK_TASK_MARKDOWN = `# Authentication Bug Fix
 
@@ -131,3 +139,15 @@ Your work will be evaluated on:
 - **Code quality** — clean, readable changes
 - **Testing** — did you verify your fix with tests?
 `;
+
+/**
+ * Shown for a real session whose template has no `task_brief` authored yet
+ * — distinct from MOCK_TASK_MARKDOWN above on purpose: this is a real
+ * assessment, so showing sample content here would silently misrepresent
+ * what the candidate is actually being asked to do. Says so plainly instead.
+ */
+export const NO_BRIEF_MARKDOWN = `# No task brief yet
+
+This assessment doesn't have a task description set up yet — that's a setup gap on our end, not something you're missing.
+
+Reach out to whoever invited you before spending time here.`;
