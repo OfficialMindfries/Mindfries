@@ -289,6 +289,16 @@ redesign.
 - **`/roles/new` (real, pulled forward from Phase 3):** creates a role —
   title, tech stack, duration, visibility — with no assessment attached
   (§3.7). Permission-gated via `requireCompanyPermission("role:write")`.
+- **Invite a candidate (real, pulled forward from Phase 2):** a form on
+  `/roles/[roleId]`, permission-gated via `candidate:invite`. Writes a real
+  `assessments` row first (the same table internal-admin's own
+  `createInvitation` and `candidate/backend`'s Go `CreateInvitation`
+  write to, so the candidate app's existing session/report lifecycle picks
+  it up unchanged — `company_id`/`template_id`/`role` carried over from the
+  job role, `template_id` still null until §3.3 lands), then a linked
+  `candidate_applications` row (`assessment_id` set) so the pipeline board
+  has something to show. No email sent to the candidate — matches
+  internal-admin's own invite action, which doesn't send one either.
 
 ### Phase 2 — Overview + Pipeline
 - Overview: candidates-in-pipeline / pending-review widgets once
@@ -298,7 +308,18 @@ redesign.
 - Permission checks (§10) wired into every remaining write action
 
 ### Phase 3 — Candidate Detail + Assessment Integration
-- Candidate profile: score breakdown, time taken, stage-change actions
+- **Candidate report view (real, pulled forward):** `/candidates/[candidateId]`
+  reads the session and evidence-based report directly from the shared
+  `sessions` / `assessment_reports` / `evidence_items` tables (0002/0006
+  migrations) — **not** `candidate/backend`'s `GET /api/v1/sessions/{id}/report`.
+  That endpoint authenticates by forwarding the *candidate's own* signed
+  session cookie for the Go backend to verify (`candidate/frontend/src/lib/backend/client.ts`);
+  a company session has no such cookie to forward, and shouldn't need one —
+  reading the same tables directly is the established pattern every other
+  read in this codebase already follows (`ARCHITECTURE.md`). Auto-refreshes
+  while a report is `pending`/`generating`, same mechanic as candidate/frontend's
+  own `ReportAutoRefresh`. Score breakdown by section and stage-change
+  actions are still outstanding.
 - Side-by-side candidate comparison (2–4, sortable)
 - Attach a published `game_template` to an existing role — the picker/
   configure step §3.3 originally scoped into role creation itself, now a

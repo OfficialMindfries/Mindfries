@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./supabase";
-import type { CandidateApplication, JobRole, RoleVisibility, StageCounts } from "./types";
+import type { AssessmentReport, CandidateApplication, CandidateReport, JobRole, RoleVisibility, SessionSummary, StageCounts } from "./types";
 
 // Data access for the Company Portal. Every read returns [] when Supabase
 // isn't wired yet, so pages render empty states instead of crashing
@@ -126,6 +126,65 @@ export async function listApplicationsForRole(roleId: string): Promise<Candidate
   return (data ?? []).map(toApplication);
 }
 
+/**
+ * Invites a candidate to a role. Writes a real `assessments` row first —
+ * the same table internal-admin's own createInvitation (and
+ * candidate/backend's Go CreateInvitation) write to, so the candidate
+ * app's existing session/report lifecycle picks this up unchanged — then a
+ * linked `candidate_applications` row for this app's own pipeline board.
+ * `assessments.template_id` carries over from the role's own template_id,
+ * which is null until that picker is built (IMPLEMENTATION.md §3.7) — an
+ * invite works either way, matching how `assessments.template_id` has
+ * always been nullable.
+ *
+ * Not a single transaction — Supabase's client doesn't expose one across
+ * two tables here, the same tradeoff internal-admin's addOnboarded
+ * accepts — ordered so a failure on the second insert leaves an
+ * `assessments` row unlinked rather than the invite silently not
+ * happening at all.
+ */
+export async function inviteCandidateToRole(input: {
+  companyId: string;
+  jobRoleId: string;
+  candidateEmail: string;
+  candidateName?: string;
+  dueDate?: string;
+}): Promise<CandidateApplication> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+
+  const role = await getJobRole(input.companyId, input.jobRoleId);
+  if (!role) throw new Error("Role not found");
+
+  const { data: assessment, error: assessmentError } = await c
+    .from("assessments")
+    .insert({
+      company_id: input.companyId,
+      template_id: role.templateId,
+      candidate_email: input.candidateEmail,
+      candidate_name: input.candidateName || null,
+      role: role.title,
+      due_date: input.dueDate || null,
+    })
+    .select("id")
+    .single();
+  if (assessmentError || !assessment) throw assessmentError ?? new Error("Insert returned no row");
+
+  const { data, error } = await c
+    .from("candidate_applications")
+    .insert({
+      job_role_id: input.jobRoleId,
+      assessment_id: assessment.id,
+      candidate_email: input.candidateEmail,
+      candidate_name: input.candidateName || null,
+      stage: "invited",
+    })
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+  return toApplication(data);
+}
+
 export interface CandidateApplicationWithRole extends CandidateApplication {
   roleTitle: string;
 }
@@ -140,4 +199,74 @@ export async function listApplicationsForCompany(companyId: string): Promise<Can
     .eq("job_roles.company_id", companyId)
     .order("created_at", { ascending: false });
   return (data ?? []).map((r: any) => ({ ...toApplication(r), roleTitle: r.job_roles?.title ?? "—" }));
+}
+
+/** One candidate's detail page — scoped through job_roles so one company can never open another's candidate by id. */
+export async function getApplicationForCompany(companyId: string, applicationId: string): Promise<CandidateApplicationWithRole | null> {
+  const c = db();
+  if (!c) return null;
+  const { data } = await c
+    .from("candidate_applications")
+    .select("*, job_roles!inner(id, title, company_id)")
+    .eq("id", applicationId)
+    .eq("job_roles.company_id", companyId)
+    .maybeSingle();
+  if (!data) return null;
+  return { ...toApplication(data), roleTitle: (data as any).job_roles?.title ?? "—" };
+}
+
+/**
+ * Reads the session and evidence-based report for a candidate's assessment
+ * — direct Supabase reads of the shared `sessions` / `assessment_reports` /
+ * `evidence_items` tables, not a call to candidate/backend's Go API (see
+ * lib/types.ts's CandidateReport for why: that API authenticates by
+ * forwarding the *candidate's own* session cookie, which this app never
+ * has). Returns nulls rather than throwing when nothing exists yet — a
+ * candidate who hasn't started, or whose report hasn't been generated, is
+ * an honest empty state, not an error.
+ */
+export async function getCandidateReport(assessmentId: string | null): Promise<CandidateReport> {
+  const empty: CandidateReport = { session: null, report: null };
+  if (!assessmentId) return empty;
+  const c = db();
+  if (!c) return empty;
+
+  const { data: sessionRow } = await c
+    .from("sessions")
+    .select("*")
+    .eq("assessment_id", assessmentId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!sessionRow) return empty;
+
+  const session: SessionSummary = {
+    id: sessionRow.id,
+    status: sessionRow.status,
+    sandboxHealth: sessionRow.sandbox_health,
+    progressPct: sessionRow.progress_pct ?? 0,
+    durationMin: sessionRow.duration_min ?? 60,
+    elapsedMin: sessionRow.elapsed_min ?? 0,
+    startedAt: sessionRow.started_at,
+  };
+
+  const { data: reportRow } = await c.from("assessment_reports").select("*").eq("session_id", session.id).maybeSingle();
+  if (!reportRow) return { session, report: null };
+
+  const { data: evidenceRows } = await c
+    .from("evidence_items")
+    .select("*")
+    .eq("report_id", reportRow.id)
+    .order("created_at", { ascending: true });
+
+  const report: AssessmentReport = {
+    id: reportRow.id,
+    status: reportRow.status,
+    recommendation: reportRow.recommendation ?? null,
+    summary: reportRow.summary ?? null,
+    error: reportRow.error ?? null,
+    evidence: (evidenceRows ?? []).map((e: any) => ({ id: e.id, category: e.category, observation: e.observation })),
+  };
+
+  return { session, report };
 }

@@ -25,6 +25,23 @@ export const roleStatusTone: Record<RoleStatus, Tone> = {
   closed: "gray",
 };
 
+/** Same values as internal-admin's own sessionTone map — one shared `sessions` table, same status enum. */
+export const sessionStatusTone: Record<string, Tone> = {
+  live: "violet",
+  submitted: "gray",
+  evaluating: "amber",
+  completed: "green",
+  stuck: "coral",
+  failed: "coral",
+};
+
+export const recommendationLabel: Record<string, string> = {
+  strong_hire: "Strong Hire",
+  hire: "Hire",
+  lean_no: "Lean No",
+  no_hire: "No Hire",
+};
+
 export const companyRoleLabel: Record<CompanyRole, string> = {
   admin: "Admin",
   recruiter: "Recruiter",

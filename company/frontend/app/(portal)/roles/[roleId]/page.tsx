@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
+import { can } from "@/lib/auth/permissions";
 import { getJobRole, listApplicationsForRole, stageCountsForRole } from "@/lib/db";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { ApplicationStage } from "@/lib/types";
+import { InviteCandidateForm } from "./InviteCandidateForm";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +37,10 @@ export default async function RoleDetailPage({ params }: { params: Promise<{ rol
         ))}
       </div>
 
+      {can("candidate:invite", user.role) && <InviteCandidateForm roleId={role.id} />}
+
       {applications.length === 0 ? (
-        <EmptyState title="No candidates yet" hint="Inviting candidates to a role is a separate piece of work, not yet built." />
+        <EmptyState title="No candidates yet" hint="Invite one above to start this role's pipeline." />
       ) : (
         <div className="hair-card divide-y divide-hair">
           {applications.map((a) => (
