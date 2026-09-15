@@ -308,7 +308,18 @@ redesign.
 - Permission checks (§10) wired into every remaining write action
 
 ### Phase 3 — Candidate Detail + Assessment Integration
-- Candidate profile: score breakdown, time taken, stage-change actions
+- **Candidate report view (real, pulled forward):** `/candidates/[candidateId]`
+  reads the session and evidence-based report directly from the shared
+  `sessions` / `assessment_reports` / `evidence_items` tables (0002/0006
+  migrations) — **not** `candidate/backend`'s `GET /api/v1/sessions/{id}/report`.
+  That endpoint authenticates by forwarding the *candidate's own* signed
+  session cookie for the Go backend to verify (`candidate/frontend/src/lib/backend/client.ts`);
+  a company session has no such cookie to forward, and shouldn't need one —
+  reading the same tables directly is the established pattern every other
+  read in this codebase already follows (`ARCHITECTURE.md`). Auto-refreshes
+  while a report is `pending`/`generating`, same mechanic as candidate/frontend's
+  own `ReportAutoRefresh`. Score breakdown by section and stage-change
+  actions are still outstanding.
 - Side-by-side candidate comparison (2–4, sortable)
 - Attach a published `game_template` to an existing role — the picker/
   configure step §3.3 originally scoped into role creation itself, now a
