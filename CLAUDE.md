@@ -45,14 +45,21 @@ internal-admin/frontend/   Next.js — Mindfries' own ops portal (PRD §1.11)
                            tracker,waitlist,costs}, /login, /waitlist
                            Lead Tracker server logic lives in its route handlers
 internal-admin/backend/    Planned FastAPI "Admin API" — not built yet
-supabase/migrations/       Shared Postgres schema, used by both portals
+company/frontend/          Next.js — the Company Portal (PRD §1.4); see
+                           IMPLEMENTATION.md for the build plan. No signup —
+                           ops creates the first login from internal-admin's
+                           onboarding flow, which emails a /set-password link.
+supabase/migrations/       Shared Postgres schema, used by all three portals
 ```
 
-The two portals share one Supabase database: games authored in the
-internal-admin become assessments on the candidate dashboard, and a session
-started there shows up in the admin's session monitor. Without
-`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` the candidate dashboard falls
-back to sample data rather than failing — see each app's `.env*.example`.
+All three portals share one Supabase database: games authored in the
+internal-admin become assessments on the candidate dashboard, a session
+started there shows up in the admin's session monitor, and a company logs
+into `company/frontend` (its own `company_users`/session cookie, unrelated
+to the other two apps' logins) to create roles and review candidates.
+Without `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` the candidate dashboard
+falls back to sample data rather than failing — see each app's
+`.env*.example`.
 
 Vercel builds the candidate portal from `candidate/frontend`.
 `internal-admin/frontend` carries its own `vercel.json` (a daily discovery
