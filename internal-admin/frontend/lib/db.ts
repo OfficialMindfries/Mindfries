@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "./supabase";
+import { inviteSecret, signInviteToken } from "./auth/invite-token";
 import type {
   Assessment, Company, CompanyStatus, GameTemplate, Lead, LeadStage, MemberRole, OnboardedCompany, Plan, RubricCriterion,
   Session, SessionStatus, SandboxHealth, TaskVariant, TeamMember, TemplateStatus, WaitlistEntry,
@@ -340,9 +341,51 @@ export async function setSessionState(
   if (error) throw error;
 }
 
+/**
+ * The company_users row a Company Portal login actually needs (0011
+ * migration) — companies.team's jsonb blob has no credentials and never
+ * did. Created with an empty password_hash and status "invited": nobody,
+ * including this function's caller, ever sets a company account's password
+ * on its behalf (IMPLEMENTATION.md §6) — the token returned here is what
+ * lets the recipient set their own, at company/frontend's /set-password.
+ * Returns null (not an error) when COMPANY_INVITE_SECRET isn't configured,
+ * so the caller can fall back to the old "we'll be in touch" email rather
+ * than promise a sign-in link that can't be verified anywhere.
+ */
+async function createCompanyUserInvite(
+  companyId: string,
+  email: string,
+  name: string,
+): Promise<{ id: string; token: string } | null> {
+  const c = db();
+  if (!c) return null;
+  const secret = inviteSecret();
+  if (!secret) return null;
+
+  const { data, error } = await c
+    .from("company_users")
+    .insert({ company_id: companyId, email, name, role: "admin", status: "invited" })
+    .select("id")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+
+  const token = await signInviteToken({ companyUserId: data.id, email }, secret);
+  return { id: data.id, token };
+}
+
+/** "jane.doe@acme.io" → "Jane Doe" — best-effort until onboarding collects a real name. */
+function nameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? email;
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ") || email;
+}
+
 export async function addOnboarded(e: {
   leadId?: string; company: string; adminEmail: string; plan: Plan; monthlyCost: number;
-}): Promise<void> {
+}): Promise<{ inviteToken: string | null }> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");
 
@@ -365,4 +408,7 @@ export async function addOnboarded(e: {
   });
   if (error) throw error;
   if (e.leadId) await setLeadStage(e.leadId, "onboarded");
+
+  const invite = await createCompanyUserInvite(company.id, e.adminEmail, nameFromEmail(e.adminEmail));
+  return { inviteToken: invite?.token ?? null };
 }

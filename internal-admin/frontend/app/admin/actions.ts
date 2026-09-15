@@ -45,24 +45,50 @@ export async function changeLeadStage(leadId: string, stage: LeadStage): Promise
 }
 
 // Onboard a company: create the real record, mark the source lead onboarded,
-// and best-effort notify the company contact — no login credentials, because
-// there is no company login for them to sign in with yet (no Company Portal,
-// no company_users table; see 0001_tracker.sql's own note that a temp
-// password is deliberately never stored). This used to generate and email
-// one anyway, claiming "sign in at https://app.mindfries.com" — a URL that
-// doesn't exist. Removed rather than fixed forward: send it for real once a
-// company login exists, not before.
+// and best-effort notify the company contact.
+//
+// Now sends a real sign-in link when COMPANY_PORTAL_URL and
+// COMPANY_INVITE_SECRET are both configured (IMPLEMENTATION.md §3.6, §6) —
+// addOnboarded creates the company_users row and mints the token; this is
+// the layer that decides whether an email claiming a real link is honest to
+// send. Falls back to the old "we'll be in touch" message otherwise, rather
+// than claiming a sign-in link that can't be verified anywhere — this used
+// to generate one unconditionally, pointing at a URL
+// (https://app.mindfries.com) that didn't exist. Not before now.
 export async function onboardCompany(input: {
   leadId?: string; company: string; adminEmail: string; plan: Plan; monthlyCost: number; targetId?: string;
 }): Promise<Result> {
   try {
     await requireAdminRole();
     if (!input.company.trim() || !input.adminEmail.trim()) throw new Error("Company and admin email are required");
+
+    const { inviteToken } = await addOnboarded({
+      leadId: input.leadId, company: input.company, adminEmail: input.adminEmail,
+      plan: input.plan, monthlyCost: input.monthlyCost,
+    });
+
+    const portalUrl = process.env.COMPANY_PORTAL_URL;
     try {
-      await sendMail({
-        to: input.adminEmail,
-        subject: `You're onboarded with Mindfries, ${input.company}!`,
-        text:
+      if (inviteToken && portalUrl) {
+        await sendMail({
+          to: input.adminEmail,
+          subject: `You're onboarded with Mindfries, ${input.company}!`,
+          text:
+`Welcome to Mindfries, ${input.company}!
+
+Your Company Portal workspace is ready. Set your password to sign in:
+
+${portalUrl}/set-password?token=${inviteToken}
+
+This link expires in 7 days. Reply to this email if you need a hand.
+
+— The Mindfries team`,
+        });
+      } else {
+        await sendMail({
+          to: input.adminEmail,
+          subject: `You're onboarded with Mindfries, ${input.company}!`,
+          text:
 `Welcome to Mindfries, ${input.company}!
 
 Your account is set up on our end — we'll be in touch shortly with next steps to get your team started.
@@ -70,18 +96,15 @@ Your account is set up on our end — we'll be in touch shortly with next steps 
 Reply to this email if you need a hand in the meantime.
 
 — The Mindfries team`,
-      });
+        });
+      }
     } catch {
       // Best-effort, same as the waitlist form's own notification (below).
       // This used to be unguarded: a missing Resend key made the whole
-      // action fail here, before the real company record below was ever
+      // action fail here, before the real company record above was ever
       // created — with RESEND_API_KEY unset (true everywhere today), that
       // meant onboarding a company via the Tracker failed outright.
     }
-    await addOnboarded({
-      leadId: input.leadId, company: input.company, adminEmail: input.adminEmail,
-      plan: input.plan, monthlyCost: input.monthlyCost,
-    });
     // Came from a target: close the loop so it doesn't sit in "Pilot" forever.
     // Only after the record was created — a failed onboarding must not mark
     // anything won. A note, not a touch: it isn't contact with them.
