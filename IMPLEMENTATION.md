@@ -289,6 +289,16 @@ redesign.
 - **`/roles/new` (real, pulled forward from Phase 3):** creates a role —
   title, tech stack, duration, visibility — with no assessment attached
   (§3.7). Permission-gated via `requireCompanyPermission("role:write")`.
+- **Invite a candidate (real, pulled forward from Phase 2):** a form on
+  `/roles/[roleId]`, permission-gated via `candidate:invite`. Writes a real
+  `assessments` row first (the same table internal-admin's own
+  `createInvitation` and `candidate/backend`'s Go `CreateInvitation`
+  write to, so the candidate app's existing session/report lifecycle picks
+  it up unchanged — `company_id`/`template_id`/`role` carried over from the
+  job role, `template_id` still null until §3.3 lands), then a linked
+  `candidate_applications` row (`assessment_id` set) so the pipeline board
+  has something to show. No email sent to the candidate — matches
+  internal-admin's own invite action, which doesn't send one either.
 
 ### Phase 2 — Overview + Pipeline
 - Overview: candidates-in-pipeline / pending-review widgets once

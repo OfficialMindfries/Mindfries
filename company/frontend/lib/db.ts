@@ -126,6 +126,65 @@ export async function listApplicationsForRole(roleId: string): Promise<Candidate
   return (data ?? []).map(toApplication);
 }
 
+/**
+ * Invites a candidate to a role. Writes a real `assessments` row first —
+ * the same table internal-admin's own createInvitation (and
+ * candidate/backend's Go CreateInvitation) write to, so the candidate
+ * app's existing session/report lifecycle picks this up unchanged — then a
+ * linked `candidate_applications` row for this app's own pipeline board.
+ * `assessments.template_id` carries over from the role's own template_id,
+ * which is null until that picker is built (IMPLEMENTATION.md §3.7) — an
+ * invite works either way, matching how `assessments.template_id` has
+ * always been nullable.
+ *
+ * Not a single transaction — Supabase's client doesn't expose one across
+ * two tables here, the same tradeoff internal-admin's addOnboarded
+ * accepts — ordered so a failure on the second insert leaves an
+ * `assessments` row unlinked rather than the invite silently not
+ * happening at all.
+ */
+export async function inviteCandidateToRole(input: {
+  companyId: string;
+  jobRoleId: string;
+  candidateEmail: string;
+  candidateName?: string;
+  dueDate?: string;
+}): Promise<CandidateApplication> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+
+  const role = await getJobRole(input.companyId, input.jobRoleId);
+  if (!role) throw new Error("Role not found");
+
+  const { data: assessment, error: assessmentError } = await c
+    .from("assessments")
+    .insert({
+      company_id: input.companyId,
+      template_id: role.templateId,
+      candidate_email: input.candidateEmail,
+      candidate_name: input.candidateName || null,
+      role: role.title,
+      due_date: input.dueDate || null,
+    })
+    .select("id")
+    .single();
+  if (assessmentError || !assessment) throw assessmentError ?? new Error("Insert returned no row");
+
+  const { data, error } = await c
+    .from("candidate_applications")
+    .insert({
+      job_role_id: input.jobRoleId,
+      assessment_id: assessment.id,
+      candidate_email: input.candidateEmail,
+      candidate_name: input.candidateName || null,
+      stage: "invited",
+    })
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+  return toApplication(data);
+}
+
 export interface CandidateApplicationWithRole extends CandidateApplication {
   roleTitle: string;
 }
