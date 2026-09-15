@@ -1,21 +1,23 @@
-import { PageHeader, EmptyState } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
+import { NewRoleForm } from "./NewRoleForm";
 
 export const dynamic = "force-dynamic";
 
 /**
- * IMPLEMENTATION.md Phase 3: pick a published game_template and configure
- * duration/tech-stack/visibility/candidate-facing fields (§3.3) — not
- * rubric or interviewer-prompt authoring, which stays admin-only. Not built
- * yet; this stub exists so the nav link from /roles works instead of 404ing.
+ * A role can be opened without an assessment attached — picking a published
+ * game_template (IMPLEMENTATION.md §3.3) is a separate, later integration,
+ * not a precondition for creating a role. template_id just stays null until
+ * that lands.
  */
 export default function NewRolePage() {
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Roles" title="Create a role" />
-      <EmptyState
-        title="Coming in Phase 3"
-        hint="Picking a published assessment template and configuring it for this role — see IMPLEMENTATION.md §11."
-      />
+      <PageHeader eyebrow="Roles" title="Create a role">
+        Assessment selection isn&apos;t wired up yet — this role publishes without one attached, and you can attach it later.
+      </PageHeader>
+      <div className="hair-card max-w-xl p-6">
+        <NewRoleForm />
+      </div>
     </div>
   );
 }

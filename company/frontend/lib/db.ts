@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./supabase";
-import type { CandidateApplication, JobRole, StageCounts } from "./types";
+import type { CandidateApplication, JobRole, RoleVisibility, StageCounts } from "./types";
 
 // Data access for the Company Portal. Every read returns [] when Supabase
 // isn't wired yet, so pages render empty states instead of crashing
@@ -38,6 +38,36 @@ export async function listJobRoles(companyId: string): Promise<JobRole[]> {
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
   return (data ?? []).map(toJobRole);
+}
+
+/**
+ * Creates a role with no assessment attached (template_id stays null) —
+ * per this session's scope call, a company can open a role now and the
+ * assessment-template picker (IMPLEMENTATION.md §3.3) is a separate,
+ * later integration, not a precondition for this to work.
+ */
+export async function createJobRole(input: {
+  companyId: string;
+  title: string;
+  techStack: string[];
+  durationMin: number | null;
+  visibility: RoleVisibility;
+}): Promise<JobRole> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("job_roles")
+    .insert({
+      company_id: input.companyId,
+      title: input.title,
+      tech_stack: input.techStack,
+      duration_min: input.durationMin,
+      visibility: input.visibility,
+    })
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+  return toJobRole(data);
 }
 
 export async function getJobRole(companyId: string, roleId: string): Promise<JobRole | null> {

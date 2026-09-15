@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { getJobRole, listApplicationsForRole, stageCountsForRole } from "@/lib/db";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
-import { fmtDate, stageLabel, stageTone } from "@/lib/format";
+import { fmtDate, roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { ApplicationStage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,9 @@ export default async function RoleDetailPage({ params }: { params: Promise<{ rol
         {role.techStack.length > 0 ? role.techStack.join(" · ") : "No tech stack recorded"}
       </PageHeader>
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Pill tone={roleStatusTone[role.status]}>{role.status}</Pill>
+        {!role.templateId && <Pill tone="amber">No assessment attached</Pill>}
         {STAGE_ORDER.map((s) => (
           <Pill key={s} tone={stageTone[s]}>
             {counts[s]} {stageLabel[s]}
@@ -34,7 +36,7 @@ export default async function RoleDetailPage({ params }: { params: Promise<{ rol
       </div>
 
       {applications.length === 0 ? (
-        <EmptyState title="No candidates yet" hint="Inviting candidates to a role ships alongside role creation in Phase 3." />
+        <EmptyState title="No candidates yet" hint="Inviting candidates to a role is a separate piece of work, not yet built." />
       ) : (
         <div className="hair-card divide-y divide-hair">
           {applications.map((a) => (

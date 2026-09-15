@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import Link from "next/link";
 import type { Tone } from "@/lib/format";
 
 // Copied from internal-admin/frontend/components/ui.tsx (IMPLEMENTATION.md
@@ -75,6 +76,32 @@ export function Button({ variant = "primary", size = "md", className = "", style
       style={{ ...TONES[variant], ...style }}
       className={`btn-wipe inline-flex items-center justify-center gap-2 font-extrabold ${pad} ${className}`}
     />
+  );
+}
+
+/** Same look as Button, for a control that navigates instead of submitting. */
+export function LinkButton({
+  href,
+  variant = "primary",
+  size = "md",
+  className = "",
+  children,
+}: {
+  href: string;
+  variant?: ButtonProps["variant"];
+  size?: ButtonProps["size"];
+  className?: string;
+  children: ReactNode;
+}) {
+  const pad = size === "sm" ? "px-4 py-2 text-[13px]" : "px-6 py-3 text-[15px]";
+  return (
+    <Link
+      href={href}
+      style={TONES[variant ?? "primary"]}
+      className={`btn-wipe inline-flex items-center justify-center gap-2 font-extrabold ${pad} ${className}`}
+    >
+      {children}
+    </Link>
   );
 }
 

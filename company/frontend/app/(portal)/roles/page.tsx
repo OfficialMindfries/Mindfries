@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { listJobRoles, stageCountsForRole } from "@/lib/db";
-import { Button, EmptyState, PageHeader, Pill } from "@/components/ui";
+import { EmptyState, LinkButton, PageHeader, Pill } from "@/components/ui";
 import { roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { ApplicationStage } from "@/lib/types";
 
@@ -22,14 +22,15 @@ export default async function RolesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Roles" title="Job roles" action={<Button size="sm">New role</Button>}>
+      <PageHeader eyebrow="Roles" title="Job roles" action={<LinkButton href="/roles/new" size="sm">New role</LinkButton>}>
         Every role you&apos;re hiring for, and where its pipeline stands.
       </PageHeader>
 
       {roles.length === 0 ? (
         <EmptyState
           title="No roles yet"
-          hint="Role creation — picking a published assessment template and configuring it for a role — ships in Phase 3."
+          hint="Create your first role to start building a pipeline. Attaching an assessment template comes later — a role works without one for now."
+          action={<LinkButton href="/roles/new" size="sm">New role</LinkButton>}
         />
       ) : (
         <div className="hair-card divide-y divide-hair">

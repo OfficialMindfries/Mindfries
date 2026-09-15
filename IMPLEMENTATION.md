@@ -85,6 +85,7 @@ starting:
 | 3.3 | Who creates assessment content — internal team or company? | **Neither, fully.** Per PRD §1.11, Mindfries centrally authors the Game Library (`game_templates`) — task variants, rubric, interviewer prompt. A company **picks a published template** and configures role-scoped fields only (duration override, tech stack, candidate-facing role details). Rubric/interviewer-prompt authoring stays admin-only. This narrows v1's "self-serve... configure sections/weights" wording, which over-scoped into a full assessment builder. |
 | 3.4 | Billing: real payment integration, or a display only? | **Confirmed: display only for MVP**, per PRD §2.1 ("billing automation... can wait — manual, ops-run versions are enough until there are paying companies to bill"). Settings/Billing shows plan, seats, and a usage/credits counter — modeled on `internal-admin`'s existing `onboarded_companies`/Costs view. No Stripe, no webhooks, no invoice UI. This removes v1's single biggest timeline risk. |
 | 3.5 | Role visibility | Both open-pool and invite-only are already real on the candidate side (`task.md` Candidate #1) — a role's publish step picks one, no new candidate-side work required. |
+| 3.7 | Does role creation have to wait for the assessment-template picker (§3.3)? | **No — confirmed, decoupled.** `job_roles.template_id` is nullable in the schema (§7) specifically so a role can be created and published without one. `/roles/new` (built) collects title, tech stack, duration, and visibility only; picking/attaching a published `game_template` is tracked as its own later integration, not a blocker on a company being able to open a role today. |
 | 3.6 | How does a company get its first login — self-serve signup, or ops-created? | **Confirmed: ops-created, no self-serve company signup.** Mindfries ops creates the first `company_users` admin row as part of the existing internal-admin onboarding flow (PRD §1.11's `ON1 Create Company Account`) — the same moment that already creates the `companies` row today. There is no `/signup` route in `company/frontend`; `/login` is the only entry point. The company's own admin then invites teammates from `/settings/team` (§6, §11 Phase 4). |
 
 ---
@@ -230,7 +231,7 @@ admin id today.
 /login
 /dashboard                       → Overview
 /roles                           → Job role list, per-role stage-count row (§9)
-/roles/new                       → Create role (pick template, configure)
+/roles/new                       → Create role (title/tech-stack/duration/visibility; no template yet, §3.7)
 /roles/[roleId]                  → Role detail — full pipeline for that role
 /candidates                      → All candidates, cross-role
 /candidates/[candidateId]        → Candidate profile + score breakdown
@@ -273,7 +274,7 @@ redesign.
 
 ## 11. Build phases
 
-### Phase 1 — Foundation
+### Phase 1 — Foundation (done)
 - `company/frontend` scaffold (§4), theme copy from internal-admin (§2.1)
 - `0011_company_portal.sql` migration (§7)
 - Auth: `company_users`, session cookie, middleware, `/login`-only, no
@@ -283,19 +284,26 @@ redesign.
   send the signed set-password link, so onboarding a company produces a
   real login on day one instead of an unusable `companies` row (§3.6)
 - Sidebar + topbar, empty/loading states confirmed with copied components
+- `/roles` list (real data, stage-count badges) and `/roles/[roleId]` detail
+  shell, ahead of schedule since the schema/queries already existed (§9)
+- **`/roles/new` (real, pulled forward from Phase 3):** creates a role —
+  title, tech stack, duration, visibility — with no assessment attached
+  (§3.7). Permission-gated via `requireCompanyPermission("role:write")`.
 
 ### Phase 2 — Overview + Pipeline
-- Overview: active roles, candidates in pipeline, pending-review widget
-- `/roles` list with stage-count badges (§9)
-- `/roles/[roleId]` pipeline (table first; Kanban stretch)
-- Filters (role, stage, score, date); bulk actions (invite, shortlist, reject)
-- Permission checks (§10) wired into every write action from the start
+- Overview: candidates-in-pipeline / pending-review widgets once
+  `candidate_applications` has real rows (active-roles count already real)
+- `/roles/[roleId]` pipeline: filters (stage, score, date), bulk actions
+  (invite, shortlist, reject)
+- Permission checks (§10) wired into every remaining write action
 
-### Phase 3 — Candidate Detail + Role Creation
+### Phase 3 — Candidate Detail + Assessment Integration
 - Candidate profile: score breakdown, time taken, stage-change actions
 - Side-by-side candidate comparison (2–4, sortable)
-- `/roles/new`: pick a published `game_template`, configure duration/tech
-  stack/visibility/candidate-facing details (§3.3 — not rubric authoring)
+- Attach a published `game_template` to an existing role — the picker/
+  configure step §3.3 originally scoped into role creation itself, now a
+  standalone addition to `/roles/[roleId]` instead of a precondition for
+  `/roles/new` (§3.7)
 
 ### Phase 4 — Team + Billing
 - Invite teammate flow (email via Resend, pending/accepted states, §6)
