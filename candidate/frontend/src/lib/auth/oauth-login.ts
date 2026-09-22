@@ -79,7 +79,11 @@ export async function signInWithOAuth(provider: OAuthProviderId, profile: OAuthP
       .insert({ name: profile.name.slice(0, 200), email: profile.email.toLowerCase(), password_hash: null })
       .select("id, email, name, status")
       .single();
-    if (createErr || !created) return { ok: false, error: "Couldn't create an account from that sign-in — try again." };
+    if (createErr || !created) {
+      const detail = createErr ? ` [${createErr.code}: ${createErr.message}]` : " [no row returned]";
+      return { ok: false, error: `Couldn't create an account from that sign-in — try again.${detail}` };
+    }
+
     account = created as CandidateAccountRow;
   }
 
