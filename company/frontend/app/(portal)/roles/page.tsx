@@ -35,23 +35,25 @@ export default async function RolesPage() {
       ) : (
         <div className="hair-card divide-y divide-hair">
           {roles.map((role, i) => (
-            <Link key={role.id} href={`/roles/${role.id}`} className="flex flex-wrap items-center gap-4 px-6 py-4 transition hover:bg-black/[0.02]">
-              <div className="min-w-0 flex-1">
+            <div key={role.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+              <Link href={`/roles/${role.id}`} className="min-w-0 flex-1 hover:underline">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-bold">{role.title}</span>
                   <Pill tone={roleStatusTone[role.status]}>{role.status}</Pill>
                 </div>
                 {role.techStack.length > 0 && <div className="mt-1 truncate text-xs text-dim">{role.techStack.join(" · ")}</div>}
-              </div>
+              </Link>
               <div className="flex flex-wrap gap-1.5">
                 {STAGE_ORDER.filter((s) => counts[i][s] > 0).map((s) => (
-                  <Pill key={s} tone={stageTone[s]}>
-                    {counts[i][s]} {stageLabel[s]}
-                  </Pill>
+                  <Link key={s} href={`/roles/${role.id}?stage=${s}`}>
+                    <Pill tone={stageTone[s]}>
+                      {counts[i][s]} {stageLabel[s]}
+                    </Pill>
+                  </Link>
                 ))}
                 {STAGE_ORDER.every((s) => counts[i][s] === 0) && <span className="text-xs text-faint">No candidates yet</span>}
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

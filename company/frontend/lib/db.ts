@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./supabase";
-import type { AssessmentReport, CandidateApplication, CandidateReport, JobRole, RoleVisibility, SessionSummary, StageCounts } from "./types";
+import type { ApplicationStage, AssessmentReport, CandidateApplication, CandidateReport, DueCandidate, JobRole, RoleVisibility, SessionSummary, StageCounts } from "./types";
 
 // Data access for the Company Portal. Every read returns [] when Supabase
 // isn't wired yet, so pages render empty states instead of crashing
@@ -201,6 +201,22 @@ export async function listApplicationsForCompany(companyId: string): Promise<Can
   return (data ?? []).map((r: any) => ({ ...toApplication(r), roleTitle: r.job_roles?.title ?? "—" }));
 }
 
+/**
+ * Moves a candidate to a new pipeline stage — Phase 2's per-candidate
+ * version of the original plan's "bulk actions"; a multi-select bulk-action
+ * bar is still outstanding, this is one candidate at a time. Scoped through
+ * job_roles the same way every other write here is, so a request can't move
+ * a candidate that belongs to a different company's role.
+ */
+export async function setApplicationStage(companyId: string, applicationId: string, stage: ApplicationStage): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const existing = await getApplicationForCompany(companyId, applicationId);
+  if (!existing) throw new Error("Candidate not found");
+  const { error } = await c.from("candidate_applications").update({ stage }).eq("id", applicationId);
+  if (error) throw error;
+}
+
 /** One candidate's detail page — scoped through job_roles so one company can never open another's candidate by id. */
 export async function getApplicationForCompany(companyId: string, applicationId: string): Promise<CandidateApplicationWithRole | null> {
   const c = db();
@@ -269,4 +285,35 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
   };
 
   return { session, report };
+}
+
+/**
+ * Every candidate with a real due date on their assessment — the Overview
+ * calendar widget's data. `assessments.due_date` is set at invite time
+ * (inviteCandidateToRole passes it straight through); joined here rather
+ * than added to candidate_applications, since the due date belongs to the
+ * assessment record, not the pipeline row. Sorted in JS rather than via a
+ * nested-column `.order()` — small volumes at MVP scale, and Supabase's
+ * embedded-resource ordering only reliably covers the base table's own
+ * columns.
+ */
+export async function listUpcomingDueDates(companyId: string): Promise<DueCandidate[]> {
+  const c = db();
+  if (!c) return [];
+  const { data } = await c
+    .from("candidate_applications")
+    .select("id, candidate_name, candidate_email, job_roles!inner(title, company_id), assessments!inner(due_date)")
+    .eq("job_roles.company_id", companyId)
+    .not("assessments.due_date", "is", null);
+
+  return (data ?? [])
+    .map((r: any) => ({
+      applicationId: r.id,
+      candidateName: r.candidate_name ?? null,
+      candidateEmail: r.candidate_email,
+      roleTitle: r.job_roles?.title ?? "—",
+      dueDate: r.assessments?.due_date as string,
+    }))
+    .filter((d) => !!d.dueDate)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }

@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { inviteCandidateToRole } from "@/lib/db";
+import { inviteCandidateToRole, setApplicationStage } from "@/lib/db";
+import type { ApplicationStage } from "@/lib/types";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -41,4 +42,24 @@ export async function inviteCandidate(roleId: string, _prev: InviteCandidateStat
   revalidatePath("/candidates");
   revalidatePath("/dashboard");
   return { error: null, success: true };
+}
+
+/**
+ * Bound to a specific roleId/applicationId/stage per button
+ * (`changeStage.bind(null, roleId, application.id, "shortlisted")`) and
+ * used directly as a `<form action={...}>` — no client component needed,
+ * since there's no per-field input to validate or pending state beyond
+ * what the browser's own form submission already shows. The bound args
+ * come from this app's own JSX, not form input, so there's nothing here to
+ * sanitize; requireCompanyPermission + setApplicationStage's
+ * company-ownership check are what actually keep this safe.
+ */
+export async function changeStage(roleId: string, applicationId: string, stage: ApplicationStage): Promise<void> {
+  const { companyId } = await requireCompanyPermission("candidate:stage");
+  await setApplicationStage(companyId, applicationId, stage);
+  revalidatePath(`/roles/${roleId}`);
+  revalidatePath("/roles");
+  revalidatePath("/candidates");
+  revalidatePath(`/candidates/${applicationId}`);
+  revalidatePath("/dashboard");
 }

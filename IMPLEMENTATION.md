@@ -300,12 +300,32 @@ redesign.
   has something to show. No email sent to the candidate — matches
   internal-admin's own invite action, which doesn't send one either.
 
-### Phase 2 — Overview + Pipeline
-- Overview: candidates-in-pipeline / pending-review widgets once
-  `candidate_applications` has real rows (active-roles count already real)
-- `/roles/[roleId]` pipeline: filters (stage, score, date), bulk actions
-  (invite, shortlist, reject)
-- Permission checks (§10) wired into every remaining write action
+### Phase 2 — Overview + Pipeline (done, except where noted)
+- **Overview (real):** all four PRD §1.4 stat cards (Active Roles,
+  Candidates in Progress, Completed Assessments, Ready for Review) read
+  real counts from `job_roles`/`candidate_applications`.
+- **Overview widgets (real, pulled forward):** a weekly invite trend chart,
+  a 13-week invite-activity heatmap, a due-dates calendar (from
+  `assessments.due_date`) with an upcoming list, and **Recent Activity
+  (O5)** — merged role-creation + invite events sorted by time, closing the
+  one PRD Overview item that had been outstanding since Phase 1. No new
+  event log: the activity feed is derived from the `created_at` these
+  records already carry, so stage changes (no timestamped history yet)
+  don't appear in it. `lib/overview.ts`'s sparkline/bucket math is copied
+  from internal-admin's own (`cumulative`/`perBucket`/`sparkPaths`/`ago`) —
+  same reasoning as everywhere else, no invented numbers, only real
+  timestamps turned into a shape.
+- **Stage filter (real):** `/roles` and `/roles/[roleId]` share one
+  stage-count-badge-as-link component behavior — clicking a badge
+  deep-links to `/roles/[roleId]?stage=X`, matching §9's original design.
+- **Per-candidate stage actions (real, narrower than "bulk"):** Shortlist /
+  Hire / Reject buttons on each row in `/roles/[roleId]`, permission-gated
+  via `candidate:stage`, each a plain `<form action={changeStage.bind(...)}>`
+  — no client component needed. **Not built:** multi-select (checkboxes +
+  a bulk-action bar) — every change is still one candidate at a time.
+- Score-range and date filters on the pipeline view — not built.
+- Permission checks (§10) wired into every write action added so far
+  (`role:write`, `candidate:invite`, `candidate:stage`).
 
 ### Phase 3 — Candidate Detail + Assessment Integration
 - **Candidate report view (real, pulled forward):** `/candidates/[candidateId]`

@@ -48,8 +48,12 @@ export const companyRoleLabel: Record<CompanyRole, string> = {
   viewer: "Viewer",
 };
 
+// Pinned to UTC: this runs both server-side (Node) and client-side
+// (browser), and the two can disagree on the local calendar day for the
+// same instant. Without a fixed zone, that's a real hydration-mismatch
+// risk (Next.js names this exact case), not just a display quirk.
 export function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
 export function titleCase(s: string): string {

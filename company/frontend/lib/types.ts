@@ -95,3 +95,12 @@ export interface CandidateReport {
   session: SessionSummary | null;
   report: AssessmentReport | null;
 }
+
+/** A candidate whose assessment has a real due date — the Overview calendar widget. */
+export interface DueCandidate {
+  applicationId: string;
+  candidateName: string | null;
+  candidateEmail: string;
+  roleTitle: string;
+  dueDate: string; // YYYY-MM-DD
+}

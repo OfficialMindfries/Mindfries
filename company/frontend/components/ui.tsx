@@ -36,6 +36,51 @@ export function StatCard({ label, value, hint }: { label: string; value: ReactNo
   );
 }
 
+/** A titled card around a chart/list, with an optional count pill and a "View all"-style action — same shape as internal-admin's own Panel. */
+export function Panel({
+  title,
+  count,
+  countTone = "violet",
+  subtitle,
+  action,
+  children,
+  className = "",
+}: {
+  title: string;
+  count?: ReactNode;
+  countTone?: Tone;
+  subtitle?: string;
+  action?: { label: string; href: string } | ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  const isLink = !!action && typeof action === "object" && "href" in (action as object) && "label" in (action as object);
+  return (
+    <section className={`hair-card overflow-hidden ${className}`}>
+      <header className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5 pb-4">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-lg font-extrabold tracking-tight">{title}</h2>
+            {count !== undefined && <Pill tone={countTone}>{count}</Pill>}
+          </div>
+          {subtitle && <p className="mt-1 text-sm text-dim">{subtitle}</p>}
+        </div>
+        {isLink ? (
+          <Link
+            href={(action as { href: string }).href}
+            className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-accent hover:underline"
+          >
+            {(action as { label: string }).label}
+          </Link>
+        ) : (
+          (action as ReactNode)
+        )}
+      </header>
+      <div className="border-t border-hair">{children}</div>
+    </section>
+  );
+}
+
 export function PageHeader({ eyebrow, title, children, action }: { eyebrow: string; title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
