@@ -1,18 +1,21 @@
-import { PageHeader, EmptyState } from "@/components/ui";
+import { currentCompanyUser } from "@/lib/auth/company-users";
+import { can } from "@/lib/auth/permissions";
+import { listCompanyUsers } from "@/lib/db";
+import { PageHeader } from "@/components/ui";
+import { TeamRoster } from "./TeamRoster";
 
 export const dynamic = "force-dynamic";
 
-/**
- * IMPLEMENTATION.md Phase 4: invite teammate flow (email via Resend,
- * pending/accepted states through the same /set-password link mechanism
- * this app's ops-created first admin already uses), role management
- * against the permission matrix in lib/auth/permissions.ts. Not built yet.
- */
-export default function TeamSettingsPage() {
+/** IMPLEMENTATION.md Phase 4: invite teammates (email via Resend) and manage their status against the permission matrix in lib/auth/permissions.ts. */
+export default async function TeamSettingsPage() {
+  const user = await currentCompanyUser();
+  const users = user ? await listCompanyUsers(user.companyId) : [];
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Settings" title="Team" />
-      <EmptyState title="Coming in Phase 4" hint="Invite teammates and manage their roles — see IMPLEMENTATION.md §11." />
+      <PageHeader eyebrow="Settings" title="Team">
+        Who on your side can see roles, candidates, and reports.
+      </PageHeader>
+      <TeamRoster users={users} currentEmail={user?.email ?? ""} canManage={!!user && can("team:manage", user.role)} />
     </div>
   );
 }

@@ -2,10 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { can } from "@/lib/auth/permissions";
-import { getJobRole, listApplicationsForRole, stageCountsForRole } from "@/lib/db";
+import { getJobRole, listApplicationsForRole, listPublishedTemplates, stageCountsForRole } from "@/lib/db";
 import { Button, EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { ApplicationStage } from "@/lib/types";
+import { AttachTemplateForm } from "./AttachTemplateForm";
 import { InviteCandidateForm } from "./InviteCandidateForm";
 import { changeStage } from "./actions";
 
@@ -37,7 +38,12 @@ export default async function RoleDetailPage({
   const role = await getJobRole(user.companyId, roleId);
   if (!role) notFound();
 
-  const [counts, allApplications] = await Promise.all([stageCountsForRole(role.id), listApplicationsForRole(role.id)]);
+  const canWriteRole = can("role:write", user.role);
+  const [counts, allApplications, templates] = await Promise.all([
+    stageCountsForRole(role.id),
+    listApplicationsForRole(role.id),
+    canWriteRole ? listPublishedTemplates() : Promise.resolve([]),
+  ]);
 
   const activeStage = STAGE_ORDER.includes(stageParam as ApplicationStage) ? (stageParam as ApplicationStage) : null;
   const applications = activeStage ? allApplications.filter((a) => a.stage === activeStage) : allApplications;
@@ -51,7 +57,11 @@ export default async function RoleDetailPage({
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Pill tone={roleStatusTone[role.status]}>{role.status}</Pill>
-        {!role.templateId && <Pill tone="amber">No assessment attached</Pill>}
+        {role.templateId ? (
+          <Pill tone="violet">{role.templateName ?? "Assessment attached"}</Pill>
+        ) : (
+          <Pill tone="amber">No assessment attached</Pill>
+        )}
         <Link href={`/roles/${role.id}`}>
           <Pill tone={activeStage === null ? "violet" : "gray"}>All ({allApplications.length})</Pill>
         </Link>
@@ -63,6 +73,10 @@ export default async function RoleDetailPage({
           </Link>
         ))}
       </div>
+
+      {canWriteRole && (
+        <AttachTemplateForm roleId={role.id} templates={templates} currentTemplateId={role.templateId} />
+      )}
 
       {can("candidate:invite", user.role) && <InviteCandidateForm roleId={role.id} />}
 
