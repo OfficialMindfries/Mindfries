@@ -5,9 +5,9 @@ import { SetupCard } from "@/components/dashboard/SetupCard";
 import { AssessmentNotes } from "@/components/dashboard/AssessmentNotes";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { SideRail } from "@/components/dashboard/SideRail";
-import { resolveIdentity } from "@/lib/profile/data";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 import { currentCandidate } from "@/lib/auth/users";
+import { getProfile } from "@/lib/profile/actions";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
@@ -34,27 +34,40 @@ export const dynamic = "force-dynamic";
  * are still sample data.
  */
 export default async function DashboardPage() {
-  const [items, session] = await Promise.all([listAssessmentsOrUndefined(), currentCandidate()]);
-  // Server-rendered, so this never sees a locally-saved profile edit
-  // (localStorage) — same limitation the old hardcoded name had. What it
-  // fixes is showing the *real signed-in candidate's* name instead of the
-  // sample "Rishi" for every session, verified live against a real account.
-  const identity = resolveIdentity(null, session?.name);
+  const [items, session, profile] = await Promise.all([
+    listAssessmentsOrUndefined(),
+    currentCandidate(),
+    getProfile(),
+  ]);
+
+  // Use DB profile if the candidate has saved it, otherwise just the session name.
+  const displayName = profile?.name || session?.name || "there";
+  const hasUpdatedProfile = !!profile?.profile_updated_at;
 
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
-      <DashboardNav sessionName={session?.name} />
+      <DashboardNav sessionName={session?.name} profile={profile} />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-[#0A1931]">
-              Welcome back, {identity.name}
+              Welcome back, {displayName}
             </h1>
-            <p className="mt-1.5 text-sm text-[#4A7FA7]">
-              {identity.role}
-              {identity.location && ` · ${identity.location}`}
-            </p>
+            {/* Only show role/location once the candidate has actually saved a
+                real profile — suppress it rather than display empty strings. */}
+            {hasUpdatedProfile && profile?.role ? (
+              <p className="mt-1.5 text-sm text-[#4A7FA7]">
+                {profile.role}
+                {profile.location && ` · ${profile.location}`}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-sm text-[#4A7FA7]">
+                <a href="/profile" className="underline underline-offset-2 hover:text-[#1A3D63] transition-colors">
+                  Complete your profile
+                </a>
+              </p>
+            )}
           </div>
           <a
             href="/ide"
@@ -73,9 +86,9 @@ export default async function DashboardPage() {
           {/* `min-w-0` stops a grid item's default `min-width: auto` from
               letting wide content stretch this column past the viewport. */}
           <div className="min-w-0 space-y-10">
-            <SetupCard />
+            <SetupCard isProfileDone={hasUpdatedProfile} />
             <AssessmentNotes items={items} />
-            <ActivityFeed />
+            <ActivityFeed items={items} />
           </div>
           <SideRail />
         </div>

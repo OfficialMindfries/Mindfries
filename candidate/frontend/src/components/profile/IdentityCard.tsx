@@ -1,8 +1,6 @@
 "use client";
 
 import { CalendarClock, Clock, Navigation } from "lucide-react";
-import { resolveIdentity } from "@/lib/profile/data";
-import { useProfileExtras } from "@/lib/profile/storage";
 import { EditProfileModal } from "./EditProfileModal";
 
 function formatUpdated(iso: string): string {
@@ -20,11 +18,22 @@ function formatUpdated(iso: string): string {
  */
 interface IdentityCardProps {
   sessionName?: string;
+  profile: any;
 }
 
-export function IdentityCard({ sessionName }: IdentityCardProps) {
-  const { identity: saved } = useProfileExtras();
-  const identity = resolveIdentity(saved, sessionName);
+export function IdentityCard({ sessionName, profile }: IdentityCardProps) {
+  // Always use DB data if profile has been updated, otherwise show just the
+  // session name with empty fields so new users see their real name, not sample data.
+  const hasUpdated = !!profile?.profile_updated_at;
+  const identity = {
+    name: hasUpdated ? (profile.name || sessionName || "—") : (sessionName || "—"),
+    role: hasUpdated ? (profile.role || "") : "",
+    location: hasUpdated ? (profile.location || "") : "",
+    openTo: hasUpdated ? (profile.open_to || []) : [],
+    noticePeriod: hasUpdated ? (profile.notice_period || "") : "",
+    bio: hasUpdated ? (profile.bio || "") : "",
+    updatedAt: hasUpdated ? profile.profile_updated_at : null,
+  };
 
   return (
     <section className="rounded-2xl border border-[#B3CFE5] bg-white p-6">
@@ -42,7 +51,7 @@ export function IdentityCard({ sessionName }: IdentityCardProps) {
           </div>
         </div>
 
-        <EditProfileModal />
+        <EditProfileModal savedIdentity={identity} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[#4A7FA7]">

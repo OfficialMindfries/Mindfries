@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { BadgeCheck, ExternalLink, Loader2, Trash2, X } from "lucide-react";
 import { NotFoundError, PLATFORM_ORDER, PLATFORMS, type LinkPlatform } from "@/lib/profile/links";
-import { useProfileExtras, type StoredLink } from "@/lib/profile/storage";
+import type { StoredLink } from "@/lib/profile/storage";
+import { saveLink, removeLink } from "@/lib/profile/actions";
 import { usePreviewMode } from "./PreviewMode";
 
 /**
@@ -22,8 +23,7 @@ import { usePreviewMode } from "./PreviewMode";
  * "Connect" reads as an action on that specific card rather than a row item
  * in a form.
  */
-export function LinkedAccounts() {
-  const { links, setLink, removeLink } = useProfileExtras();
+export function LinkedAccounts({ links }: { links: Partial<Record<LinkPlatform, StoredLink>> }) {
   const [open, setOpen] = useState<LinkPlatform | null>(null);
   const preview = usePreviewMode();
 
@@ -53,12 +53,17 @@ export function LinkedAccounts() {
               preview={preview}
               onOpen={() => setOpen(id)}
               onClose={() => setOpen((cur) => (cur === id ? null : cur))}
-              onSave={(link) => {
-                const ok = setLink(id, link);
-                if (ok) setOpen(null);
-                return ok;
+              onSave={async (link) => {
+                const res = await saveLink(id, link.value);
+                if (res.ok) {
+                  setOpen(null);
+                  return true;
+                }
+                return false;
               }}
-              onRemove={() => removeLink(id)}
+              onRemove={async () => {
+                await removeLink(id);
+              }}
             />
           ))}
         </div>
@@ -84,8 +89,8 @@ function PlatformTile({
   onOpen: () => void;
   onClose: () => void;
   /** Returns whether the link was actually saved — false means storage refused it. */
-  onSave: (link: StoredLink) => boolean;
-  onRemove: () => void;
+  onSave: (link: StoredLink) => Promise<boolean>;
+  onRemove: () => Promise<void>;
 }) {
   const platform = PLATFORMS[id];
   const Icon = platform.icon;
@@ -103,7 +108,8 @@ function PlatformTile({
     const STORAGE_FULL = "Couldn't save — this browser's storage is full.";
 
     if (!platform.fetchStats) {
-      if (!onSave({ value: result.value, savedAt: new Date().toISOString() })) setError(STORAGE_FULL);
+      const ok = await onSave({ value: result.value, savedAt: new Date().toISOString() });
+      if (!ok) setError(STORAGE_FULL);
       return;
     }
 
@@ -111,7 +117,8 @@ function PlatformTile({
     setError(null);
     try {
       const stats = await platform.fetchStats(result.value);
-      if (!onSave({ value: result.value, savedAt: new Date().toISOString(), stats })) setError(STORAGE_FULL);
+      const ok = await onSave({ value: result.value, savedAt: new Date().toISOString(), stats });
+      if (!ok) setError(STORAGE_FULL);
     } catch (e) {
       if (e instanceof NotFoundError) {
         setError(e.message);
@@ -120,7 +127,8 @@ function PlatformTile({
         // this time (rate limit, network). Save the link anyway rather than
         // punishing a legitimate username for a transient failure; the tile
         // will show "couldn't verify" instead of a confirmed profile.
-        if (!onSave({ value: result.value, savedAt: new Date().toISOString() })) setError(STORAGE_FULL);
+        const ok = await onSave({ value: result.value, savedAt: new Date().toISOString() });
+        if (!ok) setError(STORAGE_FULL);
       }
     } finally {
       setPending(false);

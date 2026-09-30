@@ -3,8 +3,6 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { LogOut, ShieldCheck, User } from "lucide-react";
-import { resolveIdentity } from "@/lib/profile/data";
-import { useProfileExtras } from "@/lib/profile/storage";
 import { useDismissablePanel } from "@/lib/useDismissablePanel";
 import { signOut as endSession } from "@/app/login/actions";
 import { PoliciesModal } from "./PoliciesModal";
@@ -24,12 +22,20 @@ import { PoliciesModal } from "./PoliciesModal";
  */
 interface AccountMenuProps {
   sessionName?: string;
+  profile?: any;
 }
 
-export function AccountMenu({ sessionName }: AccountMenuProps) {
+export function AccountMenu({ sessionName, profile }: AccountMenuProps) {
   const { open, setOpen, ref } = useDismissablePanel<HTMLDivElement>();
-  const { identity: saved, clearAll } = useProfileExtras();
-  const identity = resolveIdentity(saved, sessionName);
+  
+  const identity = profile?.profile_updated_at ? {
+    name: profile.name,
+    role: profile.role,
+  } : {
+    name: sessionName?.trim() || "Candidate",
+    role: "Candidate",
+  };
+  
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [showPolicies, setShowPolicies] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -40,7 +46,12 @@ export function AccountMenu({ sessionName }: AccountMenuProps) {
   }
 
   function signOut() {
-    clearAll();
+    // Clear localStorage profile data just in case it exists from old version
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("mf_profile_identity");
+      window.localStorage.removeItem("mf_profile_resume");
+      window.localStorage.removeItem("mf_profile_links");
+    }
     // endSession() redirects to /login itself once the cookie is cleared —
     // Next resolves that redirect through this transition, same pattern
     // AssessmentWall already uses to call startAssessment from a client

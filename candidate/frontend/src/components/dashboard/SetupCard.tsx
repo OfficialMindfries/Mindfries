@@ -1,7 +1,7 @@
 import { ArrowRight, Check, Video } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
-import { setupSteps } from "@/lib/dashboard/data";
 
 /**
  * Mercor's numbered header stepper, merged with its "Important tasks" card.
@@ -13,25 +13,34 @@ import { setupSteps } from "@/lib/dashboard/data";
  * once setup is done.
  */
 
-const COPY: Record<string, { title: string; body: string; cta: string }> = {
+const COPY: Record<string, { title: string; body: string; cta: string; href?: string }> = {
   "Environment check": {
     title: "Run the environment check",
     body: "Two minutes: camera, microphone, and whether your browser can run the workspace. Do it once, before your first real session — not five minutes before a deadline.",
     cta: "Start the check",
+    href: "/environment-check",
   },
   "Practice run": {
     title: "Take a practice run",
     body: "A real workspace with a throwaway task. Nothing from it is recorded, scored, or shared.",
     cta: "Open a practice run",
+    href: "/practice",
   },
   Profile: {
     title: "Finish your profile",
     body: "Companies see this alongside the evidence from your sessions.",
     cta: "Complete profile",
+    href: "/profile",
   },
 };
 
-export function SetupCard() {
+export function SetupCard({ isProfileDone }: { isProfileDone: boolean }) {
+  const setupSteps = [
+    { label: "Profile", done: isProfileDone },
+    { label: "Environment check", done: false }, // Not tracked yet
+    { label: "Practice run", done: false }, // Not tracked yet
+  ];
+
   const next = setupSteps.find((step) => !step.done);
   const done = setupSteps.filter((step) => step.done).length;
   if (!next) return null;
@@ -81,10 +90,19 @@ export function SetupCard() {
           <h2 className="text-sm font-semibold text-[#0A1931]">{copy.title}</h2>
           <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-[#4A7FA7]">{copy.body}</p>
         </div>
-        <Button type="button" size="sm" className="shrink-0">
-          {copy.cta}
-          <ArrowRight size={14} />
-        </Button>
+        {copy.href ? (
+          <Link href={copy.href}>
+            <Button size="sm" className="shrink-0">
+              {copy.cta}
+              <ArrowRight size={14} />
+            </Button>
+          </Link>
+        ) : (
+          <Button type="button" size="sm" className="shrink-0">
+            {copy.cta}
+            <ArrowRight size={14} />
+          </Button>
+        )}
       </div>
     </section>
   );
