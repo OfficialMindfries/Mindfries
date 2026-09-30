@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { inviteCandidateToRole, setApplicationStage } from "@/lib/db";
+import { inviteCandidateToRole, setApplicationStage, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
@@ -62,4 +62,25 @@ export async function changeStage(roleId: string, applicationId: string, stage: 
   revalidatePath("/candidates");
   revalidatePath(`/candidates/${applicationId}`);
   revalidatePath("/dashboard");
+}
+
+export type AttachTemplateState = { error: string | null; success: boolean };
+
+/** IMPLEMENTATION.md §3.3/§3.7's deferred picker, wired in now: attach or detach (empty selection) a published assessment template on an existing role. */
+export async function attachTemplate(roleId: string, _prev: AttachTemplateState, form: FormData): Promise<AttachTemplateState> {
+  let companyId: string;
+  try {
+    companyId = (await requireCompanyPermission("role:write")).companyId;
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+  const templateId = String(form.get("templateId") ?? "").trim() || null;
+  try {
+    await setJobRoleTemplate(companyId, roleId, templateId);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't update the assessment — try again.", success: false };
+  }
+  revalidatePath(`/roles/${roleId}`);
+  revalidatePath("/roles");
+  return { error: null, success: true };
 }

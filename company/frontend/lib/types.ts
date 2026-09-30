@@ -16,10 +16,23 @@ export interface CompanyUser {
 export type RoleVisibility = "invite_only" | "open_pool";
 export type RoleStatus = "open" | "closed";
 
+// The shared Assessment/Game Library — authored by Mindfries ops in
+// internal-admin; a role can attach one of the published ones (§3.3/§3.7).
+export type TaskVariant = "bug_fix" | "feature" | "refactor" | "debug";
+
+export interface GameTemplate {
+  id: string;
+  name: string;
+  taskVariant: TaskVariant;
+  techStack: string[];
+  durationMin: number;
+}
+
 export interface JobRole {
   id: string;
   companyId: string;
   templateId: string | null;
+  templateName: string | null;
   title: string;
   techStack: string[];
   durationMin: number | null;

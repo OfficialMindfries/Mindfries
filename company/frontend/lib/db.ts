@@ -1,6 +1,20 @@
 import "server-only";
 import { db } from "./supabase";
-import type { ApplicationStage, AssessmentReport, CandidateApplication, CandidateReport, DueCandidate, JobRole, RoleVisibility, SessionSummary, StageCounts } from "./types";
+import { inviteSecret, signInviteToken } from "./auth/invite-token";
+import type {
+  ApplicationStage,
+  AssessmentReport,
+  CandidateApplication,
+  CandidateReport,
+  CompanyRole,
+  CompanyUser,
+  DueCandidate,
+  GameTemplate,
+  JobRole,
+  RoleVisibility,
+  SessionSummary,
+  StageCounts,
+} from "./types";
 
 // Data access for the Company Portal. Every read returns [] when Supabase
 // isn't wired yet, so pages render empty states instead of crashing
@@ -15,11 +29,34 @@ import type { ApplicationStage, AssessmentReport, CandidateApplication, Candidat
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+function toTemplate(r: any): GameTemplate {
+  return {
+    id: r.id,
+    name: r.name,
+    taskVariant: r.task_variant,
+    techStack: r.tech_stack ?? [],
+    durationMin: r.duration_min ?? 60,
+  };
+}
+
+/** Only published templates — this portal picks from the shared library, it doesn't author rubrics/repo config (that stays in internal-admin). */
+export async function listPublishedTemplates(): Promise<GameTemplate[]> {
+  const c = db();
+  if (!c) return [];
+  const { data } = await c
+    .from("game_templates")
+    .select("*")
+    .eq("status", "published")
+    .order("name", { ascending: true });
+  return (data ?? []).map(toTemplate);
+}
+
 function toJobRole(r: any): JobRole {
   return {
     id: r.id,
     companyId: r.company_id,
     templateId: r.template_id ?? null,
+    templateName: r.game_templates?.name ?? null,
     title: r.title,
     techStack: r.tech_stack ?? [],
     durationMin: r.duration_min ?? null,
@@ -34,7 +71,7 @@ export async function listJobRoles(companyId: string): Promise<JobRole[]> {
   if (!c) return [];
   const { data } = await c
     .from("job_roles")
-    .select("*")
+    .select("*, game_templates(name)")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
   return (data ?? []).map(toJobRole);
@@ -73,8 +110,25 @@ export async function createJobRole(input: {
 export async function getJobRole(companyId: string, roleId: string): Promise<JobRole | null> {
   const c = db();
   if (!c) return null;
-  const { data } = await c.from("job_roles").select("*").eq("company_id", companyId).eq("id", roleId).maybeSingle();
+  const { data } = await c
+    .from("job_roles")
+    .select("*, game_templates(name)")
+    .eq("company_id", companyId)
+    .eq("id", roleId)
+    .maybeSingle();
   return data ? toJobRole(data) : null;
+}
+
+/** IMPLEMENTATION.md §3.3/§3.7's deferred picker — attach (or detach, templateId=null) a published template after the role already exists. */
+export async function setJobRoleTemplate(companyId: string, roleId: string, templateId: string | null): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { error } = await c
+    .from("job_roles")
+    .update({ template_id: templateId })
+    .eq("company_id", companyId)
+    .eq("id", roleId);
+  if (error) throw error;
 }
 
 const EMPTY_STAGE_COUNTS: StageCounts = {
@@ -316,4 +370,73 @@ export async function listUpcomingDueDates(companyId: string): Promise<DueCandid
     }))
     .filter((d) => !!d.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+function toCompanyUser(r: any): CompanyUser {
+  return {
+    id: r.id,
+    companyId: r.company_id,
+    email: r.email,
+    name: r.name,
+    role: r.role,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+}
+
+export async function listCompanyUsers(companyId: string): Promise<CompanyUser[]> {
+  const c = db();
+  if (!c) return [];
+  const { data } = await c
+    .from("company_users")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: true });
+  return (data ?? []).map(toCompanyUser);
+}
+
+/**
+ * IMPLEMENTATION.md Phase 4: invite a teammate. Same insert + sign-token
+ * shape as internal-admin's private createCompanyUserInvite (which this
+ * generalizes — `role` is a parameter here, not hardcoded "admin", since
+ * that helper only ever provisions the founding admin). Returns `token:
+ * null` if COMPANY_INVITE_SECRET isn't configured — the row still gets
+ * created (the token can be re-derived by any future call once the secret
+ * exists, since nothing about the row itself depends on it) — the caller
+ * decides whether that's an error worth surfacing.
+ */
+export async function inviteCompanyUser(input: {
+  companyId: string;
+  email: string;
+  name: string;
+  role: CompanyRole;
+}): Promise<{ companyUser: CompanyUser; token: string | null }> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+
+  const { data, error } = await c
+    .from("company_users")
+    .insert({ company_id: input.companyId, email: input.email, name: input.name, role: input.role, status: "invited" })
+    .select("*")
+    .single();
+  if (error || !data) throw error ?? new Error("Insert returned no row");
+
+  const secret = inviteSecret();
+  const token = secret ? await signInviteToken({ companyUserId: data.id, email: input.email }, secret) : null;
+  return { companyUser: toCompanyUser(data), token };
+}
+
+export async function setCompanyUserStatus(
+  companyId: string,
+  userId: string,
+  status: "active" | "disabled",
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { error } = await c
+    .from("company_users")
+    .update({ status })
+    .eq("company_id", companyId)
+    .eq("id", userId);
+  if (error) throw error;
 }
