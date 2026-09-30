@@ -105,6 +105,13 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 }
 
 func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candidateName string, tmpl db.Template) (db.Session, error) {
+	existing, err := o.DB.GetSessionByCandidateAndTemplate(ctx, candidateID, tmpl.ID)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return db.Session{}, fmt.Errorf("orchestrator: checking existing session: %w", err)
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return db.Session{}, fmt.Errorf("orchestrator: candidate already has a session for this template (session %s)", existing.ID)
+	}
 	sess, err := o.DB.StartSession(ctx, candidateID, candidateName, tmpl)
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)

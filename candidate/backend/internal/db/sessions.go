@@ -75,6 +75,23 @@ func (d *DB) StartSessionFromInvitation(ctx context.Context, candidateID, candid
 	return scanSession(row)
 }
 
+// GetSessionByCandidateAndTemplate returns the live (or most recent) session
+// for a given candidate and template, or ErrNotFound if none exists. Used by
+// the orchestrator to enforce "one active session per candidate per template"
+// on the open self-serve pool.
+func (d *DB) GetSessionByCandidateAndTemplate(ctx context.Context, candidateID, templateID string) (Session, error) {
+	row := d.pool.QueryRow(ctx, `
+		select `+sessionColumns+` from sessions
+		where candidate_id = $1 and template_id = $2
+		order by started_at desc
+	`, candidateID, templateID)
+	s, err := scanSession(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, ErrNotFound
+	}
+	return s, err
+}
+
 // GetSession fetches one session by id, for status polling, ownership
 // checks, and the WebSocket handshake.
 func (d *DB) GetSession(ctx context.Context, id string) (Session, error) {
