@@ -1,6 +1,6 @@
 import { FileText, Inbox, Repeat, Terminal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { activity, type ActivityEntry } from "@/lib/dashboard/data";
+import type { Assessment } from "@/lib/dashboard/data";
 
 /**
  * Mercor's application rows, carrying what this product is actually about.
@@ -12,28 +12,43 @@ import { activity, type ActivityEntry } from "@/lib/dashboard/data";
  * how many tests — because that's the thing a candidate is being read on.
  */
 
-const ICONS: Record<ActivityEntry["kind"], LucideIcon> = {
+const ICONS: Record<string, LucideIcon> = {
   session: Terminal,
   report: FileText,
   invite: Inbox,
   practice: Repeat,
 };
 
-export function ActivityFeed() {
+export function ActivityFeed({ items = [] }: { items?: Assessment[] }) {
+  // Generate real activities from the user's assessments
+  const activity = items.map((a) => {
+    if (a.status === "invited") {
+      return { id: a.id, kind: "invite", title: `Invited to ${a.role}`, detail: `${a.company} · ${a.tags.join(", ")}`, when: a.due };
+    }
+    if (a.status === "submitted" || a.status === "closed") {
+      return { id: a.id, kind: "session", title: `Submitted ${a.role} assessment`, detail: a.company, when: a.due };
+    }
+    return { id: a.id, kind: "session", title: `Started ${a.role} session`, detail: "In progress", when: a.due };
+  });
+
   return (
     <section>
       <div className="mb-3 flex items-baseline gap-3">
         <h2 className="text-base font-semibold tracking-tight text-[#0A1931]">Recent activity</h2>
-        <button
-          type="button"
-          className="ml-auto text-[13px] font-medium text-[#4A7FA7] transition-colors hover:text-[#1A3D63]"
-        >
-          See all
-        </button>
+        {activity.length > 0 && (
+          <button
+            type="button"
+            className="ml-auto text-[13px] font-medium text-[#4A7FA7] transition-colors hover:text-[#1A3D63]"
+          >
+            See all
+          </button>
+        )}
       </div>
 
       <ol className="overflow-hidden rounded-2xl border border-[#B3CFE5] bg-white">
-        {activity.map((entry, index) => {
+        {activity.length === 0 ? (
+          <li className="px-4 py-3.5 text-sm text-[#4A7FA7]">No recent activity.</li>
+        ) : activity.map((entry, index) => {
           const Icon = ICONS[entry.kind];
           return (
             <li

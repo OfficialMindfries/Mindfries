@@ -2,7 +2,6 @@
 
 import { ListChecks } from "lucide-react";
 import { stats } from "@/lib/dashboard/data";
-import { useProfileExtras } from "@/lib/profile/storage";
 import { usePreviewMode } from "./PreviewMode";
 
 /**
@@ -16,8 +15,7 @@ import { usePreviewMode } from "./PreviewMode";
  * still asks you to do something you've already done stops being trustworthy
  * the first time it's wrong.
  */
-export function NextSteps() {
-  const { resume, links } = useProfileExtras();
+export function NextSteps({ hasResume, links }: { hasResume: boolean; links: any }) {
   const preview = usePreviewMode();
   const practiceRuns = stats.find((s) => s.kind === "practice")?.value ?? 0;
 
@@ -27,7 +25,7 @@ export function NextSteps() {
   if (preview) return null;
 
   const remaining = [
-    !resume && { title: "Upload your resume", body: "Help teams understand your background." },
+    !hasResume && { title: "Upload your resume", body: "Help teams understand your background." },
     !links.github && !links.gitlab && { title: "Connect at least one code account", body: "GitHub or GitLab." },
     practiceRuns === 0 && { title: "Run a practice session", body: "Get comfortable with the environment." },
   ].filter((x): x is { title: string; body: string } => !!x);

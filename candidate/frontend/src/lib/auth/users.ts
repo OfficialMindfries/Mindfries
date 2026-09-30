@@ -19,6 +19,14 @@ export interface CandidateRow {
   status: "active" | "disabled";
   failed_attempts: number;
   locked_until: string | null;
+  role: string | null;
+  location: string | null;
+  bio: string | null;
+  notice_period: string | null;
+  open_to: string[] | null;
+  resume_path: string | null;
+  links: any;
+  profile_updated_at: string | null;
 }
 
 const MAX_ATTEMPTS = 8;

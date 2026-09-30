@@ -8,6 +8,7 @@ import { EvidenceSummary } from "@/components/profile/EvidenceSummary";
 import { ResumeUpload } from "@/components/profile/ResumeUpload";
 import { NextSteps } from "@/components/profile/NextSteps";
 import { currentCandidate } from "@/lib/auth/users";
+import { getProfile, getResumeUrl } from "@/lib/profile/actions";
 
 export const metadata: Metadata = {
   title: "Profile · Mindfries",
@@ -37,27 +38,29 @@ export const metadata: Metadata = {
  */
 export default async function ProfilePage() {
   const session = await currentCandidate();
+  const profile = await getProfile();
+  const resumeUrl = await getResumeUrl(profile?.resume_path || null);
 
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
-      <DashboardNav sessionName={session?.name} />
+      <DashboardNav sessionName={session?.name} profile={profile} />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
         <PreviewModeProvider>
           <div className="mt-6">
-            <ProfileStrength />
+            <ProfileStrength profile={profile} hasResume={!!profile?.resume_path} />
           </div>
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 space-y-6">
-              <IdentityCard sessionName={session?.name} />
-              <LinkedAccounts />
+              <IdentityCard sessionName={session?.name} profile={profile} />
+              <LinkedAccounts links={profile?.links || {}} />
             </div>
 
             <aside className="space-y-4">
-              <ResumeUpload />
+              <ResumeUpload resumePath={profile?.resume_path} resumeUrl={resumeUrl} />
               <EvidenceSummary />
-              <NextSteps />
+              <NextSteps hasResume={!!profile?.resume_path} links={profile?.links || {}} />
             </aside>
           </div>
         </PreviewModeProvider>

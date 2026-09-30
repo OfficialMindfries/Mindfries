@@ -62,19 +62,15 @@ function stripToLastSegment(input: string, host: RegExp): string {
 }
 
 async function fetchGithub(username: string): Promise<PlatformStats> {
-  const res = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
+  // Proxy through our own API route to avoid browser rate-limits on
+  // unauthenticated api.github.com requests (60/hr per IP).
+  const res = await fetch(`/api/github/${encodeURIComponent(username)}`);
   if (res.status === 404) throw new NotFoundError(`No GitHub account named "${username}".`);
-  if (!res.ok) throw new Error(`GitHub didn't answer (HTTP ${res.status}). Try again in a moment.`);
-  const j = await res.json();
-  return {
-    name: j.name ?? j.login,
-    avatarUrl: j.avatar_url,
-    publicRepos: j.public_repos,
-    followers: j.followers,
-    profileUrl: j.html_url ?? `https://github.com/${username}`,
-  };
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `GitHub didn't answer (HTTP ${res.status}). Try again in a moment.`);
+  }
+  return res.json() as Promise<PlatformStats>;
 }
 
 async function fetchGitlab(username: string): Promise<PlatformStats> {

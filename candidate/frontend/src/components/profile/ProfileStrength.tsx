@@ -2,8 +2,6 @@
 
 import { Check } from "lucide-react";
 import clsx from "clsx";
-import { resolveIdentity } from "@/lib/profile/data";
-import { useProfileExtras } from "@/lib/profile/storage";
 import { PLATFORM_ORDER, PLATFORMS } from "@/lib/profile/links";
 
 /**
@@ -16,13 +14,13 @@ import { PLATFORM_ORDER, PLATFORMS } from "@/lib/profile/links";
  * product's whole premise — the PRD's own line is that the system should
  * show its work, not just render a verdict.
  */
-export function ProfileStrength() {
-  const { identity: saved, resume, links } = useProfileExtras();
-  const identity = resolveIdentity(saved);
+export function ProfileStrength({ profile, hasResume }: { profile: any; hasResume: boolean }) {
+  const bio = profile?.bio || "";
+  const links = profile?.links || {};
 
   const items = [
-    { label: "About you", done: identity.bio.trim().length > 0 },
-    { label: "Resume", done: !!resume },
+    { label: "About you", done: bio.trim().length > 0 },
+    { label: "Resume", done: hasResume },
     ...PLATFORM_ORDER.map((id) => ({ label: PLATFORMS[id].label, done: !!links[id] })),
   ];
 
