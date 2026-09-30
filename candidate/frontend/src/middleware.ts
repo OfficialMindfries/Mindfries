@@ -11,11 +11,12 @@ import { readSession, SESSION_COOKIE, sessionSecret } from "@/lib/auth/session";
 // Fails closed: no SESSION_SECRET means no valid session, which means nobody
 // gets in. A gate that opens when misconfigured isn't a gate.
 //
-// The root `/` (the stock Next.js starter page) and /ide are deliberately
-// NOT in the matcher below: `/` was never built into part of this product,
-// and the workspace has its own session concept tied to an assessment
-// invite rather than a candidate login — gating it here would be gating
-// something this middleware doesn't actually understand.
+// The root `/` (the stock Next.js starter page) is deliberately
+// NOT in the matcher below: it was never built into part of this product.
+// The workspace `/ide` IS included in the matcher: candidates must be
+// signed in to access it.  If the backend or product scope changes
+// and `/ide` should become open-to-all, remove it from here and
+// add the check back to `IdePage` instead.
 
 export async function middleware(req: NextRequest) {
   const session = await readSession(req.cookies.get(SESSION_COOKIE)?.value, sessionSecret());
@@ -44,5 +45,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/dashboard", "/assessments/:path*", "/assessments", "/profile/:path*", "/profile", "/onboarding", "/login", "/signup"],
+  matcher: ["/dashboard/:path*", "/dashboard", "/assessments/:path*", "/assessments", "/profile/:path*", "/profile", "/ide/:path*", "/ide", "/onboarding", "/login", "/signup"],
 };

@@ -27,7 +27,7 @@ explain decisions → submit.
 |---|---|
 | What are we building, and why? | [`System_Archetect_And_PRD.md`](System_Archetect_And_PRD.md) — **the source of truth** for product and architecture |
 | What is actually built right now? | [`spec.md`](spec.md) — implemented reality vs. the PRD |
-| What's done, what's next? | [`task.md`](task.md) |
+| What's done, what's next? | [`task.md`](task.md) — a short status page. For the detailed evidence behind it (security findings, the full API inventory, exactly what was verified and how), see [`AUDIT.md`](AUDIT.md) |
 | How does the candidate IDE work internally? | [`candidate/frontend/src/app/ide/`](candidate/frontend/src/app/ide/) — its own spec / task / contributor notes |
 
 Don't copy PRD content into other docs. Link to the section instead.
