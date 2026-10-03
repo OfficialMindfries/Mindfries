@@ -34,8 +34,14 @@ func New(ctx context.Context, databaseURL string) (*DB, error) {
 	// Supabase terminates TLS with a certificate this pool doesn't carry a
 	// root for — the connection is still encrypted, just not verified. Same
 	// trade-off candidate/backend's own internal/db package already makes
-	// explicit for the same reason.
-	cfg.ConnConfig.TLSConfig.InsecureSkipVerify = true
+	// explicit for the same reason. TLSConfig is nil when the connection
+	// string doesn't request TLS at all (e.g. a local Postgres with
+	// "sslmode=disable" during development) — guarded rather than
+	// dereferenced unconditionally, which panicked against exactly that case
+	// while verifying this package against a real database.
+	if cfg.ConnConfig.TLSConfig != nil {
+		cfg.ConnConfig.TLSConfig.InsecureSkipVerify = true
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

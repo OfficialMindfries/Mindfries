@@ -11,16 +11,26 @@ validates the same signed `mf_company` session cookie that app issues — it
 does not mint sign-in sessions itself; sign-in stays where the password
 hashing already lives (`company/frontend/lib/auth`).
 
-## Status: Phase 1 — scaffold only
+## Status: Phase 2 — Roles + Candidates API
 
-This is the foundation: config, database connection, session verification,
-the permission matrix ported from `company/frontend/lib/auth/permissions.ts`,
-and `/health`/`/status`. No business routes yet — those land in Phases 2–4
-(see the project's implementation plan). `company/frontend` does not call
-this service yet; every `lib/db.ts` function still reads/writes Supabase
-directly until Phase 5 adds the `COMPANY_BACKEND_URL`-gated client, mirroring
-how `internal-admin/frontend` falls back to direct Supabase when
-`ADMIN_BACKEND_URL` is unset.
+Phase 1 laid the foundation: config, database connection, session
+verification, the permission matrix ported from
+`company/frontend/lib/auth/permissions.ts`. Phase 2 adds the first two
+business surfaces — job roles and the candidate pipeline — backed by real
+queries against `job_roles`/`candidate_applications`
+(`0011_company_portal.sql`). Team (Phase 3) and billing (Phase 4) are still
+to come. `company/frontend` does not call this service yet; every
+`lib/db.ts` function still reads/writes Supabase directly until Phase 5 adds
+the `COMPANY_BACKEND_URL`-gated client, mirroring how `internal-admin/frontend`
+falls back to direct Supabase when `ADMIN_BACKEND_URL` is unset.
+
+Verified end to end against a real local Postgres (migrations
+`0002_product.sql` + `0011_company_portal.sql` applied, every route
+exercised over HTTP with signed test cookies) — not just unit tests. That
+pass caught and fixed two real bugs: `internal/db.New` dereferencing a nil
+`TLSConfig` when the connection string doesn't request TLS, and
+`timestamptz` columns needing to be scanned into `time.Time` rather than
+`string` under pgx's binary protocol (both fixed in `internal/db`).
 
 ## Run it
 
@@ -35,21 +45,33 @@ go run ./cmd/server
 makes, it doesn't generate its own.
 
 ```bash
-go test ./...      # unit tests — no live database needed yet (Phase 1 has none)
+go test ./...      # unit tests — cover validation/permission logic, not live queries
 go vet ./...
 gofmt -l .          # should print nothing
 ```
 
+Unit tests don't hit a live database (no `DATABASE_URL` is assumed to be
+available to the test binary — same constraint `candidate/backend`'s own
+suite lives with). The real query layer (`internal/db`) is verified by
+running the service against an actual Postgres, same as the manual check
+described in Status above.
+
 ## Endpoints
 
-| Method & path | Auth | What it does |
+| Method & path | Gate | What it does |
 |---|---|---|
-| `GET /health` | none | Liveness only |
-| `GET /status` | none | Real DB ping + whether Stripe/webhook secret are configured |
+| `GET /health`, `GET /status` | none | Liveness, DB ping, which integrations have keys |
+| `GET /api/v1/roles` | any role | List job roles + per-role stage counts |
+| `POST /api/v1/roles` | `role:write` | Create a role |
+| `GET /api/v1/roles/{id}` | any role | Role detail + full pipeline |
+| `PATCH /api/v1/roles/{id}` | `role:write` | Attach/change a role's template |
+| `GET /api/v1/candidates` | any role | Cross-role candidate list |
+| `GET /api/v1/candidates/compare?ids=` | any role | 2–4 candidate comparison rows |
+| `GET /api/v1/candidates/{id}` | any role | Candidate profile + section scores |
+| `POST /api/v1/candidates/{id}/stage` | `candidate:stage` | Shortlist / reject / hire |
 
-The full route table (roles, candidates, team, billing) is documented in the
-project's implementation plan and lands incrementally through Phases 2–4;
-this table is kept up to date as each phase merges.
+Team and billing routes land in Phases 3–4; this table is kept up to date as
+each phase merges.
 
 ## Permissions
 
