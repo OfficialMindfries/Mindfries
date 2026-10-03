@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { listApplicationsForCompany, listJobRoles, listUpcomingDueDates, type CandidateApplicationWithRole } from "@/lib/db";
 import { supabaseReady } from "@/lib/supabase";
@@ -9,6 +10,15 @@ import { DueDateCalendar } from "./DueDateCalendar";
 import { ActivityFeed } from "./ActivityFeed";
 
 export const dynamic = "force-dynamic";
+
+// `new Date()` called directly in a Server Component can return a
+// different instant across this one request's separate render passes
+// (the prerendered HTML shell vs. the RSC flight payload) — rare, but
+// when it straddles a week boundary it mismatches a chart label between
+// server and client and React flags a hydration error. `cache()` pins it
+// to one value for the whole request, the fix Next.js itself recommends
+// for non-deterministic values read during render.
+const getAsOf = cache(() => new Date());
 
 /** Overview — the four PRD §1.4 stat cards, plus real invite trend/heatmap/calendar/activity widgets below them. */
 export default async function OverviewPage() {
@@ -28,7 +38,7 @@ export default async function OverviewPage() {
   const inProgress = applications.filter((a) => a.stage === "invited" || a.stage === "in_progress");
   const completed = applications.filter((a) => a.stage !== "invited" && a.stage !== "in_progress");
   const readyForReview = applications.filter((a) => a.stage === "completed");
-  const asOf = new Date();
+  const asOf = getAsOf();
   const createdAtDates = applications.map((a) => a.createdAt);
 
   return (
@@ -66,7 +76,7 @@ export default async function OverviewPage() {
               <ActivityHeatmap createdAtDates={createdAtDates} asOf={asOf} />
             </Panel>
             <Panel title="Recent activity" className="lg:col-span-3">
-              <ActivityFeed roles={roles} applications={applications} />
+              <ActivityFeed roles={roles} applications={applications} asOf={asOf} />
             </Panel>
           </div>
         </>

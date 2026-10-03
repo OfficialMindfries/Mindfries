@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Briefcase, CreditCard, LayoutDashboard, LogOut, Users, UsersRound, type LucideIcon } from "lucide-react";
+import { Briefcase, CreditCard, LayoutDashboard, LogOut, Menu, Users, UsersRound, X, type LucideIcon } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 import { companyRoleLabel } from "@/lib/format";
 import type { CompanyRole } from "@/lib/types";
@@ -32,20 +33,59 @@ function initials(name: string): string {
 
 export function Sidebar({ user }: { user: { name: string; email: string; role: CompanyRole; companyName: string } }) {
   const path = usePathname();
+  const [open, setOpen] = useState(false);
   const isActive = (href: string) => path === href || path.startsWith(`${href}/`);
 
+  // Carrying the mobile drawer open across a navigation would strand the
+  // user behind their own menu. Adjusting state during render (React's own
+  // recommended pattern for "reset when a prop changes") rather than in a
+  // useEffect, which would cascade an extra render for the same result.
+  const [lastPath, setLastPath] = useState(path);
+  if (path !== lastPath) {
+    setLastPath(path);
+    setOpen(false);
+  }
+
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-hair bg-surface">
-      <Link href="/dashboard" className="flex items-center gap-3 px-5 pt-6 pb-5">
-        {/* eslint-disable-next-line @next/next/no-img-element -- small static local SVG, nothing to optimise */}
-        <img src="/mindfries-logo.svg" alt="" width={36} height={36} className="shrink-0" />
-        <div className="min-w-0">
-          <div className="text-[15px] font-extrabold leading-none tracking-tight">Mindfries</div>
-          <div className="eyebrow mt-1.5 truncate" title={user.companyName || undefined}>
-            {user.companyName || "Company Portal"}
-          </div>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Open menu"
+        className="fixed top-4 left-4 z-20 grid h-10 w-10 place-items-center rounded-xl border border-hair bg-surface shadow-sm md:hidden"
+      >
+        <Menu size={18} strokeWidth={2.1} aria-hidden />
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setOpen(false)} aria-hidden />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-hair bg-surface transition-transform duration-200 md:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3 px-5 pt-6 pb-5">
+          <Link href="/dashboard" className="flex min-w-0 items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element -- small static local SVG, nothing to optimise */}
+            <img src="/mindfries-logo.svg" alt="" width={36} height={36} className="shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[15px] font-extrabold leading-none tracking-tight">Mindfries</div>
+              <div className="eyebrow mt-1.5 truncate" title={user.companyName || undefined}>
+                {user.companyName || "Company Portal"}
+              </div>
+            </div>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close menu"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-dim transition hover:bg-black/[0.05] hover:text-ink md:hidden"
+          >
+            <X size={18} strokeWidth={2.1} aria-hidden />
+          </button>
         </div>
-      </Link>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 [scrollbar-width:thin]" aria-label="Company">
         <ul className="space-y-0.5">
@@ -102,6 +142,7 @@ export function Sidebar({ user }: { user: { name: string; email: string; role: C
           </form>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

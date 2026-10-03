@@ -19,15 +19,21 @@ const LIMIT = 8;
  * just not a complete one (stage changes aren't logged as events, only as
  * current state, so they don't show up here).
  */
-export function ActivityFeed({ roles, applications }: { roles: JobRole[]; applications: CandidateApplicationWithRole[] }) {
+export function ActivityFeed({
+  roles,
+  applications,
+  asOf,
+}: {
+  roles: JobRole[];
+  applications: CandidateApplicationWithRole[];
+  asOf: Date;
+}) {
   const items: Item[] = [
     ...roles.map((role): Item => ({ kind: "role", at: role.createdAt, role })),
     ...applications.map((application): Item => ({ kind: "invite", at: application.createdAt, application })),
   ]
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, LIMIT);
-
-  const asOf = new Date();
 
   if (items.length === 0) {
     return <div className="flex h-28 items-center justify-center p-5 text-sm text-faint">No activity yet</div>;

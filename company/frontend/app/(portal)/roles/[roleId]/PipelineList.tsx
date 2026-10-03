@@ -80,6 +80,7 @@ export function PipelineList({
               value={a.id}
               checked={selected.has(a.id)}
               onChange={() => toggleOne(a.id)}
+              aria-label={`Select ${a.candidateName ?? a.candidateEmail}`}
             />
           )}
           <Link href={`/candidates/${a.id}`} className="min-w-0 flex-1 hover:underline">
