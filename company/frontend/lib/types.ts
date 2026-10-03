@@ -117,3 +117,12 @@ export interface DueCandidate {
   roleTitle: string;
   dueDate: string; // YYYY-MM-DD
 }
+
+/** §3.4's billing page: plan/seats straight from `companies`, usage derived from existing counts — no Stripe, no invented numbers. */
+export interface CompanyBilling {
+  plan: string;
+  seatsTotal: number;
+  seatsUsed: number;
+  openRoles: number;
+  candidatesInvited: number;
+}
