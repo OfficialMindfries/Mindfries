@@ -393,3 +393,177 @@ real Stripe billing, ATS integrations, interview scheduling, AI summaries.
   means a future change to one won't propagate to the other automatically
   — accept this for MVP; revisit extracting a real shared package only
   once a third consumer of the same components exists.
+
+---
+
+## 15. Cross-app frontend audit — 2026-10-03
+
+**Scope note:** this section is broader than the rest of this doc. Everything
+above is Company Portal-only; this section covers all three frontend apps
+(`company/frontend`, `internal-admin/frontend`, `candidate/frontend`), found
+by running `tsc`/`eslint`/`next build` on each and reading the source
+directly — not by re-deriving the already-known gaps in `task.md`, `spec.md`,
+or `AUDIT.md` (Company Portal didn't exist, no sandbox/AI keys, keystroke
+telemetry, the AI interview, etc. — all still true and already written down
+elsewhere). Nothing below has been fixed yet — this is the findings list,
+pending your go-ahead to act on it.
+
+### company/frontend — clean
+
+`tsc --noEmit`, `eslint`, and `next build` all pass with zero errors or
+warnings on the current `main` (post Phases 1–5). One harmless note: the
+`Modal` component in `components/ui.tsx` (copied verbatim from
+internal-admin) has no focus trap, but it's never actually rendered
+anywhere in this app — dead code, not a live bug here. See internal-admin's
+finding below, where the same component *is* used.
+
+### internal-admin/frontend
+
+1. **High — three write actions silently ignore their own failure result,
+   with no error shown to the user.** `components/admin/SessionsView.tsx`'s
+   `doReset`/`doRetrigger` (lines 25–32) and `components/admin/LibraryView.tsx`'s
+   `togglePublish` (lines 96–100) optimistically update local state *before*
+   calling the server action, then never check what it returned — a thrown
+   `ForbiddenError` (e.g. a viewer-role admin) or a backend failure leaves
+   the UI showing a state that never actually happened, with no toast, until
+   the next page load silently reverts it. `components/admin/LeadActions.tsx`'s
+   `stage` (lines 40–44) has the same gap for "Mark replied"/"Reject." Other
+   components in the same files (and sibling files) correctly check `res.ok`
+   and toast on failure — this is an inconsistency/regression, not a design
+   choice.
+2. **High — the admin sidebar has the exact same "no mobile collapse" bug
+   company/frontend's copy of it had before Slice 3 of the Company Portal
+   work fixed it.** `components/admin/Sidebar.tsx` is `fixed w-64` with zero
+   responsive classes; `app/admin/layout.tsx`'s `<main className="pl-64">`
+   is unconditional. No hamburger toggle, no breakpoint hiding anywhere.
+   Every `/admin/*` page is unusable at phone width — content starts 256px
+   from the left edge with no way to reach the nav. This is the *original*
+   component company/frontend's copy was cloned from; it was never fixed
+   here.
+3. **High — onboarding tells the ops team credentials were emailed even when
+   nothing was sent.** `lib/db.ts`'s `addOnboarded()` sets
+   `credentials_sent_at` unconditionally, regardless of whether a real email
+   went out. `onboardCompany()` only sends a real sign-in link when both
+   `COMPANY_PORTAL_URL` and `COMPANY_INVITE_SECRET` are set, otherwise falls
+   back to a generic "we'll be in touch" email (itself wrapped in a
+   swallowed try/catch, so it may not send at all without Resend
+   configured). `OnboardForm.tsx` unconditionally toasts "Credentials
+   emailed to {adminEmail}" on any success. The Onboarding page's
+   "Credentials sent" metric (`app/admin/onboarding/page.tsx`) will read
+   100% today, since per `task.md`/`spec.md`'s own admitted state
+   `RESEND_API_KEY` is unset everywhere — meaning the metric is currently
+   lying to anyone who reads it as fact.
+4. **Medium — no role-based UI gating.** `requireAdminRole()` is the real
+   server-side gate and it's called correctly everywhere, but no client
+   view ever hides/disables a mutating button for a "viewer" account —
+   every Onboard/Invite/Pause/Publish/Reset/Re-trigger button renders fully
+   enabled regardless of role. Combined with #1, a viewer clicking one of
+   the three broken buttons gets an optimistic UI update and zero error,
+   making their read-only account look like it just mutated data.
+5. **Low/medium — `parseStarterFiles` doesn't validate paths.**
+   `lib/starter-files.ts` (lines 14–41) strips a leading `/` but never
+   rejects `../` segments or absolute-looking paths before the result seeds
+   a candidate's real IDE workspace verbatim. Admin-only input, but
+   unvalidated.
+6. **Low — non-null assertion on a field the type itself documents as
+   optional.** `app/admin/tracker/page.tsx:21`:
+   `leads.filter((l) => l.repliedCount! > 0 || ...)` against
+   `repliedCount?: number` in `lib/types.ts:83`. Doesn't throw today
+   (`undefined! > 0` just evaluates false), but silences the compiler on a
+   field that can legitimately be missing.
+7. **Low — `Modal` has no focus trap.** Same component noted as dead code
+   in company/frontend, but it's genuinely used throughout internal-admin
+   (Onboard company, Invite a candidate, etc.) — Tab/Shift+Tab isn't
+   trapped inside it, so a keyboard user can tab out into the page behind
+   an open dialog.
+
+### candidate/frontend
+
+1. **High — the IDE header shows a fake assessment name and a fake fixed
+   duration for every real session.** `components/ide/IdeShell.tsx:506-507`
+   hardcodes `assessmentName="Frontend Engineering — Auth Bug Fix"` and
+   `durationSeconds={5400}` as the only call site — regardless of which
+   assessment the candidate actually started. `TaskDescriptionPanel` right
+   next to it does use the real fetched `taskBrief`. The backend already
+   returns everything needed (`getSession()`, already called from the
+   report page) but `app/ide/page.tsx` never calls it. A candidate doing
+   any real assessment sees the wrong title, and the countdown resets to a
+   fixed 90:00 on every page refresh instead of reflecting real elapsed
+   time. Breaks a visible part of a proctored assessment.
+2. **High — telemetry keeps running after "End session," and a failed
+   flush permanently drops that batch of evidence.**
+   `components/ide/IdeShell.tsx` never calls `telemetryRef.current?.destroy()`
+   on end (the component doesn't unmount, so the keyed effect's cleanup
+   never reruns) — the 5-second flush timer keeps firing after the
+   candidate was told the session ended. Separately,
+   `lib/ide/telemetry.ts`'s `TelemetryBuffer.flush()` clears its queue
+   *before* the request's outcome is known; a non-2xx response is only
+   `console.warn`'d, never re-queued. Since evidence capture is PRD §1.7's
+   stated differentiator, a backend hiccup mid-session silently and
+   permanently loses real evidence with nothing surfaced anywhere but a
+   devtools console. (Note: this also means the root `CLAUDE.md`'s "the
+   workspace captures no telemetry" line is now stale — a real telemetry
+   pipeline exists and runs, it just has these two bugs.)
+3. **Medium — a malformed `.ipynb` file is silently replaced with a blank
+   notebook, then genuinely overwritten on the next edit.**
+   `lib/ide/notebook.ts`'s `parseNotebook` (lines 63–89) catches any parse
+   error and returns `emptyNotebook()` with no error signal.
+   `NotebookEditor.tsx:35` seeds its state straight from this. The next
+   cell edit calls `onChange(serializeNotebook(next))`, and IdeShell's
+   800ms autosave persists the blank notebook over the original file's
+   content.
+4. **Medium — a failed Pyodide or git-IndexedDB load is cached forever,
+   with no retry.** `lib/ide/pyodide-runtime.ts:67-78` (`getPyodide`) and
+   `lib/ide/git/idb.ts:19-33` (`openDb`) both memoize the promise *before*
+   it settles and never clear it on rejection — the doc comment's claim
+   that it's "safe to call repeatedly" is false once it has failed once.
+   One transient hiccup loading the ~13MB Pyodide payload, or one
+   IndexedDB open failure, permanently breaks Python execution or git for
+   the rest of the session; only a full reload recovers, which can hit the
+   same blip again.
+5. **Medium — the dashboard's "Open the workspace" link bypasses the whole
+   session flow.** `app/dashboard/page.tsx:72-78` is a plain
+   `<a href="/ide">`, sitting right next to the real assessment cards that
+   go through `startAssessment()` → `/onboarding` → `enterWorkspace()`
+   (where the real session/timer/telemetry actually get created). Clicking
+   it instead lands in a sessionless workspace — no telemetry, no real
+   task brief, and finding #1's fake header — one click away from the main
+   dashboard, not gated on anything.
+6. **Low — concurrent JS-module terminal sessions can cross-contaminate
+   output.** `lib/ide/code-runner.ts:76-96`'s `runJavaScriptModule` swaps
+   `globalThis.console` for a collector and restores the original in a
+   `finally` — if two terminal sessions run ESM code at overlapping times
+   (explicitly a supported scenario), whichever finishes first restores the
+   real console while the other is still mid-flight, losing or
+   misattributing its remaining output.
+7. **Low — several dashboard buttons render as interactive but do
+   nothing.** `components/dashboard/SideRail.tsx` ("Read the full list,"
+   each resource row) and `components/dashboard/ActivityFeed.tsx` ("See
+   all") have hover states and arrow icons implying navigation, but no
+   `onClick` at all — not even the "nothing connected yet" honest
+   treatment the IDE itself uses elsewhere for its AI chat.
+8. **Low — project misconfiguration: `eslint.config.ts`'s `globalIgnores`
+   doesn't include `public/**`.** It replaces (rather than extends)
+   `eslint-config-next`'s own default ignores, and is missing the
+   `public/` directory where the build scripts copy the vendored Monaco
+   editor bundle. The result: ESLint lints a ~1MB minified vendor file,
+   producing over 32,000 false-positive problems that bury every real
+   finding in `npm run lint`'s output. One-line fix (add `"public/**"` to
+   the ignore list).
+9. **Low — scattered `: any` types**, real type-safety holes, not part of
+   any established "Supabase row mapper" convention like company/frontend's:
+   `components/dashboard/AccountMenu.tsx:25`,
+   `components/dashboard/DashboardNav.tsx:32`,
+   `components/profile/EditProfileModal.tsx:19`,
+   `components/profile/IdentityCard.tsx:21`,
+   `components/profile/NextSteps.tsx:18`,
+   `components/profile/ProfileStrength.tsx:17`, `lib/auth/users.ts:28`.
+10. **Cosmetic — two unescaped apostrophes** flagged by
+    `react/no-unescaped-entities` (`app/environment-check/page.tsx:58`,
+    `app/practice/page.tsx:43`) — renders fine at runtime, lint-only.
+11. **Not a bug, noting for completeness:** a bare `tsc --noEmit` on this
+    app reports `Cannot find name 'LayoutProps'` in `app/layout.tsx` — this
+    is Next.js's own generated route-prop type
+    (`.next/types/**/*.ts`, in `tsconfig.json`'s `include`), which doesn't
+    exist until `next build`/`dev` has run once. Confirmed as a false
+    positive: `next build` compiles and typechecks this file cleanly.
