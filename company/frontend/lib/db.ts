@@ -271,6 +271,31 @@ export async function setApplicationStage(companyId: string, applicationId: stri
   if (error) throw error;
 }
 
+/**
+ * The bulk version of setApplicationStage — one query, not N. Scoped the
+ * same way: the role must belong to this company, and the update itself is
+ * pinned to `job_role_id = roleId`, so a crafted id for someone else's
+ * candidate just doesn't match a row rather than silently touching it.
+ */
+export async function bulkSetApplicationStage(
+  companyId: string,
+  roleId: string,
+  applicationIds: string[],
+  stage: ApplicationStage,
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  if (applicationIds.length === 0) return;
+  const role = await getJobRole(companyId, roleId);
+  if (!role) throw new Error("Role not found");
+  const { error } = await c
+    .from("candidate_applications")
+    .update({ stage })
+    .eq("job_role_id", roleId)
+    .in("id", applicationIds);
+  if (error) throw error;
+}
+
 /** One candidate's detail page — scoped through job_roles so one company can never open another's candidate by id. */
 export async function getApplicationForCompany(companyId: string, applicationId: string): Promise<CandidateApplicationWithRole | null> {
   const c = db();

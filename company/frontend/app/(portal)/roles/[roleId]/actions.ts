@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { inviteCandidateToRole, setApplicationStage, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
@@ -61,6 +61,25 @@ export async function changeStage(roleId: string, applicationId: string, stage: 
   revalidatePath("/roles");
   revalidatePath("/candidates");
   revalidatePath(`/candidates/${applicationId}`);
+  revalidatePath("/dashboard");
+}
+
+/**
+ * Bound to a specific roleId/stage via the bulk-action bar's own
+ * `formAction={bulkChangeStage.bind(null, roleId, "shortlisted")}` — one
+ * submit button per stage, same as changeStage. Unlike changeStage, the ids
+ * to move aren't bound ahead of time: they're whichever checkboxes were
+ * checked, read from the real submitted FormData (name="applicationIds",
+ * repeated once per checked row).
+ */
+export async function bulkChangeStage(roleId: string, stage: ApplicationStage, formData: FormData): Promise<void> {
+  const { companyId } = await requireCompanyPermission("candidate:stage");
+  const applicationIds = formData.getAll("applicationIds").map(String).filter(Boolean);
+  if (applicationIds.length === 0) return;
+  await bulkSetApplicationStage(companyId, roleId, applicationIds, stage);
+  revalidatePath(`/roles/${roleId}`);
+  revalidatePath("/roles");
+  revalidatePath("/candidates");
   revalidatePath("/dashboard");
 }
 
