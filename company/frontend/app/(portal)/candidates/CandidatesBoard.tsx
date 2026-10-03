@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { EmptyState, Input, Pill } from "@/components/ui";
+import { EmptyState, Input, LinkButton, Pill } from "@/components/ui";
 import { fmtDate, roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { CandidateApplicationWithRole } from "@/lib/db";
 import type { JobRole } from "@/lib/types";
@@ -27,8 +27,12 @@ function matches(a: CandidateApplicationWithRole, query: string): boolean {
  * type is simpler and more responsive than a server round-trip per
  * keystroke — revisit if this ever needs to page.
  */
+const MIN_COMPARE = 2;
+const MAX_COMPARE = 4;
+
 export function CandidatesBoard({ roles, applications }: { roles: JobRole[]; applications: CandidateApplicationWithRole[] }) {
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const blocks = useMemo<RoleBlock[]>(() => {
     const byRole = new Map<string, CandidateApplicationWithRole[]>();
@@ -43,14 +47,37 @@ export function CandidatesBoard({ roles, applications }: { roles: JobRole[]; app
       .filter((b) => b.candidates.length > 0);
   }, [roles, applications, query]);
 
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < MAX_COMPARE) next.add(id);
+      return next;
+    });
+  }
+
+  const canCompare = selected.size >= MIN_COMPARE && selected.size <= MAX_COMPARE;
+
   return (
     <div className="space-y-6">
-      <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search by candidate name, email, or role…"
-        className="max-w-md"
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by candidate name, email, or role…"
+          className="max-w-md"
+        />
+        <span className="text-xs text-dim">
+          {selected.size === 0
+            ? `Select ${MIN_COMPARE}–${MAX_COMPARE} to compare`
+            : `${selected.size} selected${selected.size > MAX_COMPARE - 1 ? ` (max ${MAX_COMPARE})` : ""}`}
+        </span>
+        {canCompare && (
+          <LinkButton href={`/candidates/compare?ids=${[...selected].join(",")}`} size="sm" className="ml-auto">
+            Compare ({selected.size})
+          </LinkButton>
+        )}
+      </div>
 
       {blocks.length === 0 ? (
         <EmptyState
@@ -73,19 +100,24 @@ export function CandidatesBoard({ roles, applications }: { roles: JobRole[]; app
               </Link>
               <div className="divide-y divide-hair">
                 {candidates.map((a) => (
-                  <Link
-                    key={a.id}
-                    href={`/candidates/${a.id}`}
-                    className="flex flex-wrap items-center gap-4 px-6 py-3.5 transition hover:bg-black/[0.02]"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-bold">{a.candidateName ?? a.candidateEmail}</div>
-                      <div className="truncate text-xs text-dim">{a.candidateEmail}</div>
-                    </div>
-                    <Pill tone={stageTone[a.stage]}>{stageLabel[a.stage]}</Pill>
-                    {a.score != null && <span className="mono text-sm text-dim">{a.score}%</span>}
-                    <span className="text-xs text-faint">{fmtDate(a.createdAt)}</span>
-                  </Link>
+                  <div key={a.id} className="flex flex-wrap items-center gap-4 px-6 py-3.5 transition hover:bg-black/[0.02]">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(a.id)}
+                      onChange={() => toggle(a.id)}
+                      disabled={!selected.has(a.id) && selected.size >= MAX_COMPARE}
+                      aria-label={`Select ${a.candidateName ?? a.candidateEmail} to compare`}
+                    />
+                    <Link href={`/candidates/${a.id}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-4 hover:underline">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-bold">{a.candidateName ?? a.candidateEmail}</div>
+                        <div className="truncate text-xs text-dim">{a.candidateEmail}</div>
+                      </div>
+                      <Pill tone={stageTone[a.stage]}>{stageLabel[a.stage]}</Pill>
+                      {a.score != null && <span className="mono text-sm text-dim">{a.score}%</span>}
+                      <span className="text-xs text-faint">{fmtDate(a.createdAt)}</span>
+                    </Link>
+                  </div>
                 ))}
               </div>
             </div>
