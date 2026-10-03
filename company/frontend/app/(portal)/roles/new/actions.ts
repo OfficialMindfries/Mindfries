@@ -34,7 +34,13 @@ export async function createRole(_prev: CreateRoleState, form: FormData): Promis
 
   const visibility: RoleVisibility = form.get("visibility") === "open_pool" ? "open_pool" : "invite_only";
 
-  const role = await createJobRole({ companyId, title, techStack, durationMin, visibility });
+  let roleId: string;
+  try {
+    roleId = (await createJobRole({ companyId, title, techStack, durationMin, visibility })).id;
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't create that role — try again." };
+  }
+
   revalidatePath("/roles");
-  redirect(`/roles/${role.id}`);
+  redirect(`/roles/${roleId}`);
 }

@@ -48,9 +48,7 @@ export function TrendChart({ createdAtDates, asOf }: { createdAtDates: string[];
               const y = H - 6 - (v / max) * (H - 12);
               return (
                 <circle key={i} cx={x} cy={y} r={3.5} fill="var(--color-accent)" stroke="var(--color-surface)" strokeWidth="1.5">
-                  <title>
-                    {fmtWeek(weekStart(i))}: {v} invited
-                  </title>
+                  <title>{`${fmtWeek(weekStart(i))}: ${v} invited`}</title>
                 </circle>
               );
             })}

@@ -21,7 +21,9 @@ export default async function PortalLayout({ children }: { children: React.React
   return (
     <div className="min-h-screen">
       <Sidebar user={{ name: user.name, email: user.email, role: user.role, companyName: user.companyName }} />
-      <main className="pl-64">
+      {/* No left padding below md: the sidebar is an off-canvas drawer there, not a
+          permanent rail. pt-16 clears the fixed hamburger button in that same range. */}
+      <main className="pt-16 md:pt-0 md:pl-64">
         <div className="mx-auto max-w-6xl px-8 py-8">{children}</div>
       </main>
     </div>
