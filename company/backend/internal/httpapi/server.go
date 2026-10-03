@@ -27,8 +27,8 @@ func New(cfg config.Config, database *db.DB) *Server {
 
 // Routes builds the full handler: middleware chain wraps a route table keyed
 // by method + path pattern (Go's net/http ServeMux since 1.22 does this
-// natively — no router dependency needed for a surface this size). Phases
-// 3-4 add team and billing routes to this table as each lands.
+// natively — no router dependency needed for a surface this size). Phase 4
+// adds billing routes to this table once it lands.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -48,6 +48,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/candidates/compare", s.requireCompany(s.handleCompareCandidates))
 	mux.HandleFunc("GET /api/v1/candidates/{id}", s.requireCompany(s.handleGetCandidate))
 	mux.HandleFunc("POST /api/v1/candidates/{id}/stage", s.requireAction(ActionCandidateStage, s.handleSetCandidateStage))
+
+	// Team — any signed-in role may view the roster; team:manage gates
+	// invite/status-change.
+	mux.HandleFunc("GET /api/v1/team", s.requireCompany(s.handleListTeam))
+	mux.HandleFunc("POST /api/v1/team/invite", s.requireAction(ActionTeamManage, s.handleInviteTeam))
+	mux.HandleFunc("PATCH /api/v1/team/{id}", s.requireAction(ActionTeamManage, s.handleSetTeamStatus))
 
 	return s.recoverPanic(s.logging(s.cors(mux)))
 }
