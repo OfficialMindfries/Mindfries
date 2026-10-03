@@ -6,6 +6,7 @@ import type {
   AssessmentReport,
   CandidateApplication,
   CandidateReport,
+  CompanyBilling,
   CompanyRole,
   CompanyUser,
   DueCandidate,
@@ -464,4 +465,31 @@ export async function setCompanyUserStatus(
     .eq("company_id", companyId)
     .eq("id", userId);
   if (error) throw error;
+}
+
+/**
+ * IMPLEMENTATION.md §3.4: plan/seats straight from `companies`, usage
+ * derived from the same counts Overview already reads (lib/overview.ts) —
+ * no Stripe, no invented numbers, display only. `seatsUsed` counts active
+ * company_users only — an invited-but-not-yet-accepted teammate isn't
+ * occupying a seat yet.
+ */
+export async function getCompanyBilling(companyId: string): Promise<CompanyBilling> {
+  const c = db();
+  if (!c) return { plan: "trial", seatsTotal: 0, seatsUsed: 0, openRoles: 0, candidatesInvited: 0 };
+
+  const { data: company } = await c.from("companies").select("plan, seats").eq("id", companyId).maybeSingle();
+  const [roles, users, applications] = await Promise.all([
+    listJobRoles(companyId),
+    listCompanyUsers(companyId),
+    listApplicationsForCompany(companyId),
+  ]);
+
+  return {
+    plan: company?.plan ?? "trial",
+    seatsTotal: company?.seats ?? 0,
+    seatsUsed: users.filter((u) => u.status === "active").length,
+    openRoles: roles.filter((r) => r.status === "open").length,
+    candidatesInvited: applications.length,
+  };
 }
