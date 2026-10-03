@@ -39,7 +39,9 @@ candidate/frontend/        Next.js — the candidate portal (PRD §1.6)
                            /onboarding  consent, device check, lobby
                            /dashboard   assessments, activity, setup
                            /ide         the Engineering Workspace; see its own docs
-candidate/backend/         FastAPI skeleton — /health and /status only so far
+candidate/backend/         Go — the Application API/Orchestrator/Admin
+                           Portal API (PRD §2.3); real, not wired up to
+                           either frontend yet — see its own README
 internal-admin/frontend/   Next.js — Mindfries' own ops portal (PRD §1.11)
                            /admin/{companies,library,sessions,onboarding,
                            tracker,waitlist,costs}, /login, /waitlist
@@ -49,6 +51,9 @@ company/frontend/          Next.js — the Company Portal (PRD §1.4); see
                            IMPLEMENTATION.md for the build plan. No signup —
                            ops creates the first login from internal-admin's
                            onboarding flow, which emails a /set-password link.
+company/backend/           Go — roles/candidates/team CRUD plus real Stripe
+                           billing; only the billing routes are wired up to
+                           company/frontend (see ARCHITECTURE.md for why)
 supabase/migrations/       Shared Postgres schema, used by all three portals
 ```
 
@@ -63,7 +68,8 @@ falls back to sample data rather than failing — see each app's
 
 Vercel builds the candidate portal from `candidate/frontend`.
 `internal-admin/frontend` carries its own `vercel.json` (a daily discovery
-cron). Neither backend is deployed.
+cron). None of the three backends (`candidate/backend`, `company/backend`,
+`internal-admin/backend`) are deployed anywhere.
 
 ## Conventions
 
@@ -107,6 +113,13 @@ into a single commit at the end.
 3. **Driving the workspace terminal from browser automation is unreliable** —
    see the IDE's contributor notes. Test the shell in Node instead; the
    engine has no DOM imports precisely so that it can be.
+4. **Every Next app's generated `.gitignore` has an unanchored `.env*`**,
+   which blocks `.env.example` along with the real secrets it's meant to
+   ignore. `candidate/frontend` and `internal-admin/frontend` already carry
+   a force-added `.env.example` for exactly this reason; `company/frontend`'s
+   was added the same way. Use `git add -f` for a new app's `.env.example`,
+   and `git check-ignore -v <path>` first if a new env-example file seems to
+   vanish after `git add`.
 
 ## The gap worth knowing about
 
