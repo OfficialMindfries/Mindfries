@@ -3,35 +3,44 @@ import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { can } from "@/lib/auth/permissions";
 import { getJobRole, listApplicationsForRole, listPublishedTemplates, stageCountsForRole } from "@/lib/db";
-import { Button, EmptyState, PageHeader, Pill } from "@/components/ui";
-import { fmtDate, roleStatusTone, stageLabel, stageTone } from "@/lib/format";
-import type { ApplicationStage } from "@/lib/types";
+import { Button, EmptyState, Field, Input, PageHeader, Pill } from "@/components/ui";
+import { roleStatusTone, stageLabel, stageTone } from "@/lib/format";
+import type { ApplicationStage, CandidateApplication } from "@/lib/types";
 import { AttachTemplateForm } from "./AttachTemplateForm";
 import { InviteCandidateForm } from "./InviteCandidateForm";
-import { changeStage } from "./actions";
+import { PipelineList } from "./PipelineList";
 
 export const dynamic = "force-dynamic";
 
 const STAGE_ORDER: ApplicationStage[] = ["invited", "in_progress", "completed", "shortlisted", "rejected", "hired"];
 
-// The three moves a company actually makes by hand — any stage to any of
-// these, not a strict state machine. Everything else (invited → in_progress
-// → completed) is the candidate's own progress through the assessment.
-const STAGE_ACTIONS: { stage: ApplicationStage; label: string; variant: "primary" | "danger" | "soft" }[] = [
-  { stage: "shortlisted", label: "Shortlist", variant: "soft" },
-  { stage: "hired", label: "Hire", variant: "primary" },
-  { stage: "rejected", label: "Reject", variant: "danger" },
-];
+/** YYYY-MM-DD, comparable lexically against createdAt's ISO timestamp prefix. */
+function dateOnly(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+function applyFilters(
+  applications: CandidateApplication[],
+  filters: { scoreMin: number | null; scoreMax: number | null; dateFrom: string | null; dateTo: string | null },
+): CandidateApplication[] {
+  return applications.filter((a) => {
+    if (filters.scoreMin != null && (a.score == null || a.score < filters.scoreMin)) return false;
+    if (filters.scoreMax != null && (a.score == null || a.score > filters.scoreMax)) return false;
+    if (filters.dateFrom && dateOnly(a.createdAt) < filters.dateFrom) return false;
+    if (filters.dateTo && dateOnly(a.createdAt) > filters.dateTo) return false;
+    return true;
+  });
+}
 
 export default async function RoleDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ roleId: string }>;
-  searchParams: Promise<{ stage?: string }>;
+  searchParams: Promise<{ stage?: string; scoreMin?: string; scoreMax?: string; dateFrom?: string; dateTo?: string }>;
 }) {
   const { roleId } = await params;
-  const { stage: stageParam } = await searchParams;
+  const { stage: stageParam, scoreMin, scoreMax, dateFrom, dateTo } = await searchParams;
   const user = await currentCompanyUser();
   if (!user) notFound();
 
@@ -46,7 +55,17 @@ export default async function RoleDetailPage({
   ]);
 
   const activeStage = STAGE_ORDER.includes(stageParam as ApplicationStage) ? (stageParam as ApplicationStage) : null;
-  const applications = activeStage ? allApplications.filter((a) => a.stage === activeStage) : allApplications;
+  const byStage = activeStage ? allApplications.filter((a) => a.stage === activeStage) : allApplications;
+  const parsedScoreMin = scoreMin ? Number(scoreMin) : null;
+  const parsedScoreMax = scoreMax ? Number(scoreMax) : null;
+  const filters = {
+    scoreMin: parsedScoreMin != null && !Number.isNaN(parsedScoreMin) ? parsedScoreMin : null,
+    scoreMax: parsedScoreMax != null && !Number.isNaN(parsedScoreMax) ? parsedScoreMax : null,
+    dateFrom: dateFrom || null,
+    dateTo: dateTo || null,
+  };
+  const hasFilters = filters.scoreMin != null || filters.scoreMax != null || !!filters.dateFrom || !!filters.dateTo;
+  const applications = applyFilters(byStage, filters);
   const canChangeStage = can("candidate:stage", user.role);
 
   return (
@@ -80,37 +99,54 @@ export default async function RoleDetailPage({
 
       {can("candidate:invite", user.role) && <InviteCandidateForm roleId={role.id} />}
 
+      <form method="get" className="hair-card flex flex-wrap items-end gap-3 p-4">
+        {activeStage && <input type="hidden" name="stage" value={activeStage} />}
+        <div className="w-24">
+          <Field label="Min score">
+            <Input type="number" name="scoreMin" min={0} max={100} defaultValue={scoreMin ?? ""} placeholder="0" />
+          </Field>
+        </div>
+        <div className="w-24">
+          <Field label="Max score">
+            <Input type="number" name="scoreMax" min={0} max={100} defaultValue={scoreMax ?? ""} placeholder="100" />
+          </Field>
+        </div>
+        <div className="w-40">
+          <Field label="Invited from">
+            <Input type="date" name="dateFrom" defaultValue={dateFrom ?? ""} />
+          </Field>
+        </div>
+        <div className="w-40">
+          <Field label="Invited to">
+            <Input type="date" name="dateTo" defaultValue={dateTo ?? ""} />
+          </Field>
+        </div>
+        <Button type="submit" size="sm">
+          Apply
+        </Button>
+        {hasFilters && (
+          <Link
+            href={activeStage ? `/roles/${role.id}?stage=${activeStage}` : `/roles/${role.id}`}
+            className="text-[13px] font-semibold text-dim hover:underline"
+          >
+            Clear filters
+          </Link>
+        )}
+      </form>
+
       {applications.length === 0 ? (
         <EmptyState
-          title={activeStage ? `No candidates in ${stageLabel[activeStage].toLowerCase()}` : "No candidates yet"}
-          hint={activeStage ? undefined : "Invite one above to start this role's pipeline."}
+          title={
+            hasFilters
+              ? "No candidates match these filters"
+              : activeStage
+                ? `No candidates in ${stageLabel[activeStage].toLowerCase()}`
+                : "No candidates yet"
+          }
+          hint={activeStage || hasFilters ? undefined : "Invite one above to start this role's pipeline."}
         />
       ) : (
-        <div className="hair-card divide-y divide-hair">
-          {applications.map((a) => (
-            <div key={a.id} className="flex flex-wrap items-center gap-4 px-6 py-3.5">
-              <Link href={`/candidates/${a.id}`} className="min-w-0 flex-1 hover:underline">
-                <div className="truncate text-sm font-bold">{a.candidateName ?? a.candidateEmail}</div>
-                <div className="truncate text-xs text-dim">{a.candidateEmail}</div>
-              </Link>
-              <Pill tone={stageTone[a.stage]}>{stageLabel[a.stage]}</Pill>
-              {a.score != null && <span className="mono text-sm text-dim">{a.score}%</span>}
-              <span className="text-xs text-faint">{fmtDate(a.createdAt)}</span>
-
-              {canChangeStage && (
-                <div className="flex shrink-0 gap-1.5">
-                  {STAGE_ACTIONS.filter((sa) => sa.stage !== a.stage).map((sa) => (
-                    <form key={sa.stage} action={changeStage.bind(null, role.id, a.id, sa.stage)}>
-                      <Button type="submit" size="sm" variant={sa.variant} className="!px-3 !py-1.5 !text-[12px]">
-                        {sa.label}
-                      </Button>
-                    </form>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <PipelineList roleId={role.id} applications={applications} canChangeStage={canChangeStage} />
       )}
     </div>
   );
