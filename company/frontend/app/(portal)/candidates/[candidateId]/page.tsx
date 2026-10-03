@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { getApplicationForCompany, getCandidateReport } from "@/lib/db";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
-import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone } from "@/lib/format";
+import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone, titleCase } from "@/lib/format";
 import { ReportAutoRefresh } from "./ReportAutoRefresh";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,17 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         {application.score != null && <span className="mono text-sm text-dim">{application.score}%</span>}
         <span className="text-xs text-faint">Invited {fmtDate(application.createdAt)}</span>
       </div>
+
+      {Object.keys(application.sectionScores).length > 0 && (
+        <div className="hair-card divide-y divide-hair">
+          {Object.entries(application.sectionScores).map(([section, score]) => (
+            <div key={section} className="flex items-center justify-between px-6 py-3">
+              <span className="text-sm font-semibold">{titleCase(section)}</span>
+              <span className="mono text-sm text-dim">{score}%</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!session ? (
         <EmptyState title="Hasn't started yet" hint="A session and report show up here once the candidate begins their assessment." />
