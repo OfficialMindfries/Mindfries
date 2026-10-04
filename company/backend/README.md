@@ -11,18 +11,22 @@ validates the same signed `mf_company` session cookie that app issues — it
 does not mint sign-in sessions itself; sign-in stays where the password
 hashing already lives (`company/frontend/lib/auth`).
 
-## Status: Phase 2 — Roles + Candidates API
+## Status: Phase 3 — Team API
 
-Phase 1 laid the foundation: config, database connection, session
-verification, the permission matrix ported from
-`company/frontend/lib/auth/permissions.ts`. Phase 2 adds the first two
-business surfaces — job roles and the candidate pipeline — backed by real
-queries against `job_roles`/`candidate_applications`
-(`0011_company_portal.sql`). Team (Phase 3) and billing (Phase 4) are still
-to come. `company/frontend` does not call this service yet; every
-`lib/db.ts` function still reads/writes Supabase directly until Phase 5 adds
-the `COMPANY_BACKEND_URL`-gated client, mirroring how `internal-admin/frontend`
+Phases 1–2 laid the foundation and the roles/candidates surface. Phase 3
+adds the team roster: list, invite, and activate/disable a teammate, backed
+by real queries against `company_users`. Billing (Phase 4) is still to
+come. `company/frontend` does not call this service yet; every `lib/db.ts`
+function still reads/writes Supabase directly until Phase 5 adds the
+`COMPANY_BACKEND_URL`-gated client, mirroring how `internal-admin/frontend`
 falls back to direct Supabase when `ADMIN_BACKEND_URL` is unset.
+
+**Invite email stays in Next.** This service only creates the `invited`
+`company_users` row. Signing the one-time invite link and sending it via
+Resend stays in `company/frontend` (`lib/auth/invite-token.ts` +
+`lib/mailer.ts`, already shipped) — moving that here would mean duplicating
+`COMPANY_INVITE_SECRET` and the Resend API key across two services for no
+behavioral gain.
 
 Verified end to end against a real local Postgres (migrations
 `0002_product.sql` + `0011_company_portal.sql` applied, every route
@@ -69,9 +73,12 @@ described in Status above.
 | `GET /api/v1/candidates/compare?ids=` | any role | 2–4 candidate comparison rows |
 | `GET /api/v1/candidates/{id}` | any role | Candidate profile + section scores |
 | `POST /api/v1/candidates/{id}/stage` | `candidate:stage` | Shortlist / reject / hire |
+| `GET /api/v1/team` | any role | Team roster |
+| `POST /api/v1/team/invite` | `team:manage` | Create an `invited` row (email sent by Next, see above) |
+| `PATCH /api/v1/team/{id}` | `team:manage` | Activate / disable a teammate |
 
-Team and billing routes land in Phases 3–4; this table is kept up to date as
-each phase merges.
+Billing routes land in Phase 4; this table is kept up to date as each phase
+merges.
 
 ## Permissions
 
