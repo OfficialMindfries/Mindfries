@@ -253,7 +253,7 @@ stage-count badge component once, reuse unchanged on `/roles/[roleId]`.
 
 ---
 
-## 10. Permission matrix (draft — confirm before Phase 2)
+## 10. Permission matrix (confirmed)
 
 | Action | Admin | Recruiter | Viewer |
 |---|---|---|---|
@@ -264,11 +264,10 @@ stage-count badge component once, reuse unchanged on `/roles/[roleId]`.
 | Invite/remove teammates, change roles | ✅ | ❌ | ❌ |
 | View/change billing | ✅ | ❌ | ❌ |
 
-This is a starting proposal, not confirmed — flagged in §12. Enforce it as
-a single shared `can(action, role)` helper checked in every write path
-(Server Action / route handler), not per-page ad hoc checks, so Phase 4
-threading it through Phases 2–3's screens is one function to call, not a
-redesign.
+Confirmed as final — enforced as a single shared `can(action, role)` helper
+checked in every write path (Server Action / route handler), not per-page ad
+hoc checks, on both `company/frontend` (`lib/auth/permissions.ts`) and
+`company/backend` (`internal/httpapi/permissions.go`, ported verbatim).
 
 ---
 
@@ -366,9 +365,10 @@ service — not part of the frontend-only Phase 1-5 sequence above).
 
 ## 12. Open items — need your input before or during the relevant phase
 
-- **Permission matrix (§10)** is a draft — confirm or edit before Phase 2 starts.
-- **Role visibility default** on `/roles/new` — open-pool or invite-only
-  as the pre-selected option?
+~~Permission matrix (§10)~~ — resolved: confirmed as-is, 2026-10-04.
+
+~~Role visibility default~~ — resolved: `open_pool` is `/roles/new`'s
+pre-selected option, 2026-10-04.
 
 ~~Company signup model~~ — resolved: ops-created, no self-serve (§3.6).
 
