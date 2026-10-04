@@ -11,14 +11,34 @@ validates the same signed `mf_company` session cookie that app issues — it
 does not mint sign-in sessions itself; sign-in stays where the password
 hashing already lives (`company/frontend/lib/auth`).
 
-## Status: Phase 4 — Billing compute (Stripe)
+## Status: Phase 7 — closing the API-completeness gaps
 
-Phases 1–3 laid the foundation and the roles/candidates/team surface —
-CRUD, same as company/frontend's own `lib/db.ts` already does. Phase 4 adds
-the one piece that's genuinely compute, not CRUD, per `ARCHITECTURE.md`'s
-own carve-out: real Stripe billing. `company/frontend` does not call this
-service yet; every `lib/db.ts` function still reads/writes Supabase
-directly until Phase 5 adds the `COMPANY_BACKEND_URL`-gated client.
+Phases 1–6 built the foundation, roles/candidates/team CRUD, Stripe billing
+compute, the `COMPANY_BACKEND_URL`-gated billing-only frontend integration,
+and full verification + docs. Checking the Phase 2 claim of mirroring
+`company/frontend/lib/db.ts` "function for function" against the actual
+frontend code turned up three real gaps — `ActionCandidateInvite` was
+defined in the permission matrix but no route ever used it — closed in
+Phase 7: inviting a candidate to a role (a two-table write: `assessments`
+then `candidate_applications`), bulk stage change, and the dashboard's
+upcoming-due-dates list. A fourth, lower-priority item (`listPublishedTemplates`,
+the template picker) was added alongside them since it was cheap, not
+because it was risky to skip.
+
+`company/frontend` still only calls the billing routes (see Phase 5 below)
+— these new routes round out the backend's own API surface and make
+`ActionCandidateInvite` finally mean something, they don't change what the
+frontend calls today.
+
+## Status: Phase 5 — frontend integration (billing only)
+
+Scoped to billing only, not roles/candidates/team: those are already real,
+working Supabase CRUD in `lib/db.ts` with no behavioral difference this
+service's equivalent routes would add, matching the one precedent already in
+this repo for backend-gating (`internal-admin`'s `resetSession`/
+`retriggerEval` only gate the two actions where the Supabase-only version is
+a lesser fallback, never plain CRUD) and `ARCHITECTURE.md`'s own stated
+reasoning against routing identical CRUD through an extra network hop.
 
 New migration: [`0013_company_billing.sql`](../../supabase/migrations/0013_company_billing.sql)
 adds `companies.stripe_customer_id`/`stripe_subscription_id` and a
@@ -62,6 +82,15 @@ pass caught and fixed two real bugs: `internal/db.New` dereferencing a nil
 `timestamptz` columns needing to be scanned into `time.Time` rather than
 `string` under pgx's binary protocol (both fixed in `internal/db`).
 
+Phase 7's four new routes were verified the same way — a published
+template seeded, a role created and attached to it, a candidate invited
+(confirmed the `assessments` row carries the role's `template_id`/`title`
+and the linked `candidate_applications` row lands with `stage: "invited"`),
+a bulk stage change across two candidates, the due-dates list returning the
+invited candidate's date, and cross-company isolation confirmed on both the
+invite and due-dates routes (a different company's cookie gets a 404 or an
+empty list, never someone else's data). No new bugs found this round.
+
 ## Run it
 
 ```bash
@@ -98,7 +127,11 @@ described in Status above.
 | `GET /api/v1/candidates` | any role | Cross-role candidate list |
 | `GET /api/v1/candidates/compare?ids=` | any role | 2–4 candidate comparison rows |
 | `GET /api/v1/candidates/{id}` | any role | Candidate profile + section scores |
+| `GET /api/v1/candidates/due-dates` | any role | Upcoming assessment due dates, soonest first |
 | `POST /api/v1/candidates/{id}/stage` | `candidate:stage` | Shortlist / reject / hire |
+| `POST /api/v1/roles/{roleId}/candidates` | `candidate:invite` | Invite a candidate (writes `assessments` + `candidate_applications`) |
+| `POST /api/v1/roles/{roleId}/candidates/bulk-stage` | `candidate:stage` | Shortlist / reject / hire several candidates at once |
+| `GET /api/v1/templates` | any role | Published Game Library templates (for role/template pickers) |
 | `GET /api/v1/team` | any role | Team roster |
 | `POST /api/v1/team/invite` | `team:manage` | Create an `invited` row (email sent by Next, see above) |
 | `PATCH /api/v1/team/{id}` | `team:manage` | Activate / disable a teammate |
@@ -107,7 +140,7 @@ described in Status above.
 | `POST /api/v1/billing/portal-session` | `billing:manage` | Stripe Billing Portal link |
 | `POST /api/v1/webhooks/stripe` | Stripe-Signature header, no cookie | Verifies signature + replay guard, applies plan/seats |
 
-This is the full route table (Phases 1–4 all merged in).
+This is the full route table (Phases 1–7 all merged in).
 
 ## Permissions
 

@@ -4,10 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/mindfries/company-backend/internal/db"
 )
+
+// emailRe mirrors company/frontend/app/(portal)/roles/[roleId]/actions.ts's
+// own EMAIL_RE — same shape, re-checked here because this is a real API
+// boundary, not just a form a trusted UI happens to validate first.
+var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // applicationDTO is the wire shape — camelCase, matching
 // company/frontend/lib/types.ts's CandidateApplication (plus roleTitle for
@@ -114,6 +121,100 @@ func (s *Server) handleCompareCandidates(w http.ResponseWriter, r *http.Request)
 	out := make([]applicationDTO, 0, len(apps))
 	for _, a := range apps {
 		out = append(out, toApplicationDTO(a, true))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type inviteCandidateRequest struct {
+	CandidateEmail string  `json:"candidateEmail"`
+	CandidateName  *string `json:"candidateName"`
+	DueDate        *string `json:"dueDate"`
+}
+
+// handleInviteCandidate mirrors inviteCandidateToRole.
+func (s *Server) handleInviteCandidate(w http.ResponseWriter, r *http.Request) {
+	var req inviteCandidateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !emailRe.MatchString(req.CandidateEmail) {
+		writeError(w, http.StatusBadRequest, "that doesn't look like an email address")
+		return
+	}
+
+	company := companyFrom(r)
+	app, err := s.db.InviteCandidate(r.Context(), db.InviteCandidateInput{
+		CompanyID: company.CompanyID, JobRoleID: r.PathValue("roleId"),
+		CandidateEmail: req.CandidateEmail, CandidateName: req.CandidateName, DueDate: req.DueDate,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "role not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "couldn't invite that candidate — try again")
+		return
+	}
+	writeJSON(w, http.StatusCreated, toApplicationDTO(*app, true))
+}
+
+type bulkSetStageRequest struct {
+	ApplicationIDs []string `json:"applicationIds"`
+	Stage          string   `json:"stage"`
+}
+
+// handleBulkSetCandidateStage mirrors bulkSetApplicationStage.
+func (s *Server) handleBulkSetCandidateStage(w http.ResponseWriter, r *http.Request) {
+	var req bulkSetStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !db.ValidStages[req.Stage] {
+		writeError(w, http.StatusBadRequest, "not a valid stage")
+		return
+	}
+	if len(req.ApplicationIDs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	company := companyFrom(r)
+	if err := s.db.BulkSetApplicationStage(r.Context(), company.CompanyID, r.PathValue("roleId"), req.ApplicationIDs, req.Stage); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "role not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "couldn't update those candidates — try again")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// dueDateDTO mirrors company/frontend/lib/types.ts's DueCandidate.
+type dueDateDTO struct {
+	ApplicationID  string  `json:"applicationId"`
+	CandidateName  *string `json:"candidateName"`
+	CandidateEmail string  `json:"candidateEmail"`
+	RoleTitle      string  `json:"roleTitle"`
+	DueDate        string  `json:"dueDate"`
+}
+
+// handleListDueDates mirrors listUpcomingDueDates.
+func (s *Server) handleListDueDates(w http.ResponseWriter, r *http.Request) {
+	company := companyFrom(r)
+	due, err := s.db.ListUpcomingDueDates(r.Context(), company.CompanyID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "couldn't load due dates")
+		return
+	}
+	out := make([]dueDateDTO, 0, len(due))
+	for _, d := range due {
+		out = append(out, dueDateDTO{
+			ApplicationID: d.ApplicationID, CandidateName: d.CandidateName,
+			CandidateEmail: d.CandidateEmail, RoleTitle: d.RoleTitle, DueDate: d.DueDate,
+		})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

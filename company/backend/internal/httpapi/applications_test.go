@@ -69,3 +69,59 @@ func TestValidStagesMatchesAllSixStages(t *testing.T) {
 		}
 	}
 }
+
+func TestInviteCandidateRejectsInvalidEmail(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/roles/1/candidates", httptestBody(`{"candidateEmail":"not-an-email"}`))
+	rec := httptest.NewRecorder()
+	s.handleInviteCandidate(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestInviteCandidateRejectsMalformedBody(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/roles/1/candidates", httptestBody(`not json`))
+	rec := httptest.NewRecorder()
+	s.handleInviteCandidate(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestCandidateInviteOnlyAdminOrRecruiter(t *testing.T) {
+	s := newTestServer(testSecret)
+	h := s.requireAction(ActionCandidateInvite, func(w http.ResponseWriter, r *http.Request) { t.Error("handler must not run") })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/roles/1/candidates", nil)
+	req.AddCookie(&http.Cookie{Name: "mf_company", Value: signToken(t, "viewer", testSecret)})
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer must not reach candidate:invite — status = %d, want 403", rec.Code)
+	}
+}
+
+func TestBulkSetCandidateStageRejectsInvalidStage(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/roles/1/candidates/bulk-stage", httptestBody(`{"applicationIds":["a","b"],"stage":"on_the_moon"}`))
+	rec := httptest.NewRecorder()
+	s.handleBulkSetCandidateStage(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestBulkSetCandidateStageNoOpOnEmptyIds(t *testing.T) {
+	// Mirrors bulkSetApplicationStage's own early return on an empty list —
+	// must not reach s.db (nil in this test server) at all.
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/roles/1/candidates/bulk-stage", httptestBody(`{"applicationIds":[],"stage":"hired"}`))
+	rec := httptest.NewRecorder()
+	s.handleBulkSetCandidateStage(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (no-op)", rec.Code)
+	}
+}

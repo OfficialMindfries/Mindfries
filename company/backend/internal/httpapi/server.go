@@ -54,12 +54,19 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/roles/{id}", s.requireCompany(s.handleGetRole))
 	mux.HandleFunc("PATCH /api/v1/roles/{id}", s.requireAction(ActionRoleWrite, s.handlePatchRole))
 
-	// Candidates — any signed-in role may read; candidate:stage gates the
-	// one mutating route.
+	// Candidates — any signed-in role may read; candidate:invite/
+	// candidate:stage gate the mutating routes.
 	mux.HandleFunc("GET /api/v1/candidates", s.requireCompany(s.handleListCandidates))
 	mux.HandleFunc("GET /api/v1/candidates/compare", s.requireCompany(s.handleCompareCandidates))
+	mux.HandleFunc("GET /api/v1/candidates/due-dates", s.requireCompany(s.handleListDueDates))
 	mux.HandleFunc("GET /api/v1/candidates/{id}", s.requireCompany(s.handleGetCandidate))
 	mux.HandleFunc("POST /api/v1/candidates/{id}/stage", s.requireAction(ActionCandidateStage, s.handleSetCandidateStage))
+	mux.HandleFunc("POST /api/v1/roles/{roleId}/candidates", s.requireAction(ActionCandidateInvite, s.handleInviteCandidate))
+	mux.HandleFunc("POST /api/v1/roles/{roleId}/candidates/bulk-stage", s.requireAction(ActionCandidateStage, s.handleBulkSetCandidateStage))
+
+	// Game Library — read-only, same published-templates query every portal
+	// already makes against the shared game_templates table.
+	mux.HandleFunc("GET /api/v1/templates", s.requireCompany(s.handleListTemplates))
 
 	// Team — any signed-in role may view the roster; team:manage gates
 	// invite/status-change.
