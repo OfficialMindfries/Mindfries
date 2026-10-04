@@ -11,15 +11,20 @@ validates the same signed `mf_company` session cookie that app issues — it
 does not mint sign-in sessions itself; sign-in stays where the password
 hashing already lives (`company/frontend/lib/auth`).
 
-## Status: Phase 3 — Team API
+## Status: Phase 4 — Billing compute (Stripe)
 
-Phases 1–2 laid the foundation and the roles/candidates surface. Phase 3
-adds the team roster: list, invite, and activate/disable a teammate, backed
-by real queries against `company_users`. Billing (Phase 4) is still to
-come. `company/frontend` does not call this service yet; every `lib/db.ts`
-function still reads/writes Supabase directly until Phase 5 adds the
-`COMPANY_BACKEND_URL`-gated client, mirroring how `internal-admin/frontend`
-falls back to direct Supabase when `ADMIN_BACKEND_URL` is unset.
+Phases 1–3 laid the foundation and the roles/candidates/team surface —
+CRUD, same as company/frontend's own `lib/db.ts` already does. Phase 4 adds
+the one piece that's genuinely compute, not CRUD, per `ARCHITECTURE.md`'s
+own carve-out: real Stripe billing. `company/frontend` does not call this
+service yet; every `lib/db.ts` function still reads/writes Supabase
+directly until Phase 5 adds the `COMPANY_BACKEND_URL`-gated client.
+
+New migration: [`0013_company_billing.sql`](../../supabase/migrations/0013_company_billing.sql)
+adds `companies.stripe_customer_id`/`stripe_subscription_id` and a
+`stripe_webhook_events` idempotency table (Stripe's webhooks are
+at-least-once delivery; a replayed event must never double-apply a
+plan/seat change).
 
 **Invite email stays in Next.** This service only creates the `invited`
 `company_users` row. Signing the one-time invite link and sending it via
@@ -27,6 +32,27 @@ Resend stays in `company/frontend` (`lib/auth/invite-token.ts` +
 `lib/mailer.ts`, already shipped) — moving that here would mean duplicating
 `COMPANY_INVITE_SECRET` and the Resend API key across two services for no
 behavioral gain.
+
+Verified end to end against a real local Postgres with signed test
+webhooks (Stripe's own `GenerateTestSignedPayload` helper, no live Stripe
+account needed for this): `checkout.session.completed` writes
+`stripe_customer_id`/`stripe_subscription_id`, `customer.subscription.updated`
+re-derives plan+seats from the subscription's price/quantity,
+`customer.subscription.deleted` reverts the plan to `trial`, a replayed
+event id is a no-op, and `billing:manage` correctly gates even the read
+(permissions.ts marks billing admin-only to view, not just change). That
+pass caught two more real bugs, now fixed:
+
+- `PlanForPrice("")` matched whichever plan slot (Starter/Growth/Enterprise)
+  happened to be left unconfigured, because an empty Stripe Price ID
+  compared equal to an empty config value. Caught by this package's own
+  test suite before it ever reached a webhook.
+- `webhook.ConstructEvent` rejects an otherwise-validly-signed event when
+  its API version doesn't match the exact version stripe-go was compiled
+  against — which a real Stripe Dashboard webhook endpoint, configured
+  independently, routinely won't. Switched to
+  `ConstructEventWithOptions(..., IgnoreAPIVersionMismatch: true)`: the
+  signature is what proves authenticity, not the version string.
 
 Verified end to end against a real local Postgres (migrations
 `0002_product.sql` + `0011_company_portal.sql` applied, every route
@@ -76,9 +102,12 @@ described in Status above.
 | `GET /api/v1/team` | any role | Team roster |
 | `POST /api/v1/team/invite` | `team:manage` | Create an `invited` row (email sent by Next, see above) |
 | `PATCH /api/v1/team/{id}` | `team:manage` | Activate / disable a teammate |
+| `GET /api/v1/billing` | `billing:manage` | Plan, seats, usage (admin-only to view, not just change) |
+| `POST /api/v1/billing/checkout-session` | `billing:manage` | Stripe Checkout Session for a plan/seat change |
+| `POST /api/v1/billing/portal-session` | `billing:manage` | Stripe Billing Portal link |
+| `POST /api/v1/webhooks/stripe` | Stripe-Signature header, no cookie | Verifies signature + replay guard, applies plan/seats |
 
-Billing routes land in Phase 4; this table is kept up to date as each phase
-merges.
+This is the full route table (Phases 1–4 all merged in).
 
 ## Permissions
 

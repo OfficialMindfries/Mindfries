@@ -48,6 +48,13 @@ type Config struct {
 	StripePriceStarter    string
 	StripePriceGrowth     string
 	StripePriceEnterprise string
+
+	// CompanyFrontendURL builds the success/cancel/return URLs Stripe
+	// redirects to after checkout or the billing portal — company/frontend's
+	// own origin, same value as (the first of) AllowedOrigins in every real
+	// deployment, kept separate so it can carry a path-free origin even if
+	// ALLOWED_ORIGINS ever lists more than one.
+	CompanyFrontendURL string
 }
 
 func getenv(key, fallback string) string {
@@ -86,6 +93,7 @@ func Load() (Config, error) {
 		StripePriceStarter:    os.Getenv("STRIPE_PRICE_STARTER"),
 		StripePriceGrowth:     os.Getenv("STRIPE_PRICE_GROWTH"),
 		StripePriceEnterprise: os.Getenv("STRIPE_PRICE_ENTERPRISE"),
+		CompanyFrontendURL:    getenv("COMPANY_FRONTEND_URL", "http://localhost:3002"),
 	}
 
 	var missing []string

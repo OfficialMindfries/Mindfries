@@ -9,6 +9,7 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/mindfries/company-backend/internal/billing"
 	"github.com/mindfries/company-backend/internal/config"
 	"github.com/mindfries/company-backend/internal/db"
 )
@@ -17,18 +18,29 @@ import (
 // cmd/server/main.go and shared across all requests — nothing here is
 // per-request state.
 type Server struct {
-	cfg config.Config
-	db  *db.DB
+	cfg    config.Config
+	db     *db.DB
+	stripe *billing.Client
+	plans  billing.PlanPrices
 }
 
+// New constructs the Stripe client itself (rather than taking one as a
+// parameter) so it's never nil — Configured()/WebhookConfigured() report
+// false on an empty secret instead of every billing handler needing its own
+// nil check.
 func New(cfg config.Config, database *db.DB) *Server {
-	return &Server{cfg: cfg, db: database}
+	return &Server{
+		cfg: cfg, db: database,
+		stripe: billing.New(cfg.StripeSecretKey, cfg.StripeWebhookSecret),
+		plans: billing.PlanPrices{
+			Starter: cfg.StripePriceStarter, Growth: cfg.StripePriceGrowth, Enterprise: cfg.StripePriceEnterprise,
+		},
+	}
 }
 
 // Routes builds the full handler: middleware chain wraps a route table keyed
 // by method + path pattern (Go's net/http ServeMux since 1.22 does this
-// natively — no router dependency needed for a surface this size). Phase 4
-// adds billing routes to this table once it lands.
+// natively — no router dependency needed for a surface this size).
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -54,6 +66,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/team", s.requireCompany(s.handleListTeam))
 	mux.HandleFunc("POST /api/v1/team/invite", s.requireAction(ActionTeamManage, s.handleInviteTeam))
 	mux.HandleFunc("PATCH /api/v1/team/{id}", s.requireAction(ActionTeamManage, s.handleSetTeamStatus))
+
+	// Billing — billing:manage gates even the read, per permissions.ts (the
+	// matrix marks billing admin-only to view, not just change).
+	mux.HandleFunc("GET /api/v1/billing", s.requireAction(ActionBillingManage, s.handleGetBilling))
+	mux.HandleFunc("POST /api/v1/billing/checkout-session", s.requireAction(ActionBillingManage, s.handleCreateCheckoutSession))
+	mux.HandleFunc("POST /api/v1/billing/portal-session", s.requireAction(ActionBillingManage, s.handleCreatePortalSession))
+	// Stripe-Signature verified instead of a cookie — Stripe itself calls this.
+	mux.HandleFunc("POST /api/v1/webhooks/stripe", s.handleStripeWebhook)
 
 	return s.recoverPanic(s.logging(s.cors(mux)))
 }
