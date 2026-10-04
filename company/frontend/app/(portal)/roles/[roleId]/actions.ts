@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
@@ -98,6 +98,36 @@ export async function attachTemplate(roleId: string, _prev: AttachTemplateState,
     await setJobRoleTemplate(companyId, roleId, templateId);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't update the assessment — try again.", success: false };
+  }
+  revalidatePath(`/roles/${roleId}`);
+  revalidatePath("/roles");
+  return { error: null, success: true };
+}
+
+export type SetRoleStatusState = { error: string | null; success: boolean };
+
+/**
+ * Bound to a specific roleId + target status (`setRoleStatus.bind(null,
+ * roleId, "closed")`), same pattern as attachTemplate — no form fields of
+ * its own, the target status is already decided by which button was
+ * clicked (open → "Close role", closed → "Reopen role").
+ */
+export async function setRoleStatus(
+  roleId: string,
+  status: "open" | "closed",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _prev: SetRoleStatusState,
+): Promise<SetRoleStatusState> {
+  let companyId: string;
+  try {
+    companyId = (await requireCompanyPermission("role:write")).companyId;
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+  try {
+    await setJobRoleStatus(companyId, roleId, status);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't update that role — try again.", success: false };
   }
   revalidatePath(`/roles/${roleId}`);
   revalidatePath("/roles");

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -86,34 +87,103 @@ func (s *Server) handleInviteTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toTeamUserDTO(*user))
 }
 
-type setTeamStatusRequest struct {
-	Status string `json:"status"`
+type patchTeamRequest struct {
+	Status *string `json:"status"`
+	Role   *string `json:"role"`
 }
 
-// handleSetTeamStatus mirrors setCompanyUserStatus. A richer role-change
-// surface isn't built on the frontend yet (only active/disabled exists
-// today), so this endpoint doesn't invent one either — same scope
-// discipline handleCreateRole/handlePatchRole already apply in roles.go.
-func (s *Server) handleSetTeamStatus(w http.ResponseWriter, r *http.Request) {
-	var req setTeamStatusRequest
+// wouldLeaveZeroActiveAdmins mirrors setTeammateStatus/setTeammateRole's
+// shared guard on the frontend: demoting or disabling the last active admin
+// leaves nobody who can manage the team or billing. Re-fetches the roster
+// (same approach the frontend actions use, via listCompanyUsers) rather
+// than trying to express this as a single SQL constraint.
+func (s *Server) wouldLeaveZeroActiveAdmins(ctx context.Context, companyID, userID string) (bool, error) {
+	users, err := s.db.ListCompanyUsers(ctx, companyID)
+	if err != nil {
+		return false, err
+	}
+	var target *db.CompanyUser
+	remainingActiveAdmins := 0
+	for i := range users {
+		u := &users[i]
+		if u.ID == userID {
+			target = u
+			continue
+		}
+		if u.Role == string(session.RoleAdmin) && u.Status == "active" {
+			remainingActiveAdmins++
+		}
+	}
+	if target == nil {
+		return false, db.ErrCompanyUserNotFound
+	}
+	return target.Role == string(session.RoleAdmin) && target.Status == "active" && remainingActiveAdmins == 0, nil
+}
+
+// handlePatchTeam mirrors setCompanyUserStatus and setCompanyUserRole — one
+// PATCH endpoint applies whichever of Status/Role is present, at least one
+// required. Each change that would leave the company with zero active
+// admins is refused, same guard company/frontend's own
+// setTeammateStatus/setTeammateRole already enforce.
+func (s *Server) handlePatchTeam(w http.ResponseWriter, r *http.Request) {
+	var req patchTeamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Status != "active" && req.Status != "disabled" {
+	if req.Status == nil && req.Role == nil {
+		writeError(w, http.StatusBadRequest, "status or role is required")
+		return
+	}
+	if req.Status != nil && *req.Status != "active" && *req.Status != "disabled" {
 		writeError(w, http.StatusBadRequest, "status must be active or disabled")
+		return
+	}
+	if req.Role != nil && !validCompanyRole(*req.Role) {
+		writeError(w, http.StatusBadRequest, "role must be admin, recruiter, or viewer")
 		return
 	}
 
 	company := companyFrom(r)
 	userID := r.PathValue("id")
-	if err := s.db.SetCompanyUserStatus(r.Context(), company.CompanyID, userID, req.Status); err != nil {
-		if errors.Is(err, db.ErrCompanyUserNotFound) {
-			writeError(w, http.StatusNotFound, "teammate not found")
+
+	wouldDemote := (req.Status != nil && *req.Status == "disabled") || (req.Role != nil && *req.Role != string(session.RoleAdmin))
+	if wouldDemote {
+		zeroAdmins, err := s.wouldLeaveZeroActiveAdmins(r.Context(), company.CompanyID, userID)
+		if err != nil {
+			if errors.Is(err, db.ErrCompanyUserNotFound) {
+				writeError(w, http.StatusNotFound, "teammate not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "couldn't check the team roster")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "couldn't update that teammate — try again")
-		return
+		if zeroAdmins {
+			writeError(w, http.StatusConflict, "can't leave the company with zero active admins")
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"id": userID, "status": req.Status})
+
+	if req.Status != nil {
+		if err := s.db.SetCompanyUserStatus(r.Context(), company.CompanyID, userID, *req.Status); err != nil {
+			if errors.Is(err, db.ErrCompanyUserNotFound) {
+				writeError(w, http.StatusNotFound, "teammate not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "couldn't update that teammate — try again")
+			return
+		}
+	}
+	if req.Role != nil {
+		if err := s.db.SetCompanyUserRole(r.Context(), company.CompanyID, userID, *req.Role); err != nil {
+			if errors.Is(err, db.ErrCompanyUserNotFound) {
+				writeError(w, http.StatusNotFound, "teammate not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "couldn't update that teammate — try again")
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"id": userID})
 }

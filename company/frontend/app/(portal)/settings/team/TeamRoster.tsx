@@ -3,7 +3,14 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button, Field, Input, Pill, Select } from "@/components/ui";
-import { inviteTeammate, setTeammateStatus, type InviteTeammateState, type SetStatusState } from "./actions";
+import {
+  inviteTeammate,
+  setTeammateRole,
+  setTeammateStatus,
+  type InviteTeammateState,
+  type SetRoleState,
+  type SetStatusState,
+} from "./actions";
 import type { CompanyRole, CompanyUser } from "@/lib/types";
 
 const ROLE_LABEL: Record<CompanyRole, string> = { admin: "Admin", recruiter: "Recruiter", viewer: "Viewer" };
@@ -77,6 +84,33 @@ function StatusToggle({ user }: { user: CompanyUser }) {
   );
 }
 
+/**
+ * Auto-submits on change rather than needing a separate "Save" button — the
+ * role itself comes from the real submitted FormData (setTeammateRole reads
+ * form.get("role")), not pre-bound, same reasoning bulkChangeStage already
+ * documents.
+ */
+function RoleSelect({ user }: { user: CompanyUser }) {
+  const boundAction = setTeammateRole.bind(null, user.id);
+  const [state, action] = useActionState<SetRoleState, FormData>(boundAction, { error: null, success: false });
+
+  return (
+    <form action={action} className="flex items-center gap-2">
+      <Select
+        name="role"
+        defaultValue={user.role}
+        className="!w-auto !py-1.5 !text-[12px]"
+        onChange={(e) => e.currentTarget.form?.requestSubmit()}
+      >
+        <option value="admin">Admin</option>
+        <option value="recruiter">Recruiter</option>
+        <option value="viewer">Viewer</option>
+      </Select>
+      {state.error && <span className="text-[12px] text-[#a6203c]">{state.error}</span>}
+    </form>
+  );
+}
+
 function statusTone(status: CompanyUser["status"]): "green" | "amber" | "gray" {
   if (status === "active") return "green";
   if (status === "invited") return "amber";
@@ -100,7 +134,11 @@ export function TeamRoster({ users, currentEmail, canManage }: { users: CompanyU
               </div>
               <div className="truncate text-xs text-dim">{u.email}</div>
             </div>
-            <Pill tone="gray">{ROLE_LABEL[u.role]}</Pill>
+            {canManage && u.email.toLowerCase() !== currentEmail.toLowerCase() ? (
+              <RoleSelect user={u} />
+            ) : (
+              <Pill tone="gray">{ROLE_LABEL[u.role]}</Pill>
+            )}
             <Pill tone={statusTone(u.status)}>{u.status}</Pill>
             {canManage && u.email.toLowerCase() !== currentEmail.toLowerCase() && <StatusToggle user={u} />}
           </div>

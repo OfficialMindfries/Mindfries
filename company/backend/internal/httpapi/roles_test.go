@@ -40,3 +40,33 @@ func TestCreateRoleRejectsMalformedBody(t *testing.T) {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
+
+func TestPatchRoleRejectsEmptyBody(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/roles/1", httptestBody(`{}`))
+	rec := httptest.NewRecorder()
+	s.handlePatchRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (neither templateId nor status given)", rec.Code)
+	}
+}
+
+func TestPatchRoleRejectsInvalidStatus(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/roles/1", httptestBody(`{"status":"archived"}`))
+	rec := httptest.NewRecorder()
+	s.handlePatchRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPatchRoleRejectsMalformedBody(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/roles/1", httptestBody(`not json`))
+	rec := httptest.NewRecorder()
+	s.handlePatchRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}

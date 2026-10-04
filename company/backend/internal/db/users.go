@@ -109,3 +109,21 @@ func (d *DB) SetCompanyUserStatus(ctx context.Context, companyID, userID, status
 	}
 	return nil
 }
+
+// SetCompanyUserRole mirrors setCompanyUserRole — same shape and scoping as
+// SetCompanyUserStatus. The "can't leave zero active admins" guard lives in
+// the caller (httpapi/team.go's handleSetTeamStatus), same as it does for
+// status changes — this is a plain, unconditional write.
+func (d *DB) SetCompanyUserRole(ctx context.Context, companyID, userID, role string) error {
+	tag, err := d.pool.Exec(ctx, `
+		update company_users set role = $1
+		where company_id = $2 and id = $3
+	`, role, companyID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrCompanyUserNotFound
+	}
+	return nil
+}

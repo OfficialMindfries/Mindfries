@@ -72,7 +72,7 @@ func (s *Server) Routes() http.Handler {
 	// invite/status-change.
 	mux.HandleFunc("GET /api/v1/team", s.requireCompany(s.handleListTeam))
 	mux.HandleFunc("POST /api/v1/team/invite", s.requireAction(ActionTeamManage, s.handleInviteTeam))
-	mux.HandleFunc("PATCH /api/v1/team/{id}", s.requireAction(ActionTeamManage, s.handleSetTeamStatus))
+	mux.HandleFunc("PATCH /api/v1/team/{id}", s.requireAction(ActionTeamManage, s.handlePatchTeam))
 
 	// Billing — billing:manage gates even the read, per permissions.ts (the
 	// matrix marks billing admin-only to view, not just change).

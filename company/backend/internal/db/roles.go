@@ -105,13 +105,27 @@ func (d *DB) CreateJobRole(ctx context.Context, in CreateJobRoleInput) (*JobRole
 // a request for someone else's role id looks identical to a typo.
 var ErrRoleNotFound = errors.New("db: role not found")
 
-// SetJobRoleTemplate mirrors setJobRoleTemplate — the one mutation
-// company/frontend currently exposes on an existing role.
+// SetJobRoleTemplate mirrors setJobRoleTemplate.
 func (d *DB) SetJobRoleTemplate(ctx context.Context, companyID, roleID string, templateID *string) error {
 	tag, err := d.pool.Exec(ctx, `
 		update job_roles set template_id = $1
 		where id = $2 and company_id = $3
 	`, templateID, roleID, companyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrRoleNotFound
+	}
+	return nil
+}
+
+// SetJobRoleStatus mirrors setJobRoleStatus — closes or reopens a role.
+func (d *DB) SetJobRoleStatus(ctx context.Context, companyID, roleID, status string) error {
+	tag, err := d.pool.Exec(ctx, `
+		update job_roles set status = $1
+		where id = $2 and company_id = $3
+	`, status, roleID, companyID)
 	if err != nil {
 		return err
 	}

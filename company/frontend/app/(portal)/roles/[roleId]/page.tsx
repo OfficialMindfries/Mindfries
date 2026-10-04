@@ -9,6 +9,7 @@ import type { ApplicationStage, CandidateApplication } from "@/lib/types";
 import { AttachTemplateForm } from "./AttachTemplateForm";
 import { InviteCandidateForm } from "./InviteCandidateForm";
 import { PipelineList } from "./PipelineList";
+import { RoleStatusToggle } from "./RoleStatusToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,7 @@ export default async function RoleDetailPage({
 
       <div className="flex flex-wrap items-center gap-1.5">
         <Pill tone={roleStatusTone[role.status]}>{role.status}</Pill>
+        {canWriteRole && <RoleStatusToggle roleId={role.id} status={role.status} />}
         {role.templateId ? (
           <Pill tone="violet">{role.templateName ?? "Assessment attached"}</Pill>
         ) : (
