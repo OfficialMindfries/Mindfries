@@ -357,7 +357,10 @@ redesign.
 
 ### Backlog / Post-MVP
 CSV export, analytics tab, custom branding, assessment builder, audit log,
-real Stripe billing, ATS integrations, interview scheduling, AI summaries.
+ATS integrations, interview scheduling, AI summaries.
+
+~~Real Stripe billing~~ — done, see §16 (`company/backend`, a new Go
+service — not part of the frontend-only Phase 1-5 sequence above).
 
 ---
 
@@ -567,3 +570,33 @@ finding below, where the same component *is* used.
     (`.next/types/**/*.ts`, in `tsconfig.json`'s `include`), which doesn't
     exist until `next build`/`dev` has run once. Confirmed as a false
     positive: `next build` compiles and typechecks this file cleanly.
+
+---
+
+## 16. `company/backend` — real Stripe billing (done, 2026-10-03)
+
+A Go service, the company-side counterpart to `candidate/backend`'s
+Application API — see `ARCHITECTURE.md` for the "why a backend now" decision
+and `company/backend/README.md` for the endpoint table and run instructions.
+
+Built in its own 6 phases (scaffold → roles/candidates CRUD → team CRUD →
+Stripe billing compute → frontend integration → verification/docs) — not a
+renumbering of this doc's Phase 1-5 above, a separate service with its own
+sequencing. Each phase shipped on its own branch
+(`feat/company-backend-phase1` through `phase6`), verified end to end
+against a real local Postgres (and, for billing, real signed Stripe test
+webhooks) at every step, not just unit tests — that process caught four real
+bugs before they shipped: a nil `TLSConfig` panic on a non-TLS connection
+string, `timestamptz` columns needing `time.Time` rather than `string` under
+pgx's binary protocol, `PlanForPrice("")` matching whichever plan slot was
+left unconfigured, and `stripe-go` rejecting a validly-signed webhook over an
+API-version string mismatch a real Stripe endpoint would routinely produce.
+
+**What's live in `company/frontend`:** only the billing routes
+(`/settings/billing`'s Upgrade-plan and Manage-billing buttons, admin-only).
+Roles, candidates, and team keep reading/writing Supabase directly, same as
+before — `company/backend`'s equivalent CRUD routes exist and are tested,
+but wiring them in would add a network hop for identical behavior (see
+`ARCHITECTURE.md`). **What's not done:** deploying this service anywhere,
+and a real Stripe account/keys/Price IDs — both "waiting on a decision",
+same status `candidate/backend` already carries for Daytona/Gemini.
