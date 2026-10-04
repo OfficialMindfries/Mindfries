@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { inviteCompanyUser, listCompanyUsers, setCompanyUserStatus } from "@/lib/db";
+import { inviteCompanyUser, listCompanyUsers, setCompanyUserRole, setCompanyUserStatus } from "@/lib/db";
 import { mailerReady, sendMail } from "@/lib/mailer";
 import type { CompanyRole } from "@/lib/types";
 
@@ -120,6 +120,56 @@ export async function setTeammateStatus(
 
   try {
     await setCompanyUserStatus(session.companyId, userId, status);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't update that — try again.", success: false };
+  }
+
+  revalidatePath("/settings/team");
+  return { error: null, success: true };
+}
+
+export type SetRoleState = { error: string | null; success: boolean };
+
+/**
+ * Bound to a specific userId in the client (`setTeammateRole.bind(null,
+ * userId)`); the new role itself comes from the real submitted FormData
+ * (the role <select>'s own value), not bound ahead of time — same reasoning
+ * bulkChangeStage already documents for reading real form data instead of
+ * pre-binding every possible value.
+ *
+ * Demoting the last active admin away from "admin" is the same failure mode
+ * as disabling them — nobody left who can manage the team or billing — so
+ * this reuses setTeammateStatus's exact guard, generalized from status to
+ * role.
+ */
+export async function setTeammateRole(userId: string, _prev: SetRoleState, form: FormData): Promise<SetRoleState> {
+  let session;
+  try {
+    session = await requireCompanyPermission("team:manage");
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+
+  const role = text(form.get("role"), 20) as CompanyRole;
+  if (!ROLES.includes(role)) return { error: "Pick a role.", success: false };
+
+  const existing = await listCompanyUsers(session.companyId);
+  const target = existing.find((u) => u.id === userId);
+  if (!target) return { error: "That person isn't on the team.", success: false };
+
+  if (target.role === role) return { error: null, success: true };
+
+  if (role !== "admin") {
+    const remainingActiveAdmins = existing.filter(
+      (u) => u.role === "admin" && u.status === "active" && u.id !== userId,
+    ).length;
+    if (target.role === "admin" && target.status === "active" && remainingActiveAdmins === 0) {
+      return { error: "Can't change the last active admin's role.", success: false };
+    }
+  }
+
+  try {
+    await setCompanyUserRole(session.companyId, userId, role);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't update that — try again.", success: false };
   }

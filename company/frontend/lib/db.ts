@@ -12,6 +12,7 @@ import type {
   DueCandidate,
   GameTemplate,
   JobRole,
+  RoleStatus,
   RoleVisibility,
   SessionSummary,
   StageCounts,
@@ -127,6 +128,18 @@ export async function setJobRoleTemplate(companyId: string, roleId: string, temp
   const { error } = await c
     .from("job_roles")
     .update({ template_id: templateId })
+    .eq("company_id", companyId)
+    .eq("id", roleId);
+  if (error) throw error;
+}
+
+/** Closes (or reopens) a role — same shape as setJobRoleTemplate. A closed role stops being this app's own concern beyond display; it doesn't retroactively touch any candidate already in its pipeline. */
+export async function setJobRoleStatus(companyId: string, roleId: string, status: RoleStatus): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { error } = await c
+    .from("job_roles")
+    .update({ status })
     .eq("company_id", companyId)
     .eq("id", roleId);
   if (error) throw error;
@@ -462,6 +475,18 @@ export async function setCompanyUserStatus(
   const { error } = await c
     .from("company_users")
     .update({ status })
+    .eq("company_id", companyId)
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+/** Changes an existing teammate's role. Same shape as setCompanyUserStatus — the "can't leave zero active admins" guard lives in the caller (settings/team/actions.ts's setTeammateRole), same as it already does for status changes. */
+export async function setCompanyUserRole(companyId: string, userId: string, role: CompanyRole): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { error } = await c
+    .from("company_users")
+    .update({ role })
     .eq("company_id", companyId)
     .eq("id", userId);
   if (error) throw error;

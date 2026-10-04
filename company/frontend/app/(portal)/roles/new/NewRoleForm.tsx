@@ -30,7 +30,7 @@ export function NewRoleForm() {
           <Input name="durationMin" type="number" min={1} placeholder="60" />
         </Field>
         <Field label="Visibility">
-          <Select name="visibility" defaultValue="invite_only">
+          <Select name="visibility" defaultValue="open_pool">
             <option value="invite_only">Invite only</option>
             <option value="open_pool">Open pool</option>
           </Select>

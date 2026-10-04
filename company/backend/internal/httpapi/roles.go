@@ -129,30 +129,68 @@ func (s *Server) handleGetRole(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type patchRoleRequest struct {
-	TemplateID *string `json:"templateId"`
-}
-
-// handlePatchRole mirrors setJobRoleTemplate — the one mutation
-// company/frontend currently exposes on an existing role. A richer
-// edit/close surface isn't built on the frontend yet, so this endpoint
-// doesn't invent one either.
+// handlePatchRole mirrors setJobRoleTemplate and setJobRoleStatus. Decoded
+// as raw JSON (rather than a struct with *string fields) specifically
+// because templateId's nil is itself meaningful ("detach the template") —
+// a struct of *string fields can't tell "detach" apart from "field wasn't
+// in this request at all," so presence is checked against the raw key set
+// before either mutation runs. Status has no such ambiguity (a role status
+// is never intentionally null), but is checked the same way for symmetry.
 func (s *Server) handlePatchRole(w http.ResponseWriter, r *http.Request) {
-	var req patchRoleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	company := companyFrom(r)
-	roleID := r.PathValue("id")
-	if err := s.db.SetJobRoleTemplate(r.Context(), company.CompanyID, roleID, req.TemplateID); err != nil {
-		if errors.Is(err, db.ErrRoleNotFound) {
-			writeError(w, http.StatusNotFound, "role not found")
+	templateRaw, hasTemplate := raw["templateId"]
+	statusRaw, hasStatus := raw["status"]
+	if !hasTemplate && !hasStatus {
+		writeError(w, http.StatusBadRequest, "templateId or status is required")
+		return
+	}
+
+	var templateID *string
+	if hasTemplate {
+		if err := json.Unmarshal(templateRaw, &templateID); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "couldn't update that role — try again")
-		return
+	}
+	var status string
+	if hasStatus {
+		if err := json.Unmarshal(statusRaw, &status); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if status != "open" && status != "closed" {
+			writeError(w, http.StatusBadRequest, "status must be open or closed")
+			return
+		}
+	}
+
+	company := companyFrom(r)
+	roleID := r.PathValue("id")
+
+	if hasTemplate {
+		if err := s.db.SetJobRoleTemplate(r.Context(), company.CompanyID, roleID, templateID); err != nil {
+			if errors.Is(err, db.ErrRoleNotFound) {
+				writeError(w, http.StatusNotFound, "role not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "couldn't update that role — try again")
+			return
+		}
+	}
+	if hasStatus {
+		if err := s.db.SetJobRoleStatus(r.Context(), company.CompanyID, roleID, status); err != nil {
+			if errors.Is(err, db.ErrRoleNotFound) {
+				writeError(w, http.StatusNotFound, "role not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "couldn't update that role — try again")
+			return
+		}
 	}
 
 	role, err := s.db.GetJobRole(r.Context(), company.CompanyID, roleID)

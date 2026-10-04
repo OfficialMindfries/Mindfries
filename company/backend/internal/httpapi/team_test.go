@@ -26,13 +26,33 @@ func TestInviteTeamRejectsInvalidRole(t *testing.T) {
 	}
 }
 
-func TestSetTeamStatusRejectsInvalidStatus(t *testing.T) {
+func TestPatchTeamRejectsInvalidStatus(t *testing.T) {
 	s := newTestServer(testSecret)
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/team/1", httptestBody(`{"status":"on_vacation"}`))
 	rec := httptest.NewRecorder()
-	s.handleSetTeamStatus(rec, req)
+	s.handlePatchTeam(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPatchTeamRejectsInvalidRole(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/team/1", httptestBody(`{"role":"superadmin"}`))
+	rec := httptest.NewRecorder()
+	s.handlePatchTeam(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPatchTeamRejectsEmptyBody(t *testing.T) {
+	s := newTestServer(testSecret)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/team/1", httptestBody(`{}`))
+	rec := httptest.NewRecorder()
+	s.handlePatchTeam(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (neither status nor role given)", rec.Code)
 	}
 }
 
