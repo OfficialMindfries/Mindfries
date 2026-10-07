@@ -15,28 +15,42 @@ import (
 // moment that's settled, without a code change.
 const defaultModel = "anthropic/claude-sonnet-4.5"
 
+// conversationModel is the default for the candidate-facing agents — the
+// workspace assistant, the interviewer and task generation. A Gemini model
+// through OpenRouter (decided 2026-10-07); a Flash tier because two of the
+// three are answering a person who is waiting.
+const conversationModel = "google/gemini-3.8-flash"
+
 // AgentModels is which OpenRouter model slug each agent calls.
 type AgentModels struct {
 	CodeEvaluation string
 	Reasoning      string
 	Workflow       string
 	Report         string
+	// The candidate-facing agents (conversation.go).
+	Assistant      string
+	Interviewer    string
+	TaskGeneration string
 }
 
 // DefaultAgentModels reads a per-agent override from the environment,
 // falling back to defaultModel for whichever agents don't have one.
 func DefaultAgentModels() AgentModels {
-	pick := func(env string) string {
+	pickOr := func(env, fallback string) string {
 		if v := os.Getenv(env); v != "" {
 			return v
 		}
-		return defaultModel
+		return fallback
 	}
+	pick := func(env string) string { return pickOr(env, defaultModel) }
 	return AgentModels{
 		CodeEvaluation: pick("OPENROUTER_MODEL_CODE_EVAL"),
 		Reasoning:      pick("OPENROUTER_MODEL_REASONING"),
 		Workflow:       pick("OPENROUTER_MODEL_WORKFLOW"),
 		Report:         pick("OPENROUTER_MODEL_REPORT"),
+		Assistant:      pickOr("OPENROUTER_MODEL_ASSISTANT", conversationModel),
+		Interviewer:    pickOr("OPENROUTER_MODEL_INTERVIEW", conversationModel),
+		TaskGeneration: pickOr("OPENROUTER_MODEL_TASKGEN", conversationModel),
 	}
 }
 

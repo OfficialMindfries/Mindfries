@@ -1,9 +1,7 @@
 // Package llm is the AI Intelligence Layer's model access (PRD §1.9, §2.3).
-// OpenRouter is the single key/billing surface for every non-realtime model
-// call (Code Evaluation, Reasoning, Workflow, Report, vision RAG) — confirmed
-// 2026-09-12. The AI Interview agent is the deliberate exception: Gemini's
-// Live API is a direct bidirectional-audio WebSocket OpenRouter doesn't
-// proxy, so it gets its own client (gemini_live.go), not this one.
+// OpenRouter is the single key/billing surface for every model call — the
+// four analysis agents (agents.go) and the candidate-facing assistant,
+// interviewer and task generation (conversation.go).
 package llm
 
 import (

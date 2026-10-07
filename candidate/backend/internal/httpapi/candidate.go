@@ -339,6 +339,16 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The final state of the workspace, sent along with the submit — what
+	// the Code Evaluation agent reads. Optional: an older client that sends
+	// no body still submits, and evaluation works from whatever earlier
+	// snapshot or events exist.
+	if files, ok := decodeFiles(w, r); !ok {
+		return
+	} else if err := s.orc.RecordSnapshot(r.Context(), sessionID, files); err != nil {
+		slog.Error("handleSubmit: recording final workspace", "session", sessionID, "error", err)
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()

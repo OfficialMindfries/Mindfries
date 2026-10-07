@@ -238,8 +238,8 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 	return o.Evaluate(ctx, sessionID)
 }
 
-// Evaluate runs the Code Evaluation, Reasoning and Workflow agents over a
-// session's recorded evidence, then the Report agent over their combined
+// Evaluate runs the Code Evaluation, Reasoning, Workflow and Interview
+// agents over a session's recorded evidence, then the Report agent over their combined
 // output, and stores the result. If the agent layer isn't configured
 // (no OPENROUTER_API_KEY), the report is saved as "failed" with that exact
 // reason — never a fabricated recommendation.
@@ -265,7 +265,11 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
 		return err
 	}
-	diff, digest := digestEvents(events)
+	var starter map[string]string
+	if sess, err := o.DB.GetSession(ctx, sessionID); err == nil {
+		starter = o.templateContent(ctx, sess).StarterFiles
+	}
+	diff, digest := digestEvents(events, starter)
 
 	var evidence []db.EvidenceItem
 	var forReport []string
@@ -291,6 +295,13 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 		slog.Warn("orchestrator: workflow analysis skipped", "session", sessionID, "error", err)
 	}
 
+	if out, err := o.Agents.AnalyzeInterview(ctx, diff, formatTranscript(turnsOf(events, eventInterview))); err == nil {
+		evidence = append(evidence, db.EvidenceItem{Category: "interview", Observation: out})
+		forReport = append(forReport, "Interview:\n"+out)
+	} else {
+		slog.Warn("orchestrator: interview analysis skipped", "session", sessionID, "error", err)
+	}
+
 	if len(forReport) == 0 {
 		reason := "no agent produced usable evidence for this session (see server logs for each agent's error)"
 		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
@@ -312,20 +323,32 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// digestEvents turns a session's raw activity_events into (a) a best-effort
-// unified diff built from "git" events, for the Code Evaluation agent, and
-// (b) a plain chronological text trail for the Reasoning and Workflow
-// agents. Today's IDE (candidate/frontend/src/app/ide) does not yet post
-// events to this backend at all (see CANDIDATE_BACKEND_PLAN.md's telemetry
-// gap) — until that's wired up, this will usually see an empty slice, and
-// both agents will honestly report "no evidence" rather than a fabricated
-// read on a session they were never shown.
-func digestEvents(events []db.ActivityEvent) (diff string, digest string) {
+// digestEvents turns a session's raw activity_events into (a) what the
+// candidate actually changed, for the Code Evaluation agent and the
+// interviewer, and (b) a plain chronological text trail for the Reasoning
+// and Workflow agents.
+//
+// The work comes from the latest workspace snapshot compared against the
+// starter files (see describeWork); a session with no snapshot falls back to
+// whatever diffs its "git" events carried. The trail leaves out snapshots
+// (a codebase isn't an action) and the interview (its own evidence, analysed
+// separately), and clips each payload so one large event can't crowd out the
+// rest.
+func digestEvents(events []db.ActivityEvent, starter map[string]string) (work string, trail string) {
 	var diffLines []string
-	var trail []string
+	var lines []string
+	var latest *snapshotPayload
 	for _, e := range events {
-		trail = append(trail, fmt.Sprintf("[%s] %s: %s", e.OccurredAt.Format("15:04:05"), e.EventType, string(e.Payload)))
-		if e.EventType == "git" {
+		switch e.EventType {
+		case eventSnapshot:
+			var snap snapshotPayload
+			if json.Unmarshal(e.Payload, &snap) == nil {
+				latest = &snap
+			}
+			continue
+		case eventInterview:
+			continue
+		case "git":
 			var p struct {
 				Diff string `json:"diff"`
 			}
@@ -333,6 +356,15 @@ func digestEvents(events []db.ActivityEvent) (diff string, digest string) {
 				diffLines = append(diffLines, p.Diff)
 			}
 		}
+		payload := string(e.Payload)
+		if len(payload) > maxTrailPayload {
+			payload = payload[:maxTrailPayload] + "…"
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s: %s", e.OccurredAt.Format("15:04:05"), e.EventType, payload))
 	}
-	return strings.Join(diffLines, "\n\n"), strings.Join(trail, "\n")
+	work = describeWork(latest, starter)
+	if work == "" {
+		work = strings.Join(diffLines, "\n\n")
+	}
+	return work, strings.Join(lines, "\n")
 }

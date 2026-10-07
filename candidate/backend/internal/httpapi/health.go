@@ -23,12 +23,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	daytonaConfigured := s.orc.Sandbox != nil && s.orc.Sandbox.Configured()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":                  "online",
-		"service":                 "mindfries-candidate-backend",
-		"database_reachable":      dbReachable,
-		"openrouter_configured":   openrouterConfigured,
-		"daytona_configured":      daytonaConfigured,
-		"gemini_live_configured":  s.cfg.GeminiAPIKey != "",
-		"gemini_live_implemented": false,
+		"status":                "online",
+		"service":               "mindfries-candidate-backend",
+		"database_reachable":    dbReachable,
+		"openrouter_configured": openrouterConfigured,
+		"daytona_configured":    daytonaConfigured,
 	})
 }
