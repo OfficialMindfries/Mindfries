@@ -183,6 +183,34 @@ export async function postSessionEvents(sessionId: string, events: NewActivityEv
  * Ends the session. `files` is the workspace as the candidate left it — the
  * backend records it as the final snapshot evaluation reads.
  */
+export interface LiveInterviewStart {
+  /** Presented as the first message on the call's WebSocket; good for a minute. */
+  ticket: string;
+  total: number;
+  language: string;
+  answerSeconds: number;
+  inputRate: number;
+  outputRate: number;
+}
+
+/**
+ * Asks for a live voice interview call — see candidate/backend's
+ * internal/httpapi/live.go. Answers 503 (a BackendError) when the backend has
+ * no live voice line, which the caller treats as "hold it turn by turn".
+ */
+export async function startLiveInterview(sessionId: string, files: Record<string, string>): Promise<LiveInterviewStart> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/interview/live`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files }),
+  });
+}
+
+/** Where the browser opens the live interview call: the backend's own address, as a WebSocket. */
+export function liveInterviewUrl(): string {
+  return baseUrl().replace(/^http/, "ws") + "/api/v1/live-interview";
+}
+
 /**
  * Saves the workspace as it stands, replacing the last checkpoint. It's what
  * the backend submits if the candidate never does — see
