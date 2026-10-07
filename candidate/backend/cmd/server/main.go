@@ -52,6 +52,10 @@ func main() {
 	hub := ws.NewHub(cfg.AllowedOrigins)
 	orc := orchestrator.New(database, agents, sandboxClient, hub)
 
+	// Sessions whose candidate closed the tab are submitted from here — see
+	// orchestrator/abandoned.go.
+	go orc.RunAbandonedSweep(ctx, time.Minute)
+
 	server := httpapi.New(cfg, database, orc, hub)
 
 	httpServer := &http.Server{

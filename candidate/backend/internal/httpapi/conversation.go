@@ -185,6 +185,32 @@ func (s *Server) handleInterview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, state)
 }
 
+// handleCheckpoint saves the workspace as it stands, replacing the previous
+// checkpoint. The workspace sends one every couple of minutes while the
+// candidate works, so that a session nobody submits still has its code on
+// the server — see orchestrator.RecordCheckpoint.
+func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
+	c := candidateFrom(r)
+	sess, ok := s.ownsSession(w, r, r.PathValue("id"), c.ID)
+	if !ok {
+		return
+	}
+	if !sessionIsLive(sess.Status) {
+		writeError(w, http.StatusConflict, "this session is no longer active ("+sess.Status+")")
+		return
+	}
+	files, ok := decodeFiles(w, r)
+	if !ok {
+		return
+	}
+	if err := s.orc.RecordCheckpoint(r.Context(), sess.ID, files); err != nil {
+		slog.Error("handleCheckpoint", "session", sess.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not save the workspace")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleAdminGenerateTask drafts a task brief and starter codebase for the
 // Game Library's authoring form. It returns the draft and stores nothing:
 // the author reads it, edits it, and saves it the same way as a hand-written

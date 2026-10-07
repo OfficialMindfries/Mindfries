@@ -183,6 +183,19 @@ export async function postSessionEvents(sessionId: string, events: NewActivityEv
  * Ends the session. `files` is the workspace as the candidate left it — the
  * backend records it as the final snapshot evaluation reads.
  */
+/**
+ * Saves the workspace as it stands, replacing the last checkpoint. It's what
+ * the backend submits if the candidate never does — see
+ * candidate/backend's orchestrator/abandoned.go.
+ */
+export async function saveCheckpoint(sessionId: string, files: Record<string, string>): Promise<void> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/checkpoint`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files }),
+  });
+}
+
 export async function submitSession(
   sessionId: string,
   files?: Record<string, string>,

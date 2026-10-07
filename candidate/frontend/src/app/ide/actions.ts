@@ -6,6 +6,7 @@ import {
   backendReady,
   BackendAuthError,
   getAssistantHistory,
+  saveCheckpoint,
   submitSession,
   type AssistantHistory,
 } from "@/lib/backend/client";
@@ -38,7 +39,24 @@ export async function submitAssessment(
   redirect(`/assessments/${encodeURIComponent(sessionId)}/report`);
 }
 
-const AI_OFFLINE = "The assessment service isn't connected, so the AI can't be reached right now.";
+/**
+ * Saves the workspace to the backend while the candidate is still working,
+ * so a session that's never submitted from this tab (it was closed, the
+ * laptop died) still has their code on the server to submit for them.
+ * Failing is quiet on purpose: the next one is two minutes away, and the
+ * submit itself carries the files again.
+ */
+export async function checkpointWorkspace(sessionId: string, files: Record<string, string>): Promise<{ ok: boolean }> {
+  if (!backendReady()) return { ok: false };
+  try {
+    await saveCheckpoint(sessionId, files);
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+const AI_OFFLINE ="The assessment service isn't connected, so the AI can't be reached right now.";
 
 function aiFailure(err: unknown): { error: string } {
   if (err instanceof BackendAuthError) return { error: "Your sign-in has expired — sign in again to continue." };

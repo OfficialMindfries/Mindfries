@@ -136,6 +136,37 @@ func (d *DB) ListAdminSessions(ctx context.Context) ([]AdminSessionRow, error) {
 	return out, rows.Err()
 }
 
+// ListLiveSessionsPastTime returns sessions that are still "live" although
+// their own time ran out — candidates for the orchestrator's abandoned-session
+// sweep, which decides (it knows the interview's allowance; this doesn't)
+// whether each has really been left behind. Sessions whose time ended more
+// than maxAge ago are left out: a row that has sat "live" for months predates
+// the sweep, and closing it now would spend model calls evaluating history
+// nobody asked about.
+func (d *DB) ListLiveSessionsPastTime(ctx context.Context, maxAge time.Duration) ([]Session, error) {
+	rows, err := d.pool.Query(ctx, `
+		select `+sessionColumns+` from sessions
+		where status = 'live'
+		  and started_at + make_interval(mins => duration_min) < now()
+		  and started_at + make_interval(mins => duration_min) > now() - make_interval(secs => $1)
+		order by started_at
+	`, maxAge.Seconds())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Session
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // ErrAlreadySubmitted means a session's status was no longer "live" at the
 // moment this tried to move it to "submitted" — either it was already
 // submitted, or a concurrent request beat this one to it. Distinct from a

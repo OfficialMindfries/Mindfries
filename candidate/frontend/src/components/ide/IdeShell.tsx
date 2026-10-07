@@ -32,7 +32,7 @@ import { useDiagnostics } from "@/lib/ide/diagnostics";
 import { CHANNELS, output } from "@/lib/ide/output";
 import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
-import { submitAssessment } from "@/app/ide/actions";
+import { checkpointWorkspace, submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
 import { snapshotFiles } from "@/lib/ide/snapshot";
 
@@ -63,6 +63,9 @@ interface IdeShellProps {
   /** Seconds left on the real session's clock. Undefined when there's no session to time. */
   remainingSeconds?: number;
 }
+
+/** How often the workspace is saved to the backend while the candidate works. */
+const CHECKPOINT_INTERVAL_MS = 2 * 60 * 1000;
 
 export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
@@ -223,6 +226,25 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     filesRef.current = files;
   }, [files]);
   const currentSnapshot = useCallback(() => snapshotFiles(filesRef.current), []);
+  // A copy of the work goes to the backend every couple of minutes while the
+  // candidate is still working, so that a session whose tab is closed before
+  // Submit still has code on the server (the backend submits it once the
+  // time has run out). Stops when the interview starts: the work is frozen
+  // from then on, and the backend would refuse it anyway.
+  const working = !!sessionId && restored && !interviewing && !interviewed && !timeUp;
+  useEffect(() => {
+    if (!working || !sessionId) return;
+    let lastSent = "";
+    const interval = setInterval(() => {
+      const snapshot = currentSnapshot();
+      const serialized = JSON.stringify(snapshot);
+      if (serialized === lastSent) return;
+      void checkpointWorkspace(sessionId, snapshot).then((result) => {
+        if (result.ok) lastSent = serialized;
+      });
+    }, CHECKPOINT_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [working, sessionId, currentSnapshot]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
