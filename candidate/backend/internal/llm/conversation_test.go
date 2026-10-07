@@ -59,7 +59,7 @@ func TestInterviewTurnCarriesTheWorkAndTranscript(t *testing.T) {
 	var got chatRequest
 	a := fakeAgents(t, "  Why did you change the comparison?  ", func(r chatRequest) { got = r })
 
-	q, err := a.InterviewTurn(context.Background(), "brief", "probe the expiry check", "=== a.js (modified)", "[10:00] file_edit",
+	q, err := a.InterviewTurn(context.Background(), InterviewContext{Brief: "brief", Guidance: "probe the expiry check", Work: "=== a.js (modified)", Trail: "[10:00] file_edit", Tone: "rigorous", Language: "Hindi"},
 		[]ChatMessage{{Role: "assistant", Content: "First question?"}, {Role: "user", Content: "My answer."}}, 2, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestInterviewTurnCarriesTheWorkAndTranscript(t *testing.T) {
 		t.Errorf("question should be trimmed, got %q", q)
 	}
 	prompt := got.Messages[len(got.Messages)-1].Content
-	for _, want := range []string{"probe the expiry check", "a.js (modified)", "Interviewer: First question?", "Candidate: My answer.", "question 2 of 4"} {
+	for _, want := range []string{"probe the expiry check", "design review", "Ask the question in Hindi", "a.js (modified)", "Interviewer: First question?", "Candidate: My answer.", "question 2 of 4"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt is missing %q:\n%s", want, prompt)
 		}

@@ -26,8 +26,6 @@ const (
 	roleAssistant   = "assistant"
 	roleInterviewer = "interviewer"
 
-	// InterviewQuestions is how many follow-up questions the interviewer asks.
-	InterviewQuestions = 4
 	// MaxAssistantTurns bounds one session's assistant use — a ceiling on
 	// model spend per candidate, well above what a real session needs.
 	MaxAssistantTurns = 60
@@ -44,10 +42,6 @@ var ErrNotConfigured = llm.ErrNotConfigured
 // ErrAssistantLimit is returned once a session has used MaxAssistantTurns.
 var ErrAssistantLimit = errors.New("orchestrator: this session has reached its assistant message limit")
 
-// ErrNoQuestionWaiting is returned when an interview answer arrives with no
-// question outstanding.
-var ErrNoQuestionWaiting = errors.New("orchestrator: there is no interview question waiting for an answer")
-
 // Turn is one side of a recorded conversation.
 type Turn struct {
 	Role string `json:"role"`
@@ -55,6 +49,12 @@ type Turn struct {
 	// File is the path the candidate had open when they asked — assistant
 	// turns only, and only for the record.
 	File string `json:"file,omitempty"`
+	// Seconds is how long the candidate took to answer an interview
+	// question, measured on the server from when it was asked.
+	Seconds int `json:"seconds,omitempty"`
+	// TimedOut marks an interview answer that ran past its time limit, or
+	// that was never given.
+	TimedOut bool `json:"timedOut,omitempty"`
 }
 
 func turnsOf(events []db.ActivityEvent, eventType string) []Turn {
@@ -147,88 +147,6 @@ func (o *Orchestrator) AskAssistant(ctx context.Context, sess db.Session, messag
 		return "", err
 	}
 	return reply, nil
-}
-
-// InterviewState is where a session's follow-up interview stands.
-type InterviewState struct {
-	// Question is the one waiting for an answer. Empty when Done.
-	Question string `json:"question,omitempty"`
-	Done     bool   `json:"done"`
-	// Asked counts questions put so far, including the one waiting.
-	Asked int `json:"asked"`
-	Total int `json:"total"`
-}
-
-// InterviewNext advances the follow-up interview by one step. With an
-// answer, it records it against the question that was waiting; then it
-// returns the next question, or Done once InterviewQuestions have been
-// answered. Calling it with no answer while a question is waiting returns
-// that same question — a reload resumes the interview rather than
-// restarting or skipping ahead.
-func (o *Orchestrator) InterviewNext(ctx context.Context, sess db.Session, answer string) (InterviewState, error) {
-	if !o.configured() {
-		return InterviewState{}, ErrNotConfigured
-	}
-	events, err := o.DB.GetSessionEvents(ctx, sess.ID)
-	if err != nil {
-		return InterviewState{}, err
-	}
-	transcript := turnsOf(events, eventInterview)
-
-	asked := 0
-	for _, t := range transcript {
-		if t.Role == roleInterviewer {
-			asked++
-		}
-	}
-	waiting := len(transcript) > 0 && transcript[len(transcript)-1].Role == roleInterviewer
-
-	answer = strings.TrimSpace(answer)
-	switch {
-	case answer != "" && !waiting:
-		return InterviewState{}, ErrNoQuestionWaiting
-	case answer != "":
-		t := Turn{Role: roleCandidate, Text: answer}
-		if err := o.RecordEvents(ctx, sess.ID, []db.NewActivityEvent{turnEvent(eventInterview, t)}); err != nil {
-			return InterviewState{}, err
-		}
-		transcript = append(transcript, t)
-	case waiting:
-		return InterviewState{Question: transcript[len(transcript)-1].Text, Asked: asked, Total: InterviewQuestions}, nil
-	}
-
-	if asked >= InterviewQuestions {
-		return InterviewState{Done: true, Asked: asked, Total: InterviewQuestions}, nil
-	}
-
-	tc := o.templateContent(ctx, sess)
-	work, trail := digestEvents(events, tc.StarterFiles)
-	chat := make([]llm.ChatMessage, 0, len(transcript))
-	for _, t := range transcript {
-		role := "user"
-		if t.Role == roleInterviewer {
-			role = "assistant"
-		}
-		chat = append(chat, llm.ChatMessage{Role: role, Content: t.Text})
-	}
-
-	guidance := ""
-	if tc.InterviewerPrompt != nil {
-		guidance = *tc.InterviewerPrompt
-	}
-	question, err := o.Agents.InterviewTurn(ctx, briefOf(tc), guidance, work, trail, chat, asked+1, InterviewQuestions)
-	if err != nil {
-		return InterviewState{}, err
-	}
-	if question == "" {
-		return InterviewState{}, errors.New("orchestrator: the interviewer returned an empty question")
-	}
-	if err := o.RecordEvents(ctx, sess.ID, []db.NewActivityEvent{
-		turnEvent(eventInterview, Turn{Role: roleInterviewer, Text: question}),
-	}); err != nil {
-		return InterviewState{}, err
-	}
-	return InterviewState{Question: question, Asked: asked + 1, Total: InterviewQuestions}, nil
 }
 
 type snapshotPayload struct {
@@ -337,21 +255,6 @@ func describeWork(snapshot *snapshotPayload, starter map[string]string) string {
 	}
 	if len(snapshot.Skipped) > 0 {
 		fmt.Fprintf(&b, "Not included here because of size: %s\n", strings.Join(snapshot.Skipped, ", "))
-	}
-	return b.String()
-}
-
-func formatTranscript(turns []Turn) string {
-	var b strings.Builder
-	for _, t := range turns {
-		who := "Candidate"
-		switch t.Role {
-		case roleInterviewer:
-			who = "Interviewer"
-		case roleAssistant:
-			who = "Assistant"
-		}
-		b.WriteString(who + ": " + t.Text + "\n")
 	}
 	return b.String()
 }

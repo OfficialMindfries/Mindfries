@@ -158,8 +158,11 @@ func (s *Server) handleInterview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Answer string            `json:"answer"`
-		Files  map[string]string `json:"files"`
+		Answer string `json:"answer"`
+		// Skip records the waiting question as unanswered — sent when the
+		// answer timer runs out with nothing typed or said.
+		Skip  bool              `json:"skip"`
+		Files map[string]string `json:"files"`
 	}
 	if r.ContentLength != 0 && !decodeBody(w, r, maxWorkspaceBodyBytes, &body) {
 		return
@@ -172,7 +175,7 @@ func (s *Server) handleInterview(w http.ResponseWriter, r *http.Request) {
 		slog.Error("handleInterview: recording workspace", "session", sess.ID, "error", err)
 	}
 
-	state, err := s.orc.InterviewNext(r.Context(), sess, body.Answer)
+	state, err := s.orc.InterviewNext(r.Context(), sess, orchestrator.InterviewAnswer{Text: body.Answer, Skipped: body.Skip})
 	if err != nil {
 		aiError(w, "handleInterview", err)
 		return

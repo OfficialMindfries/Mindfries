@@ -1,0 +1,12 @@
+-- How the AI follow-up interview runs for a role — set by the company on the
+-- role itself, read by candidate/backend when a candidate invited to that
+-- role reaches the interview.
+--
+-- One jsonb column rather than four typed ones: every field is optional and
+-- falls back to a default in code (candidate/backend/internal/db/interview.go),
+-- and the set is expected to grow. Shape:
+--   { "questions": 4, "tone": "neutral", "language": "en-US", "answerSeconds": 120 }
+--
+-- Additive and safe to run on a live database: existing roles get '{}',
+-- which means "all defaults" — exactly how the interview behaved before.
+alter table job_roles add column if not exists interview_config jsonb not null default '{}'::jsonb;

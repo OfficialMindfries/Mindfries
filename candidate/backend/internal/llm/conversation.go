@@ -55,18 +55,47 @@ Rules:
 - If they changed nothing, ask how they approached the problem and what stopped them.
 Reply with the question text only — no numbering, no preamble, no quotes.`
 
-// InterviewTurn produces the next interviewer question. guidance is the
-// template author's own note on what to probe (may be empty); work is the
-// candidate's actual changes, trail their activity log, and transcript the
+// InterviewContext is everything the interviewer is told about the session
+// it is asking about, and how it should ask.
+type InterviewContext struct {
+	Brief string
+	// Guidance is the template author's own note on what to probe. May be empty.
+	Guidance string
+	// Work is the candidate's actual changes; Trail their activity log.
+	Work  string
+	Trail string
+	// Tone is "neutral", "friendly" or "rigorous" — the hiring company's
+	// choice of register. Anything else is treated as neutral.
+	Tone string
+	// Language is the name of the language to ask in, e.g. "Hindi". Empty
+	// means English.
+	Language string
+}
+
+// interviewTones is how each register a company can choose is put to the
+// model. All three keep the same rules; only the manner changes.
+var interviewTones = map[string]string{
+	"friendly": "Warm and encouraging. Put the candidate at ease; phrase questions as genuine curiosity about their thinking.",
+	"rigorous": "Direct and exacting, like a senior engineer in a design review. Press on specifics and edge cases; do not soften the question.",
+}
+
+// InterviewTurn produces the next interviewer question. transcript is the
 // interview so far ("assistant" = interviewer, "user" = candidate). n is the
 // 1-based number of the question being asked, out of total.
-func (a *Agents) InterviewTurn(ctx context.Context, brief, guidance, work, trail string, transcript []ChatMessage, n, total int) (string, error) {
+func (a *Agents) InterviewTurn(ctx context.Context, ic InterviewContext, transcript []ChatMessage, n, total int) (string, error) {
+	brief, guidance, work, trail := ic.Brief, ic.Guidance, ic.Work, ic.Trail
 	var b strings.Builder
 	if strings.TrimSpace(brief) != "" {
 		b.WriteString("TASK BRIEF\n" + brief + "\n\n")
 	}
 	if strings.TrimSpace(guidance) != "" {
 		b.WriteString("WHAT THE TASK'S AUTHOR WANTS PROBED\n" + guidance + "\n\n")
+	}
+	if manner, ok := interviewTones[ic.Tone]; ok {
+		b.WriteString("MANNER\n" + manner + "\n\n")
+	}
+	if ic.Language != "" && ic.Language != "English" {
+		b.WriteString("LANGUAGE\nAsk the question in " + ic.Language + ". Keep code identifiers, file names and commands exactly as they are written.\n\n")
 	}
 	b.WriteString("WHAT THE CANDIDATE CHANGED\n" + orNone(work) + "\n\n")
 	b.WriteString("ACTIVITY TRAIL\n" + orNone(trail) + "\n\n")
