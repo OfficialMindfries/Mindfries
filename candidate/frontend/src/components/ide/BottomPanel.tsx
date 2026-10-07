@@ -13,11 +13,13 @@ import { OutputPanel } from "./OutputPanel";
 import { DebugConsolePanel } from "./DebugConsolePanel";
 import { PortsPanel } from "./PortsPanel";
 import { TestsPanel } from "./TestsPanel";
+import { ChangesPanel } from "./ChangesPanel";
+import type { FileChange } from "@/lib/ide/changes";
 import { testResults } from "@/lib/ide/test-results";
 import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { useResizable } from "@/lib/ide/use-resizable";
 
-type PanelTab = "problems" | "output" | "debug" | "terminal" | "tests" | "ports";
+type PanelTab = "problems" | "output" | "debug" | "terminal" | "tests" | "changes" | "ports";
 
 const TABS: { id: PanelTab; label: string }[] = [
   { id: "problems", label: "Problems" },
@@ -25,6 +27,7 @@ const TABS: { id: PanelTab; label: string }[] = [
   { id: "debug", label: "Debug Console" },
   { id: "terminal", label: "Terminal" },
   { id: "tests", label: "Tests" },
+  { id: "changes", label: "Changes" },
   { id: "ports", label: "Ports" },
 ];
 
@@ -35,6 +38,8 @@ export function BottomPanel({
   cameraStream,
   diagnostics,
   onOpenLocation,
+  changes,
+  onOpenDiff,
   previewState,
   onClosePreview,
   onStopPreview,
@@ -45,6 +50,9 @@ export function BottomPanel({
   cameraStream: MediaStream | null;
   diagnostics: Diagnostic[];
   onOpenLocation: (path: string, line: number) => void;
+  /** Files that differ from the task as given, and how to open one as a diff. */
+  changes: FileChange[];
+  onOpenDiff: (path: string) => void;
   previewState: { html: string; title: string; root: string; watching: boolean } | null;
   onClosePreview: () => void;
   onStopPreview: () => void;
@@ -80,6 +88,9 @@ export function BottomPanel({
                 {lastTestRun.failed > 0 ? lastTestRun.failed : "✓"}
               </span>
             )}
+            {tab.id === "changes" && changes.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-[#4A7FA7]/30 px-1.5 text-[10px]">{changes.length}</span>
+            )}
             {tab.id === "problems" && diagnostics.length > 0 && (
               <span className="ml-1.5 rounded-full bg-[#4A7FA7]/30 px-1.5 text-[10px]">
                 {diagnostics.length}
@@ -112,6 +123,7 @@ export function BottomPanel({
             <DebugConsolePanel theme={theme} />
           </div>
           {active === "tests" && <TestsPanel theme={theme} vfs={vfs} preview={preview} />}
+          {active === "changes" && <ChangesPanel theme={theme} changes={changes} onOpenDiff={onOpenDiff} />}
           {active === "ports" && (
             <PortsPanel
               theme={theme}

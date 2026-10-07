@@ -39,6 +39,7 @@ import { watchProvenance } from "@/lib/ide/provenance";
 import { terminalLog } from "@/lib/ide/terminal-log";
 import { isTestCommand, parseTestRun, testResults } from "@/lib/ide/test-results";
 import { lineChange } from "@/lib/ide/line-change";
+import { DIFF_PREFIX, fileOfTab, isDiffTab, workspaceChanges } from "@/lib/ide/changes";
 
 interface IdeShellProps {
   /**
@@ -96,6 +97,13 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   const [openPaths, setOpenPaths] = useState<string[]>(DEFAULT_OPEN_PATH ? [DEFAULT_OPEN_PATH] : []);
   const [activePath, setActivePath] = useState<string | null>(DEFAULT_OPEN_PATH);
 
+  // The file the active tab is about. A diff tab is "about" the file it
+  // compares, so everything that asks what the candidate is looking at —
+  // the breadcrumbs, the assistant, telemetry — gets a real path.
+  const activeFile = fileOfTab(activePath);
+  // What has changed since the task was handed over — see lib/ide/changes.ts.
+  const changes = useMemo(() => workspaceChanges(seeded.files, files), [seeded.files, files]);
+
   const dirtyPaths = useMemo(() => {
     const dirty = new Set<string>();
     for (const path of openPaths) {
@@ -124,8 +132,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // lib/ide/provenance.ts.
   const activePathRef = useRef<string | null>(null);
   useEffect(() => {
-    activePathRef.current = activePath;
-  }, [activePath]);
+    activePathRef.current = activeFile;
+  }, [activeFile]);
   useEffect(() => {
     if (!sessionId) return;
     return watchProvenance(
@@ -162,11 +170,12 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // Which file the candidate is looking at, as it changes — the order they
   // read a codebase in says a lot about how they went looking.
   useEffect(() => {
-    if (!sessionId || !activePath) return;
+    if (!sessionId || !activeFile) return;
+    const diff = isDiffTab(activePath);
     // A file flicked past on the way to another isn't one that was read.
-    const timeout = setTimeout(() => telemetryRef.current?.record("file_open", { path: activePath }), 1500);
+    const timeout = setTimeout(() => telemetryRef.current?.record("file_open", diff ? { path: activeFile, view: "diff" } : { path: activeFile }), 1500);
     return () => clearTimeout(timeout);
-  }, [sessionId, activePath]);
+  }, [sessionId, activeFile, activePath]);
 
   // Relays the Output panel's own channels (git/npm/pip/preview — see
   // lib/ide/output.ts) into telemetry. Tracks how many lines of each
@@ -723,14 +732,15 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               palette.border
             )}
           >
-            <Breadcrumbs path={activePath} theme={theme} />
+            <Breadcrumbs path={activeFile} theme={theme} />
             <div className="min-h-0 flex-1">
               <EditorPanel
                 theme={theme}
                 openPaths={openPaths}
                 activePath={activePath}
                 dirtyPaths={dirtyPaths}
-                content={activePath ? files[activePath] ?? "" : ""}
+                content={activeFile ? files[activeFile] ?? "" : ""}
+                original={isDiffTab(activePath) && activeFile ? seeded.files[activeFile] : undefined}
                 onSelectTab={setActivePath}
                 onCloseTab={closeTab}
                 onChange={changeFile}
@@ -760,6 +770,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               cameraStream={camera.stream}
               diagnostics={diagnostics}
               onOpenLocation={(path) => openFile(path)}
+              changes={changes}
+              onOpenDiff={(path) => openFile(`${DIFF_PREFIX}${path}`)}
               previewState={preview}
               onClosePreview={() => {
                 releaseBuild(previewBuildRef.current);
@@ -791,8 +803,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               <ChatPanel
                 theme={theme}
                 sessionId={sessionId}
-                activePath={activePath}
-                activeContent={activePath ? files[activePath] : undefined}
+                activePath={activeFile}
+                activeContent={activeFile ? files[activeFile] : undefined}
                 getFiles={currentSnapshot}
                 onCopy={(chars) => telemetryRef.current?.record("assistant_copy", { chars })}
                 onClose={() => setChatOpen(false)}
