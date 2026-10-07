@@ -3,6 +3,7 @@ import { currentCompanyUser } from "@/lib/auth/company-users";
 import { getApplicationForCompany, getCandidateReport } from "@/lib/db";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone, titleCase } from "@/lib/format";
+import { InterviewTranscript } from "./InterviewTranscript";
 import { ReportAutoRefresh } from "./ReportAutoRefresh";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   const application = await getApplicationForCompany(user.companyId, candidateId);
   if (!application) notFound();
 
-  const { session, report } = await getCandidateReport(application.assessmentId);
+  const { session, report, interview } = await getCandidateReport(application.assessmentId);
   const pending = report?.status === "pending" || report?.status === "generating";
 
   return (
@@ -87,6 +88,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
               )}
             </div>
           )}
+
+          <InterviewTranscript exchanges={interview} />
 
           {pending && <ReportAutoRefresh />}
         </>

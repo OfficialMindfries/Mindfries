@@ -1,3 +1,5 @@
+import type { InterviewConfig } from "@/lib/interview";
+
 // Domain model for the Company Portal (IMPLEMENTATION.md §7).
 
 export type CompanyRole = "admin" | "recruiter" | "viewer";
@@ -39,6 +41,8 @@ export interface JobRole {
   visibility: RoleVisibility;
   status: RoleStatus;
   createdAt: string;
+  /** How the AI interview runs for this role — always complete, defaults filled in. */
+  interviewConfig: InterviewConfig;
 }
 
 export type ApplicationStage =
@@ -104,9 +108,28 @@ export interface AssessmentReport {
   evidence: EvidenceItem[];
 }
 
+/** One question of the AI follow-up interview, with what came back. */
+export interface InterviewExchange {
+  /** 1-based position in the interview. */
+  number: number;
+  question: string;
+  /** null when the interview ended with this question still waiting. */
+  answer: string | null;
+  /** Seconds the candidate took, measured by the backend. null when unknown or unanswered. */
+  seconds: number | null;
+  /** The answer ran past the role's time limit. */
+  timedOut: boolean;
+  /** The time ran out with nothing said at all. */
+  unanswered: boolean;
+  /** The candidate's recorded answer, when one was uploaded. `url` is signed and short-lived. */
+  recording: { url: string; kind: "audio" | "video"; seconds: number } | null;
+}
+
 export interface CandidateReport {
   session: SessionSummary | null;
   report: AssessmentReport | null;
+  /** The interview as it happened. Empty when none took place. */
+  interview: InterviewExchange[];
 }
 
 /** A candidate whose assessment has a real due date — the Overview calendar widget. */

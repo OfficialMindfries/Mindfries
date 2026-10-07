@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
@@ -101,6 +101,34 @@ export async function attachTemplate(roleId: string, _prev: AttachTemplateState,
   }
   revalidatePath(`/roles/${roleId}`);
   revalidatePath("/roles");
+  return { error: null, success: true };
+}
+
+export type InterviewSettingsState = { error: string | null; success: boolean };
+
+/**
+ * Saves the role's AI interview settings. The form's values arrive as
+ * strings; setJobRoleInterview normalizes them against the allowed ranges,
+ * so a tampered form can't store an interview with a thousand questions.
+ */
+export async function saveInterviewSettings(roleId: string, _prev: InterviewSettingsState, form: FormData): Promise<InterviewSettingsState> {
+  let companyId: string;
+  try {
+    companyId = (await requireCompanyPermission("role:write")).companyId;
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+  try {
+    await setJobRoleInterview(companyId, roleId, {
+      questions: Number(form.get("questions")),
+      answerSeconds: Number(form.get("answerSeconds")),
+      tone: String(form.get("tone") ?? ""),
+      language: String(form.get("language") ?? ""),
+    });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't save the interview settings — try again.", success: false };
+  }
+  revalidatePath(`/roles/${roleId}`);
   return { error: null, success: true };
 }
 
