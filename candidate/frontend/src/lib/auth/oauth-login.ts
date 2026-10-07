@@ -56,6 +56,7 @@ export async function signInWithOAuth(provider: OAuthProviderId, profile: OAuthP
 
   // 2. First time for this identity — does its verified email already have an account?
   let account: CandidateAccountRow | null = null;
+  let linkedToExisting = false;
   if (profile.email) {
     const { data } = await c
       .from("candidate_users")
@@ -63,6 +64,7 @@ export async function signInWithOAuth(provider: OAuthProviderId, profile: OAuthP
       .eq("email", profile.email.toLowerCase())
       .maybeSingle();
     account = (data as CandidateAccountRow | null) ?? null;
+    linkedToExisting = account !== null;
   }
 
   // 3. Neither — create the account. No password; this candidate signs in
@@ -76,7 +78,9 @@ export async function signInWithOAuth(provider: OAuthProviderId, profile: OAuthP
     }
     const { data: created, error: createErr } = await c
       .from("candidate_users")
-      .insert({ name: profile.name.slice(0, 200), email: profile.email.toLowerCase(), password_hash: null })
+      // The provider only hands over an address it has verified (see
+      // oauth-providers.ts), so the account starts with a confirmed email.
+      .insert({ name: profile.name.slice(0, 200), email: profile.email.toLowerCase(), password_hash: null, email_verified_at: new Date().toISOString() })
       .select("id, email, name, status")
       .single();
     if (createErr || !created) {
@@ -100,6 +104,19 @@ export async function signInWithOAuth(provider: OAuthProviderId, profile: OAuthP
   // the account this resolves to is still the right one.
   if (linkErr && (linkErr as { code?: string }).code !== "23505") {
     return { ok: false, error: "Signed in, but couldn't save the linked account — try again." };
+  }
+
+  // Linking to an account that already existed for this address. If nobody
+  // ever confirmed that address, whoever set its password never showed the
+  // mailbox was theirs — it may have been created by someone else in this
+  // person's name, waiting for them to arrive. The provider has now vouched
+  // for the address, so the address becomes confirmed and that unproven
+  // password stops working; they can set one of their own with a reset link.
+  if (linkedToExisting) {
+    const { data: current } = await c.from("candidate_users").select("email_verified_at").eq("id", account.id).maybeSingle();
+    if (current && !current.email_verified_at) {
+      await c.from("candidate_users").update({ email_verified_at: new Date().toISOString(), password_hash: null }).eq("id", account.id);
+    }
   }
 
   return { ok: true, session: { id: account.id, email: account.email, name: account.name } };

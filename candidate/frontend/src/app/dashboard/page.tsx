@@ -8,6 +8,8 @@ import { SideRail } from "@/components/dashboard/SideRail";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 import { currentCandidate } from "@/lib/auth/users";
 import { getProfile } from "@/lib/profile/actions";
+import { emailLinksReady } from "@/lib/auth/email-links";
+import { EmailNotice } from "@/components/dashboard/EmailNotice";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
@@ -27,11 +29,13 @@ export const dynamic = "force-dynamic";
  * real list (listAssessmentsOrUndefined) — nothing here is sample data. The
  * greeting and role/location come from the candidate's saved profile.
  */
-export default async function DashboardPage() {
-  const [items, session, profile] = await Promise.all([
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
+  const [items, session, profile, canSendMail, query] = await Promise.all([
     listAssessmentsOrUndefined(),
     currentCandidate(),
     getProfile(),
+    emailLinksReady(),
+    searchParams,
   ]);
 
   // Use DB profile if the candidate has saved it, otherwise just the session name.
@@ -43,6 +47,9 @@ export default async function DashboardPage() {
       <DashboardNav sessionName={session?.name} profile={profile} />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        {session && profile && (
+          <EmailNotice email={session.email} verified={!!profile.email_verified_at} canSend={canSendMail} outcome={query.email} />
+        )}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-[#0A1931]">

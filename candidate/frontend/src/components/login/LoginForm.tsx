@@ -40,16 +40,24 @@ export function LoginForm({
   next,
   configuredProviders,
   socialError,
+  notice,
 }: {
   next: string;
   configuredProviders: OAuthProviderId[];
   socialError: string | null;
+  /** Shown above the form — e.g. after a password reset. */
+  notice?: string | null;
 }) {
   const [state, action] = useActionState<LoginState, FormData>(signIn, { error: null });
   const [socialNotice, setSocialNotice] = useState<string | null>(socialError);
 
   return (
     <div className="w-full max-w-sm">
+      {notice && (
+        <p role="status" className="mb-4 rounded-xl border border-[#c5ecd5] bg-[#effbf4] px-4 py-2.5 text-center text-[12.5px] text-[#14693a]">
+          {notice}
+        </p>
+      )}
       <form action={action} className="space-y-3.5">
         {next && <input type="hidden" name="next" value={next} />}
 
@@ -77,12 +85,15 @@ export function LoginForm({
           </p>
         )}
 
-        <a
-          href={`mailto:${SUPPORT_EMAIL}`}
-          className="block text-center text-[12.5px] text-[#4A7FA7] hover:text-[#1A3D63] hover:underline"
-        >
-          Having trouble logging in?
-        </a>
+        <p className="text-center text-[12.5px] text-[#4A7FA7]">
+          <Link href="/forgot-password" className="hover:text-[#1A3D63] hover:underline">
+            Forgot your password?
+          </Link>
+          {" · "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-[#1A3D63] hover:underline">
+            Something else
+          </a>
+        </p>
 
         <Submit />
 
