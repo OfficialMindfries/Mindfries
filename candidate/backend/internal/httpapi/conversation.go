@@ -32,6 +32,8 @@ func aiError(w http.ResponseWriter, where string, err error) {
 		notConfigured(w, "the AI service")
 	case errors.Is(err, orchestrator.ErrAssistantLimit):
 		writeError(w, http.StatusTooManyRequests, "you've reached the assistant message limit for this session")
+	case errors.Is(err, orchestrator.ErrWorkLocked):
+		writeError(w, http.StatusConflict, "the interview has started, so the assistant is closed")
 	case errors.Is(err, orchestrator.ErrNoQuestionWaiting):
 		writeError(w, http.StatusConflict, "there's no interview question waiting for an answer")
 	default:

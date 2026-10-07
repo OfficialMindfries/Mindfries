@@ -13,10 +13,11 @@ import { confirmRecording, interviewStep, startRecordingUpload } from "@/app/ide
  * The follow-up interview (PRD §1.6: workspace → interview → submit).
  *
  * A few questions about the work the candidate just did, asked by the AI
- * Interviewer. It sits between the Submit button and the final
- * confirmation: the session is still live, so "Back to my work" really does
- * go back — unless the session's time has run out, in which case there is
- * no work left to go back to and the button isn't offered.
+ * Interviewer. It comes after the candidate has confirmed they're finished,
+ * and there is no way back from it to the editor: the interviewer discusses
+ * their code in specifics, so the code is frozen when the first question is
+ * asked (the backend enforces this — see orchestrator.RecordSnapshot). When
+ * the interview ends, the work is submitted.
  *
  * Everything that shapes it comes from the backend, set by the hiring
  * company on the role: how many questions, in what language, and how long
@@ -49,10 +50,6 @@ interface InterviewDialogProps {
   getFiles: () => Record<string, string>;
   /** The proctoring camera's stream, included in each answer's recording when live. */
   camera: MediaStream | null;
-  /** False once the session's time is up: there's no work to go back to. */
-  canGoBack: boolean;
-  /** Back to the workspace; the interview resumes where it left off next time. */
-  onCancel: () => void;
   /** The interview finished, or couldn't be held — move on to submitting. */
   onDone: () => void;
 }
@@ -72,7 +69,7 @@ const UPLOAD_WAIT_MS = 20_000;
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-export function InterviewDialog({ theme, sessionId, getFiles, camera, canGoBack, onCancel, onDone }: InterviewDialogProps) {
+export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: InterviewDialogProps) {
   const palette = idePalette(theme);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [answer, setAnswer] = useState("");
@@ -423,20 +420,6 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, canGoBack,
 
         {!finishing && (
           <div className={clsx("flex items-center gap-2 border-t px-4 py-3", palette.border)}>
-            {canGoBack && (
-              <button
-                type="button"
-                onClick={() => {
-                  stopListening();
-                  stopSpeaking();
-                  onCancel();
-                }}
-                className={clsx("rounded-md px-3 py-1.5 text-xs", palette.hover, palette.textMuted)}
-              >
-                Back to my work
-              </button>
-            )}
-
             <div className="ml-auto flex items-center gap-2">
               {error ? (
                 <>

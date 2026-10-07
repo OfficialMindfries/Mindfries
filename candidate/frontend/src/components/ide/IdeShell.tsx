@@ -204,10 +204,14 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // candidate now. Without one (no tracked session for this workspace),
   // it falls back to the original local-only confirmation screen.
   const [submitting, setSubmitting] = useState(false);
-  // The follow-up interview sits between the Submit button and that
-  // confirmation (PRD §1.6: workspace → interview → submit) — only for a
-  // real session, since there's nothing to ask about a scratch workspace.
+  // The follow-up interview (PRD §1.6: workspace → interview → submit) comes
+  // after the candidate confirms they're finished, and only for a real
+  // session — there's nothing to ask about a scratch workspace. Confirming
+  // is the point of no return: the interviewer talks about their code in
+  // specifics, so there is no going back to the editor once it starts.
   const [interviewing, setInterviewing] = useState(false);
+  // The interview has been held (or couldn't be) — all that remains is the submit itself.
+  const [interviewed, setInterviewed] = useState(false);
   // The session's clock has run out. Working time is over: the interview
   // opens by itself with no way back to the editor, and once it's done the
   // work is submitted without asking — there is nothing left to confirm.
@@ -226,7 +230,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // step): go to the interview. If it's already open it simply loses its
   // "Back to my work" button. A scratch workspace has no clock to run out.
   const expire = () => {
-    if (!sessionId) return;
+    if (!sessionId || interviewed) return;
     setTimeUp(true);
     setSubmitting(false);
     setInterviewing(true);
@@ -541,7 +545,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         theme={theme}
         assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Scratch workspace")}
         durationSeconds={remainingSeconds}
-        onSubmit={() => (sessionId ? setInterviewing(true) : setSubmitting(true))}
+        onSubmit={() => setSubmitting(true)}
         onExpire={expire}
       />
       <div className="flex min-h-0 flex-1 gap-1">
@@ -705,12 +709,14 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
           sessionId={sessionId}
           getFiles={currentSnapshot}
           camera={camera.stream}
-          canGoBack={!timeUp}
-          onCancel={() => setInterviewing(false)}
           onDone={() => {
+            // The interview is the last step: the candidate confirmed before
+            // it began, so the work goes in as soon as it ends. The dialog
+            // below shows that happening, and the error if it fails.
             setInterviewing(false);
+            setInterviewed(true);
             setSubmitting(true);
-            if (timeUp) submitNow();
+            submitNow();
           }}
         />
       )}
@@ -735,9 +741,18 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               setSubmitted(true);
               return;
             }
-            submitNow();
+            if (interviewed) {
+              // Already interviewed — this is a retry of a submit that failed.
+              submitNow();
+              return;
+            }
+            // Confirmed: the interview comes next, and there's no way back
+            // from it to the editor.
+            setSubmitting(false);
+            setInterviewing(true);
           }}
-          timeUp={timeUp}
+          timeUp={timeUp || interviewed}
+          beforeInterview={!interviewed}
         />
       )}
       <ProctorGate theme={theme} camera={camera} />

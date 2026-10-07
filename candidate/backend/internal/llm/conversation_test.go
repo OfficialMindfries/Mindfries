@@ -42,7 +42,7 @@ func TestAssistSendsBriefFileHistoryAndTheNoSolutionRule(t *testing.T) {
 		t.Errorf("model = %q, want %q", got.Model, conversationModel)
 	}
 	all, _ := json.Marshal(got.Messages)
-	for _, want := range []string{"Never say or imply WHERE the defect is", "Fix the auth bug", "src/auth.js", "earlier answer"} {
+	for _, want := range []string{"Never say or imply WHERE the defect is", "must NOT inspect that file for defects", "Fix the auth bug", "src/auth.js", "earlier answer"} {
 		if !strings.Contains(string(all), want) {
 			t.Errorf("request is missing %q", want)
 		}

@@ -63,7 +63,7 @@ func (a *Agents) ScoreRubric(ctx context.Context, rubric []RubricCriterion, evid
 	}
 	b.WriteString("\nEVIDENCE\n" + untrusted("evidence", strings.Join(evidence, "\n\n---\n\n")))
 
-	raw, err := a.client.Complete(ctx, a.models.Report, []ChatMessage{
+	raw, err := a.client.CompleteQuick(ctx, a.models.Report, []ChatMessage{
 		{Role: "system", Content: rubricSystemPrompt},
 		{Role: "user", Content: b.String()},
 	}, rubricTokens)

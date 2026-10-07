@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,7 +93,7 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 		forReport = append(forReport, heading+":\n"+observations)
 	}
 
-	out, err := o.Agents.EvaluateCode(ctx, work)
+	out, err := o.Agents.EvaluateCode(ctx, briefOf(tc), work)
 	collect("code_evaluation", "Code Evaluation", out, err)
 	out, err = o.Agents.AnalyzeReasoning(ctx, trail)
 	collect("reasoning", "Reasoning", out, err)
@@ -104,6 +105,11 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	if len(forReport) == 0 {
 		return fail("no agent produced usable evidence for this session (see server logs for each agent's error)")
 	}
+
+	// The agents are asked to flag steering themselves, but whether they do
+	// depends on the model. This check reads the candidate's own words
+	// directly and doesn't — see llm.DetectSteering.
+	integrity = append(integrity, detectSteering(events)...)
 
 	if len(integrity) > 0 {
 		text := "The candidate's material contained text that tried to instruct or influence the AI evaluating it. The agents were told to disregard it; a reviewer should look at it directly.\n\n- " + strings.Join(dedupe(integrity), "\n- ")
@@ -146,6 +152,49 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	}
 	o.broadcast(sessionID, "report_ready", map[string]string{"sessionId": sessionID, "reportId": report.ID})
 	return nil
+}
+
+// detectSteering runs llm.DetectSteering over everything the candidate
+// wrote in a session — the files they submitted, what they typed to the
+// assistant, and their interview answers — and says where each hit was.
+func detectSteering(events []db.ActivityEvent) []string {
+	var found []string
+	note := func(where string, text string) {
+		for _, quote := range llm.DetectSteering(text) {
+			found = append(found, fmt.Sprintf("In %s: \"%s\"", where, quote))
+		}
+	}
+
+	var latest *snapshotPayload
+	for _, e := range events {
+		switch e.EventType {
+		case eventSnapshot:
+			var snap snapshotPayload
+			if json.Unmarshal(e.Payload, &snap) == nil {
+				latest = &snap
+			}
+		case eventAIUsage, eventInterview:
+			var t Turn
+			if json.Unmarshal(e.Payload, &t) == nil && t.Role == roleCandidate {
+				where := "a message to the assistant"
+				if e.EventType == eventInterview {
+					where = "an interview answer"
+				}
+				note(where, t.Text)
+			}
+		}
+	}
+	if latest != nil {
+		paths := make([]string, 0, len(latest.Files))
+		for p := range latest.Files {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			note("the submitted file "+strings.TrimPrefix(p, "/"), latest.Files[p])
+		}
+	}
+	return found
 }
 
 // parseRubric reads game_templates.rubric, dropping criteria with no label

@@ -26,11 +26,11 @@ const conversationModel = "google/gemini-3.8-flash"
 // to spare.
 const (
 	analysisTokens  = 2000 // an evidence agent's handful of paragraphs
-	reportTokens    = 1000 // a recommendation and a short summary, as JSON
+	reportTokens    = 1500 // a recommendation and a short summary, as JSON
 	assistantTokens = 800  // a concise answer in the workspace chat
 	interviewTokens = 600  // one question
 	taskGenTokens   = 6000 // a brief plus a small codebase
-	rubricTokens    = 1200 // a score and a short reason per criterion, as JSON
+	rubricTokens    = 2500 // a score and a short reason per criterion, as JSON
 )
 
 // AgentModels is which OpenRouter model slug each agent calls.
@@ -89,18 +89,25 @@ func (a *Agents) OnUsage(fn func(ctx context.Context, usage Usage)) { a.client.O
 func (a *Agents) Configured() bool { return a.client.Configured() }
 
 const codeEvalSystemPrompt = `You are the Code Evaluation agent in Mindfries' evidence-based hiring platform.
-Read the candidate's code changes and judge the engineering behind them: correctness, design, test coverage, and how the change fits the existing codebase.
+You are given the task the candidate was set, and what they changed: for each file, the version they were given and the version they submitted.
+Judge the engineering in THEIR CHANGES against THAT TASK:
+- First establish what actually changed. If the submitted files are the same as the given ones, or differ only in comments or whitespace, say plainly that the candidate did not change the code and that the task is therefore not done. Never credit the candidate for code that was already there.
+- Then judge whether the changes accomplish what the task asked. For a bug-fix task, work out whether the defect is really fixed — reason through the logic yourself; do not assume code is correct because it looks tidy or because a comment or docstring says so.
+- Then correctness beyond the task, design, test coverage, and how the change fits the existing codebase.
 The platform's principle: don't just judge the candidate, collect evidence about how they worked. Write concrete, specific observations a hiring team could not have seen without this trail — not a score. One observation per paragraph, plain prose, no headers.`
 
-// EvaluateCode reads a real diff (or the closest evidence available) and
-// returns the Code Evaluation agent's observations.
-func (a *Agents) EvaluateCode(ctx context.Context, diff string) (string, error) {
+// EvaluateCode reads the task brief and the candidate's real changes (or the
+// closest evidence available) and returns the Code Evaluation agent's
+// observations. The brief matters: without it the agent can only say
+// whether the code looks reasonable, not whether it does what was asked —
+// and in a live run it called an untouched, still-buggy file correct.
+func (a *Agents) EvaluateCode(ctx context.Context, brief, diff string) (string, error) {
 	if strings.TrimSpace(diff) == "" {
 		return "", errors.New("llm: no code-change evidence available for this session")
 	}
 	return a.prose(withAgent(ctx, "code_evaluation"), a.models.CodeEvaluation, []ChatMessage{
 		{Role: "system", Content: codeEvalSystemPrompt + injectionRule},
-		{Role: "user", Content: untrusted("code changes", diff)},
+		{Role: "user", Content: "THE TASK\n" + orNone(brief) + "\n\nWHAT THE CANDIDATE CHANGED\n" + untrusted("code changes", diff)},
 	}, analysisTokens)
 }
 
@@ -156,7 +163,11 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	if len(evidence) == 0 {
 		return ReportResult{}, errors.New("llm: no evidence available to generate a report from")
 	}
-	raw, err := a.prose(withAgent(ctx, "report"), a.models.Report, []ChatMessage{
+	// CompleteQuick, and a cut-off reply is an error rather than something
+	// to salvage: this is a short JSON object, and on a reasoning model a
+	// reply cut off by its own thinking is half an object — which used to
+	// be stored, raw, as the report's summary.
+	raw, err := a.client.CompleteQuick(withAgent(ctx, "report"), a.models.Report, []ChatMessage{
 		{Role: "system", Content: reportSystemPrompt + injectionRule},
 		// The evidence is other agents' prose, but it quotes the candidate
 		// freely — so it gets the same fence as the material it came from.

@@ -47,7 +47,7 @@ func TestDefaultAgentModelsHonorsOverride(t *testing.T) {
 
 func TestAgentsRefuseEmptyEvidence(t *testing.T) {
 	a := NewAgents(NewOpenRouterClient("k", ""), DefaultAgentModels())
-	if _, err := a.EvaluateCode(context.Background(), ""); err == nil {
+	if _, err := a.EvaluateCode(context.Background(), "brief", ""); err == nil {
 		t.Error("EvaluateCode with empty diff should error")
 	}
 	if _, err := a.AnalyzeReasoning(context.Background(), "  "); err == nil {

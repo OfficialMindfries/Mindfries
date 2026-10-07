@@ -116,12 +116,15 @@ export function SubmitConfirmDialog({
   pending,
   error,
   timeUp,
+  beforeInterview,
 }: {
   theme: IdeTheme;
   onCancel: () => void;
   onConfirm: () => void;
-  /** The session ran out of time: the work is being submitted as it stands, and there is no going back to it. */
+  /** The work is being submitted as it stands, with no going back to it — the session ran out of time, or the interview is over. */
   timeUp?: boolean;
+  /** Confirming leads to the interview rather than straight to submission. */
+  beforeInterview?: boolean;
   /** True while a real submit call to the backend is in flight — disables both buttons so a slow request can't be fired twice. */
   pending?: boolean;
   /** Set when a real submit attempt failed — shown instead of silently reopening the workspace as if nothing happened. */
@@ -145,15 +148,15 @@ export function SubmitConfirmDialog({
         <div className={clsx("flex items-center gap-2 border-b px-4 py-3", palette.border)}>
           <Send size={16} className={palette.accent} />
           <h2 id="submit-dialog-title" className="text-sm font-semibold">
-            {timeUp ? "Time is up" : "Submit your work?"}
+            {timeUp ? "Submitting your work" : "Finished with your work?"}
           </h2>
         </div>
 
         <div className="px-4 py-3 text-sm">
           {timeUp ? (
             <p className={palette.textMuted}>
-              Your session has reached its time limit. Your work is being submitted exactly as it
-              stands — code, activity and interview answers.
+              Your work is being submitted exactly as it stands — code, activity and interview
+              answers.
             </p>
           ) : (
             <>
@@ -165,6 +168,12 @@ export function SubmitConfirmDialog({
                 Make sure you have saved all your files and are happy with your solution before
                 proceeding.
               </p>
+              {beforeInterview && (
+                <p className={clsx("mt-2 font-medium", palette.text)}>
+                  A short AI interview about your work comes next. Your code is locked as soon as it
+                  starts — you can&apos;t return to the editor afterwards.
+                </p>
+              )}
             </>
           )}
           {error && (
@@ -193,7 +202,7 @@ export function SubmitConfirmDialog({
             style={{ backgroundColor: STATUS_BAR_BG }}
           >
             <Send size={13} />
-            {pending ? "Submitting…" : timeUp ? "Try again" : "Confirm & submit"}
+            {pending ? "Submitting…" : timeUp ? "Try again" : beforeInterview ? "I'm finished — start the interview" : "Confirm & submit"}
           </button>
         </div>
       </div>

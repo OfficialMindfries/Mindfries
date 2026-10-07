@@ -42,6 +42,11 @@ var ErrNotConfigured = llm.ErrNotConfigured
 // ErrAssistantLimit is returned once a session has used MaxAssistantTurns.
 var ErrAssistantLimit = errors.New("orchestrator: this session has reached its assistant message limit")
 
+// ErrWorkLocked is returned for anything that belongs to working on the
+// task — asking the assistant, most obviously — once the interview has
+// begun. See RecordSnapshot for why the interview is the point of no return.
+var ErrWorkLocked = errors.New("orchestrator: the interview has started, so work on the task is closed")
+
 // Turn is one side of a recorded conversation.
 type Turn struct {
 	Role string `json:"role"`
@@ -121,6 +126,9 @@ func (o *Orchestrator) AskAssistant(ctx context.Context, sess db.Session, messag
 	if err != nil {
 		return "", err
 	}
+	if len(turnsOf(events, eventInterview)) > 0 {
+		return "", ErrWorkLocked
+	}
 	history := turnsOf(events, eventAIUsage)
 	asked := 0
 	chat := make([]llm.ChatMessage, 0, len(history))
@@ -161,8 +169,20 @@ type snapshotPayload struct {
 // the interviewer and the Code Evaluation agent actually read. Dependency
 // and VCS directories are dropped, and anything past the size limits is
 // listed as skipped instead of stored.
+//
+// The first question of the interview freezes the work. The interviewer
+// talks about the candidate's code in specifics — in a live run it named
+// the very calculation an unfinished submission had left broken — so a
+// snapshot arriving after that point could be the candidate's work plus
+// what the interview just told them. Those are ignored: what gets evaluated
+// is the code as it stood when the interview began.
 func (o *Orchestrator) RecordSnapshot(ctx context.Context, sessionID string, files map[string]string) error {
 	if len(files) == 0 {
+		return nil
+	}
+	if started, err := o.DB.HasEvent(ctx, sessionID, eventInterview); err != nil {
+		return err
+	} else if started {
 		return nil
 	}
 	paths := make([]string, 0, len(files))
