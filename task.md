@@ -54,7 +54,7 @@ and social accounts are connected through **Composio**.
 | # | What | State today |
 |---|---|---|
 | 1 | AI chat assistant in the workspace | Built and run live. Refuses to write the fix, to say where the defect is, or to confirm a guess; still answers genuine concept questions. Closed once the interview starts |
-| 2 | AI interviewer (follow-up questions about the candidate's work) | Built and run live through the backend. A company sets the number of questions, tone, language and time per answer on the role (needs migration 0014 applied). Each answer is timed by the server; at zero it is sent as it stands or recorded as unanswered. When the session clock runs out the interview opens by itself and the work is submitted after it. The dialog has not been clicked through on screen (needs a camera and microphone) |
+| 2 | AI interviewer (follow-up questions about the candidate's work) | Built and run live through the backend. A company sets the number of questions, tone, language and time per answer on the role (migration 0014 is applied; run live on 2026-10-07 with a two-question Spanish interview). Each answer is timed by the server; at zero it is sent as it stands or recorded as unanswered. When the session clock runs out the interview opens by itself and the work is submitted after it. The dialog has not been clicked through on screen (needs a camera and microphone) |
 | 3 | Voice for the interviewer | Built as a hands-free spoken conversation: the question is read aloud, the microphone opens, and a pause after speaking sends the answer. Turn-based over the browser's speech features (Chrome and Edge), not one open audio line — that would need Gemini's Live API directly. Answers are recorded (voice, plus camera when on) and playable from the company's report page, and deleted after 90 days by a daily job in the admin app (needs `CRON_SECRET` set there; not yet run). Untested on a real microphone |
 | 4 | Recording AI usage as evidence (prompts, what was accepted) | Partly. Every assistant and interview turn is recorded and reaches the report, and every model call's tokens and billed cost are stored per session (shown on the admin Costs page). Whether a suggestion was then used in the code is not tracked. Cost recording is unit-tested but not yet run against the live database |
 | 5 | Task generation per company / role | Built and run live from the backend: produced a 7-file Python project whose tests fail on the planted bug and pass once fixed. Admin button not yet clicked; a company can't trigger it from its own portal; only Python tasks have runnable tests in the workspace |
@@ -96,7 +96,7 @@ and social accounts are connected through **Composio**.
 | 26 | Navigation, edit-by-edit, paste and tab-switch capture | Not built |
 | 27 | Camera recording / snapshots | Camera is required and shown, nothing is stored |
 | 28 | Screen recording | Not built, though the dashboard says the screen is recorded |
-| 29 | Auto-submit when the timer reaches zero | Built. In the browser the interview opens at zero and the work is submitted after it. If the tab is closed instead, the backend submits the session itself once the time and the interview's allowance have passed, using a copy of the workspace the browser saves every two minutes. The server-side part is unit-tested only — not yet run against the live database |
+| 29 | Auto-submit when the timer reaches zero | Built. In the browser the interview opens at zero and the work is submitted after it. If the tab is closed instead, the backend submits the session itself once the time and the interview's allowance have passed, using a copy of the workspace the browser saves every two minutes. Run live on 2026-10-07: the server submitted an abandoned session and moved the invitation and pipeline with it; the evaluation that follows could not be checked because the test OpenRouter key was out of credit |
 | 30 | Workspace saved to the server | Browser only; lost on another device |
 | 31 | Separate saved workspace per assessment | Missing — one browser storage key is shared by every session |
 | 32 | Resume an in-progress session from the dashboard | Not built |
@@ -109,7 +109,7 @@ and social accounts are connected through **Composio**.
 | # | What | State today |
 |---|---|---|
 | 36 | Report page | Built; shows "failed" without an OpenRouter key |
-| 37 | The company's pipeline updating when a candidate starts or submits | Built: in progress on start, completed with time taken on submit, score and per-criterion scores after evaluation; a stage set by hand is left alone. Not yet run against the live database |
+| 37 | The company's pipeline updating when a candidate starts or submits | Built: in progress on start, completed with time taken on submit, score and per-criterion scores after evaluation; a stage set by hand is left alone. Start and submit run live on 2026-10-07; the score write-back still has not been, for lack of OpenRouter credit |
 | 38 | Candidate-facing outcome (shortlisted, rejected) | Not built |
 
 ## What the platform should do behind the scenes
