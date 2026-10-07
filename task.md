@@ -39,8 +39,8 @@ Mostly real and working.
 | 4 | Read the task | ✅ Real, as long as someone has written a real task description for that assessment. If not, it says so honestly instead of showing a fake one |
 | 5 | Work in a real codebase | ✅ Real, same condition as above — starts empty if nobody's added starter files yet |
 | 6 | Use a terminal, run tests | 🟡 The terminal is fully real. There's no automatic test runner yet |
-| 7 | Talk to an AI coding assistant | 🟡 The chat window is real; nothing answers yet |
-| 8 | Do a follow-up AI interview | ❌ Needs a live voice connection that isn't built |
+| 7 | Talk to an AI coding assistant | 🟡 Built and answering — it sees the task and the open file, and won't write the solution. Needs the hosted backend and OpenRouter credit to run for real candidates |
+| 8 | Do a follow-up AI interview | 🟡 Built — four questions about the candidate's own changes before submit, typed or by turn-based voice. Not a live call. Same hosting and credit condition |
 | 9 | Submit | ✅ Real, and can only be done successfully once per session — a candidate can't replay or reset their own submission |
 
 ### Candidate side — everything still to build
@@ -53,12 +53,12 @@ and social accounts are connected through **Composio**.
 
 | # | What | State today |
 |---|---|---|
-| 1 | AI chat assistant in the workspace | Panel only — no model answers |
-| 2 | AI interviewer (follow-up questions about the candidate's work) | Backend stub that always says "not implemented"; no UI |
-| 3 | Voice for the interviewer | Not built. OpenRouter has no live-audio stream, so this is turn-based (speech → text → Gemini → speech), not a live call |
-| 4 | Recording AI usage as evidence (prompts, what was accepted) | Not built |
-| 5 | Task generation per company / role | Not built — every brief and starter codebase is typed by hand in the admin library |
-| 6 | Evaluation report | Built, but fails with "not configured" until an OpenRouter key is set |
+| 1 | AI chat assistant in the workspace | Built. Answers with the task and open file as context; refuses to write the solution. Checked against the real model |
+| 2 | AI interviewer (follow-up questions about the candidate's work) | Built. Opens when the candidate clicks Submit; four questions grounded in their actual changes. Checked against the real model, not yet clicked through in a browser |
+| 3 | Voice for the interviewer | Built, turn-based: questions read aloud and answers dictated with the browser's own speech features (Chrome and Edge). Not a live call — OpenRouter has no live-audio stream |
+| 4 | Recording AI usage as evidence (prompts, what was accepted) | Partly. Every assistant and interview turn is recorded and reaches the report. Whether a suggestion was then used in the code is not tracked |
+| 5 | Task generation per company / role | Partly. The admin library can draft a brief and starter codebase from notes about the company and role. Not yet run against the real model (key had too little credit), and a company can't trigger it from its own portal |
+| 6 | Evaluation report | Built. Now reads the candidate's real code changes and the interview. Not yet run end to end with the real key |
 
 **Profile and accounts**
 
