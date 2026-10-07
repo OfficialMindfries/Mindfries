@@ -75,12 +75,22 @@ interface IdeShellProps {
   assessmentName?: string;
   /** Seconds left on the real session's clock. Undefined when there's no session to time. */
   remainingSeconds?: number;
+  /**
+   * A practice run: no session, so nothing is recorded — but it has a task
+   * of its own (taskBrief/starterFiles) and its own saved copy in this
+   * browser, kept apart from the scratch workspace and from any session.
+   */
+  practice?: boolean;
 }
 
 /** How often the workspace is saved to the backend while the candidate works. */
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice }: IdeShellProps) {
+  // Which saved copy (files and git) this workspace reads and writes in this
+  // browser. It is only a storage key — everything that records or submits
+  // asks for `sessionId` itself, which a practice run doesn't have.
+  const storageId = sessionId ?? (practice ? "practice" : undefined);
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -90,7 +100,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // — not re-derived on every render — since useState only reads its
   // initializer on the very first render anyway.
   // Git's storage is per session too — set before anything can run git.
-  useState(() => setGitScope(sessionId));
+  useState(() => setGitScope(storageId));
   const [seeded] = useState(() =>
     starterFiles && Object.keys(starterFiles).length > 0
       ? buildInitialWorkspace(starterFiles)
@@ -213,7 +223,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     // This session's own copy — never another session's — or, when the
     // server's is newer (the candidate last worked somewhere else) or this
     // browser has none, the server's.
-    const saved = loadPersistedWorkspace(sessionId);
+    const saved = loadPersistedWorkspace(storageId);
     const source = pickWorkspace(saved, serverWorkspace ?? null);
     if (source === "local" && saved) {
       setTree(saved.tree);
@@ -230,8 +240,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
       const stillThere = (saved?.openPaths ?? []).filter((p) => p in restoredFromServer.files);
       setOpenPaths(stillThere);
       setActivePath(saved?.activePath && saved.activePath in restoredFromServer.files ? saved.activePath : (stillThere[0] ?? null));
-    } else if (sessionId) {
-      // A session opening for the first time starts from its task's own
+    } else if (storageId) {
+      // A session (or practice run) opening for the first time starts from its task's own
       // files, with nothing carried over — the mock project's default tab
       // doesn't exist in it.
       setOpenPaths((paths) => paths.filter((p) => p in seeded.files));
@@ -251,10 +261,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   useEffect(() => {
     if (!restored) return;
     const timeout = setTimeout(() => {
-      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath }, sessionId);
+      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath }, storageId);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [restored, sessionId, tree, files, savedFiles, openPaths, activePath]);
+  }, [restored, storageId, tree, files, savedFiles, openPaths, activePath]);
 
   // Auto Save, on by default (no setting to flip it off yet — ask if you
   // want that toggle). A short delay after you stop typing, whatever's
@@ -703,7 +713,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         >
           <TaskDescriptionPanel
             theme={theme}
-            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : SCRATCH_MARKDOWN}
+            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : practice && taskBrief ? taskBrief : SCRATCH_MARKDOWN}
             collapsed={taskCollapsed}
             onToggle={() => setTaskCollapsed((prev) => !prev)}
           />

@@ -23,19 +23,3 @@ export const TONES: Record<NotificationTone, ToneStyle> = {
   warning: { icon: TriangleAlert, card: "bg-[#FDF0E1]", badge: "bg-white", iconColor: "#C26410" },
   error: { icon: Ban, card: "bg-[#FBE9EA]", badge: "bg-white", iconColor: "#A6203C" },
 };
-
-export interface NotificationItem {
-  id: string;
-  tone: NotificationTone;
-  title: string;
-  body: string;
-  at: string;
-}
-
-/**
- * Nothing produces a notification yet — no invite, deadline or report event
- * is delivered to this panel — so the list is empty rather than seeded with
- * invented ones. The panel, tones and dismiss/read state are all built; the
- * day a real source exists, it fills this.
- */
-export const notifications: NotificationItem[] = [];

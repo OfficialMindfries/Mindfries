@@ -12,6 +12,8 @@ interface StatNotesProps {
    * that case is explained.
    */
   items?: Assessment[];
+  /** Practice runs the candidate has opened (lib/setup-state.ts). */
+  practiceRuns?: number;
 }
 
 /**
@@ -22,8 +24,8 @@ interface StatNotesProps {
  * sans: it's the part that tells you what to do about the number, and it has
  * to be readable in one glance.
  */
-export function StatNotes({ items }: StatNotesProps) {
-  const stats = deriveStats(items ?? []);
+export function StatNotes({ items, practiceRuns }: StatNotesProps) {
+  const stats = deriveStats(items ?? [], practiceRuns);
   return (
     <div className="grid grid-cols-2 gap-x-5 gap-y-7 pt-2 lg:grid-cols-4">
       {stats.map((stat, index) => (

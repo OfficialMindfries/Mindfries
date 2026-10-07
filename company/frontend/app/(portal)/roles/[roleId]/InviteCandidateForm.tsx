@@ -50,7 +50,7 @@ export function InviteCandidateForm({ roleId }: { roleId: string }) {
           {state.error}
         </p>
       )}
-      {state.success && !state.error && <p className="w-full text-[13px] text-[color:var(--color-success)]">Invited.</p>}
+      {state.success && !state.error && <p className="w-full text-[13px] text-[color:var(--color-success)]">{state.notice ?? "Invited."}</p>}
     </form>
   );
 }

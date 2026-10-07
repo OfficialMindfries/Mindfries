@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { currentCandidate } from "@/lib/auth/users";
-import { ArrowLeft, Play, Terminal } from "lucide-react";
+import { ArrowLeft, ArrowRight, Terminal } from "lucide-react";
 import Link from "next/link";
+import { Button } from "@/components/ui/Button";
+import { getSetupState } from "@/lib/setup-state";
+import { startPracticeRun } from "@/lib/setup-actions";
 
 export const metadata: Metadata = {
   title: "Practice Run · Mindfries",
@@ -11,6 +14,7 @@ export const metadata: Metadata = {
 
 export default async function PracticeRunPage() {
   const session = await currentCandidate();
+  const setup = await getSetupState(session?.id);
 
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
@@ -28,8 +32,8 @@ export default async function PracticeRunPage() {
           Practice run
         </h1>
         <p className="mt-2 max-w-lg text-[14px] leading-relaxed text-[#4A7FA7]">
-          A real workspace with a throwaway task. Nothing from it is recorded, scored, or shared.
-          Get comfortable before the real thing.
+          The real workspace with a throwaway task. Nothing you do in it is recorded, scored or shared — there is no
+          session behind it. The one thing we keep is that you opened one, so your dashboard can tick this step off.
         </p>
 
         <div className="mt-8 rounded-2xl border border-[#B3CFE5] bg-white p-6">
@@ -40,21 +44,30 @@ export default async function PracticeRunPage() {
             <div className="min-w-0 flex-1">
               <h2 className="text-[16px] font-semibold text-[#0A1931]">Sample task</h2>
               <p className="mt-1 text-[13px] leading-relaxed text-[#4A7FA7]">
-                Build a simple REST endpoint — the same kind of task you'd see in a real session,
-                but nothing here counts.
+                A small Python project with one bug and a test that catches it — the same shape as a real
+                assessment. Read the brief, run the tests, fix it, watch them pass. Try git, the terminal and the
+                Tests panel while you&apos;re there.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-dashed border-[#4A7FA7]/40 bg-[#B3CFE5]/10 p-6 text-center">
-          <p className="text-[14px] font-medium text-[#1A3D63]">
-            🚧 Practice sessions will be available once the sandbox environment is configured.
-          </p>
-          <p className="mt-2 text-[12.5px] text-[#4A7FA7]">
-            This needs the Daytona sandbox backend. Your teammate can set that up on the company side.
-          </p>
-        </div>
+        <form action={startPracticeRun} className="mt-6 flex flex-wrap items-center gap-4">
+          <Button type="submit">
+            {setup.practiceRuns > 0 ? "Open another practice run" : "Open a practice run"}
+            <ArrowRight size={14} />
+          </Button>
+          <span className="text-[12.5px] text-[#4A7FA7]">
+            {setup.practiceRuns === 0
+              ? "No time limit. Leave whenever you like."
+              : `You've opened ${setup.practiceRuns} so far. Your earlier work in it is still there.`}
+          </span>
+        </form>
+
+        <p className="mt-6 max-w-lg text-[12px] leading-relaxed text-[#4A7FA7]">
+          It will ask for your camera and go fullscreen, exactly as a real session does, so you can see what that is
+          like. In a practice run the camera picture stays in your browser and no stills are taken.
+        </p>
       </main>
     </div>
   );

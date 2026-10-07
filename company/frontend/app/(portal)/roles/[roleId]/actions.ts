@@ -2,14 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { bulkSetApplicationStage, createCompanyTemplate, getJobRole, inviteCandidateToRole, setApplicationStage, setJobRoleAssistant, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, createCompanyTemplate, getJobRole, inviteCandidateToRole, markInvitationEmailed, setApplicationStage, setJobRoleAssistant, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
+import { invitationMail } from "@/lib/invitation-mail";
+import { mailerReady, sendMail } from "@/lib/mailer";
 import { generateTask, parseCodeSample, taskGenerationReady, type GeneratedTask } from "@/lib/task-generation";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-export type InviteCandidateState = { error: string | null; success: boolean };
+export type InviteCandidateState = { error: string | null; success: boolean; /** What happened with the email, for the form to say. */ notice?: string };
 
 /**
  * Bound to a specific roleId in the client form (`inviteCandidate.bind(null, roleId)`)
@@ -20,8 +22,11 @@ export type InviteCandidateState = { error: string | null; success: boolean };
  */
 export async function inviteCandidate(roleId: string, _prev: InviteCandidateState, form: FormData): Promise<InviteCandidateState> {
   let companyId: string;
+  let companyName: string;
   try {
-    companyId = (await requireCompanyPermission("candidate:invite")).companyId;
+    const session = await requireCompanyPermission("candidate:invite");
+    companyId = session.companyId;
+    companyName = session.companyName;
   } catch (e) {
     return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
   }
@@ -32,8 +37,27 @@ export async function inviteCandidate(roleId: string, _prev: InviteCandidateStat
   const candidateName = text(form.get("candidateName"), 200) || undefined;
   const dueDate = text(form.get("dueDate"), 10) || undefined;
 
+  let notice: string;
   try {
-    await inviteCandidateToRole({ companyId, jobRoleId: roleId, candidateEmail: email, candidateName, dueDate });
+    const application = await inviteCandidateToRole({ companyId, jobRoleId: roleId, candidateEmail: email, candidateName, dueDate });
+
+    // The invitation exists from here on, and shows on the candidate's
+    // dashboard whether or not a message reaches them. The email is what
+    // tells them it's there — so what the form reports is what actually
+    // happened to the email, not just "Invited".
+    const portal = process.env.CANDIDATE_PORTAL_URL?.replace(/\/+$/, "");
+    if (!mailerReady() || !portal) {
+      notice = `Invited. No email was sent — ${!mailerReady() ? "email isn't set up on this portal" : "CANDIDATE_PORTAL_URL isn't set, so there is no link to send"}. Tell ${email} to sign in to the candidate portal with that address.`;
+    } else {
+      const role = await getJobRole(companyId, roleId);
+      try {
+        await sendMail({ to: email, ...invitationMail({ portal, companyName, roleTitle: role?.title ?? "a role", candidateName, dueDate }) });
+        if (application.assessmentId) await markInvitationEmailed(companyId, application.assessmentId);
+        notice = `Invited, and emailed ${email}.`;
+      } catch (e) {
+        notice = `Invited, but the email to ${email} couldn't be sent (${e instanceof Error ? e.message : "unknown error"}). The invitation is on their dashboard; let them know yourself.`;
+      }
+    }
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't invite that candidate — try again.", success: false };
   }
@@ -42,7 +66,7 @@ export async function inviteCandidate(roleId: string, _prev: InviteCandidateStat
   revalidatePath("/roles");
   revalidatePath("/candidates");
   revalidatePath("/dashboard");
-  return { error: null, success: true };
+  return { error: null, success: true, notice };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { can } from "@/lib/auth/permissions";
-import { getApplicationForCompany, getCandidateReport } from "@/lib/db";
+import { getApplicationForCompany, getCandidateReport, getInvitationResponse } from "@/lib/db";
 import { getCandidateProfile } from "@/lib/candidate-profile";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone, titleCase } from "@/lib/format";
@@ -22,9 +22,10 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   const application = await getApplicationForCompany(user.companyId, candidateId);
   if (!application) notFound();
 
-  const [{ session, report, interview, camera }, profile] = await Promise.all([
+  const [{ session, report, interview, camera }, profile, invitation] = await Promise.all([
     getCandidateReport(application.assessmentId),
     getCandidateProfile(application.candidateEmail),
+    getInvitationResponse(user.companyId, application.assessmentId),
   ]);
   const pending = report?.status === "pending" || report?.status === "generating";
   const canReview = can("candidate:stage", user.role);
@@ -39,7 +40,24 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
         <Pill tone={stageTone[application.stage]}>{stageLabel[application.stage]}</Pill>
         {application.score != null && <span className="mono text-sm text-dim">{application.score}%</span>}
         <span className="text-xs text-faint">Invited {fmtDate(application.createdAt)}</span>
+        {invitation && (
+          <span className="text-xs text-faint">
+            · {invitation.emailedAt ? `emailed ${fmtDate(invitation.emailedAt)}` : "no invitation email was sent"}
+            {invitation.acceptedAt && !invitation.declinedAt ? ` · accepted ${fmtDate(invitation.acceptedAt)}` : ""}
+          </span>
+        )}
       </div>
+
+      {invitation?.declinedAt && (
+        <div className="hair-card p-5">
+          <div className="eyebrow">Declined by the candidate</div>
+          <p className="mt-2 text-sm">
+            {fmtDate(invitation.declinedAt)}
+            {invitation.declineReason ? "" : " — no reason given."}
+          </p>
+          {invitation.declineReason && <p className="mt-2 text-sm whitespace-pre-line text-dim">&ldquo;{invitation.declineReason}&rdquo;</p>}
+        </div>
+      )}
 
       {Object.keys(application.sectionScores).length > 0 && (
         <div className="hair-card divide-y divide-hair">
@@ -54,7 +72,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
 
       <CandidateProfileCard profile={profile} />
 
-      {!session ? (
+      {!session && invitation?.declinedAt ? null : !session ? (
         <EmptyState title="Hasn't started yet" hint="A session and report show up here once the candidate begins their assessment." />
       ) : (
         <>

@@ -15,6 +15,7 @@ import type {
   CompanyUser,
   DueCandidate,
   InterviewExchange,
+  InvitationResponse,
   GameTemplate,
   JobRole,
   RoleStatus,
@@ -257,6 +258,7 @@ const EMPTY_STAGE_COUNTS: StageCounts = {
   shortlisted: 0,
   rejected: 0,
   hired: 0,
+  declined: 0,
 };
 
 /** Per-role pipeline stage counts (IMPLEMENTATION.md §9) — one query per role for now; fine at MVP volumes. */
@@ -356,6 +358,35 @@ export async function inviteCandidateToRole(input: {
     .single();
   if (error || !data) throw error ?? new Error("Insert returned no row");
   return toApplication(data);
+}
+
+/**
+ * Records that the invitation was mailed. Scoped by company as well as id,
+ * like every write here.
+ */
+export async function markInvitationEmailed(companyId: string, assessmentId: string): Promise<void> {
+  const c = db();
+  if (!c) return;
+  await c.from("assessments").update({ invite_emailed_at: new Date().toISOString() }).eq("id", assessmentId).eq("company_id", companyId);
+}
+
+/** What the candidate did with an invitation. Null when the application has no invitation behind it. */
+export async function getInvitationResponse(companyId: string, assessmentId: string | null): Promise<InvitationResponse | null> {
+  const c = db();
+  if (!c || !assessmentId) return null;
+  const { data } = await c
+    .from("assessments")
+    .select("invite_emailed_at, accepted_at, declined_at, decline_reason")
+    .eq("id", assessmentId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    emailedAt: data.invite_emailed_at ?? null,
+    acceptedAt: data.accepted_at ?? null,
+    declinedAt: data.declined_at ?? null,
+    declineReason: data.decline_reason ?? null,
+  };
 }
 
 export interface CandidateApplicationWithRole extends CandidateApplication {
