@@ -4,6 +4,14 @@ import { db } from "@/lib/supabase";
 import { currentCandidate } from "@/lib/auth/users";
 import { revalidatePath } from "next/cache";
 import { MAX_RESUME_TEXT, parseResumeText, type ResumeFields } from "./resume-fields";
+import { AccountNotFound, dropKnowledge, isKnowledgeSource, readAccount, storeKnowledge } from "./knowledge";
+import { statsOf } from "./knowledge-shape";
+import { PLATFORMS, type LinkPlatform } from "./links";
+
+const isPlatform = (p: string): p is LinkPlatform => Object.hasOwn(PLATFORMS, p);
+
+/** A linked account's knowledge base can be re-read this often, per account. */
+const REFRESH_EVERY_MS = 10 * 60_000;
 
 export async function getProfile() {
   const session = await currentCandidate();
@@ -57,12 +65,39 @@ export async function saveIdentity(form: { name: string; role: string; location:
   return { ok: true };
 }
 
-export async function saveLink(platform: string, value: string) {
+/**
+ * Links an account. The value is normalised here as well as on the page — a
+ * server action is a public endpoint — and a GitHub or GitLab username is
+ * read from the platform before it is saved: an account that doesn't exist
+ * is refused, and one that does has its public projects, languages and
+ * activity kept (lib/profile/knowledge.ts). If the platform simply doesn't
+ * answer, the link is still saved, without that.
+ */
+export async function saveLink(platform: string, rawValue: string) {
   const session = await currentCandidate();
   if (!session) return { error: "Not signed in" };
+  if (!isPlatform(platform)) return { error: "Unknown platform." };
+
+  const normalised = PLATFORMS[platform].normalize(String(rawValue).slice(0, 500));
+  if (!normalised.ok) return { error: normalised.error };
+  const value = normalised.value;
 
   const c = db();
   if (!c) return { error: "Database not connected" };
+
+  let stats: ReturnType<typeof statsOf> | undefined;
+  if (isKnowledgeSource(platform)) {
+    try {
+      const knowledge = await readAccount(platform, value);
+      await storeKnowledge(session.id, knowledge);
+      stats = statsOf(knowledge);
+    } catch (e) {
+      if (e instanceof AccountNotFound) return { error: e.message };
+      // The platform didn't answer. A real username shouldn't be refused
+      // for that; whatever an earlier link left behind no longer applies.
+      await dropKnowledge(session.id, platform);
+    }
+  }
 
   const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
   const currentLinks = data?.links || {};
@@ -70,11 +105,51 @@ export async function saveLink(platform: string, value: string) {
   const { error } = await c
     .from("candidate_users")
     .update({
-      links: { ...currentLinks, [platform]: { value, savedAt: new Date().toISOString() } },
+      links: { ...currentLinks, [platform]: { value, savedAt: new Date().toISOString(), ...(stats ? { stats } : {}) } },
     })
     .eq("id", session.id);
 
   if (error) return { error: error.message };
+
+  revalidatePath("/profile");
+  return { ok: true };
+}
+
+/** Reads a linked GitHub or GitLab account again, so the knowledge base reflects it as it is now. */
+export async function refreshKnowledge(platform: string) {
+  const session = await currentCandidate();
+  if (!session) return { error: "Not signed in" };
+  if (!isKnowledgeSource(platform)) return { error: "Only GitHub and GitLab can be refreshed." };
+
+  const c = db();
+  if (!c) return { error: "Database not connected" };
+
+  const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
+  const links = data?.links || {};
+  const value = links[platform]?.value;
+  if (typeof value !== "string" || !value) return { error: "That account isn't linked." };
+
+  const { data: existing } = await c
+    .from("candidate_knowledge")
+    .select("fetched_at")
+    .eq("candidate_id", session.id)
+    .eq("source", platform)
+    .maybeSingle();
+  const age = existing?.fetched_at ? Date.now() - Date.parse(existing.fetched_at as string) : Infinity;
+  if (age < REFRESH_EVERY_MS) {
+    return { error: `That was read ${Math.max(1, Math.round(age / 60_000))} minutes ago — try again a little later.` };
+  }
+
+  try {
+    const knowledge = await readAccount(platform, value);
+    await storeKnowledge(session.id, knowledge);
+    await c
+      .from("candidate_users")
+      .update({ links: { ...links, [platform]: { ...links[platform], stats: statsOf(knowledge) } } })
+      .eq("id", session.id);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't read that account." };
+  }
 
   revalidatePath("/profile");
   return { ok: true };
@@ -97,6 +172,7 @@ export async function removeLink(platform: string) {
     .eq("id", session.id);
 
   if (error) return { error: error.message };
+  if (isKnowledgeSource(platform)) await dropKnowledge(session.id, platform);
 
   revalidatePath("/profile");
   return { ok: true };

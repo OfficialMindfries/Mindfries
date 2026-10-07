@@ -9,6 +9,8 @@ import { ResumeUpload } from "@/components/profile/ResumeUpload";
 import { NextSteps } from "@/components/profile/NextSteps";
 import { currentCandidate } from "@/lib/auth/users";
 import { getProfile, getResumeUrl } from "@/lib/profile/actions";
+import { listKnowledge } from "@/lib/profile/knowledge";
+import { KnowledgeBase } from "@/components/profile/KnowledgeBase";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 import type { ResumeFields } from "@/lib/profile/resume-fields";
 
@@ -43,7 +45,10 @@ export default async function ProfilePage() {
     getProfile(),
     listAssessmentsOrUndefined(),
   ]);
-  const resumeUrl = await getResumeUrl(profile?.resume_path || null);
+  const [resumeUrl, knowledge] = await Promise.all([
+    getResumeUrl(profile?.resume_path || null),
+    session ? listKnowledge(session.id) : [],
+  ]);
   const parsed = (profile?.resume_parsed ?? null) as ResumeFields | null;
   // What the resume could fill in that the candidate hasn't written themselves.
   const emptyFields = parsed
@@ -68,6 +73,7 @@ export default async function ProfilePage() {
             <div className="min-w-0 space-y-6">
               <IdentityCard sessionName={session?.name} profile={profile} />
               <LinkedAccounts links={profile?.links || {}} />
+              <KnowledgeBase items={knowledge} />
             </div>
 
             <aside className="space-y-4">
