@@ -10,6 +10,8 @@ import { usePreviewMode } from "./PreviewMode";
 const day = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 
+const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
 /**
  * What the linked code accounts say: projects, languages, recent activity.
  *
@@ -87,7 +89,7 @@ export function KnowledgeBase({ items }: { items: StoredKnowledge[] }) {
               {k.activity === null
                 ? "Recent activity isn't public for this account."
                 : k.activity.lastActiveAt
-                  ? `Last public activity ${day(k.activity.lastActiveAt)}. Since ${day(k.activity.since)}: ${k.activity.pushes} pushes, ${k.activity.pullRequests} pull requests opened, ${k.activity.reviews} reviews, ${k.activity.issues} issues.`
+                  ? `Last public activity ${day(k.activity.lastActiveAt)}. Since ${day(k.activity.since)}: ${n(k.activity.pushes, "push", "pushes")}, ${n(k.activity.pullRequests, "pull request")} opened, ${n(k.activity.reviews, "review")}, ${n(k.activity.issues, "issue")}.`
                   : "No recent public activity."}
             </p>
 

@@ -2,6 +2,8 @@ import { Chip, Pill } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import type { CandidateProfile } from "@/lib/candidate-profile";
 
+const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
 /**
  * The candidate's profile, beside their report.
  *
@@ -127,7 +129,7 @@ export function CandidateProfileCard({ profile }: { profile: CandidateProfile | 
             {a.activity === null
               ? "Recent activity isn't public for this account."
               : a.activity.lastActiveAt
-                ? `Last public activity ${fmtDate(a.activity.lastActiveAt)}. Since ${a.activity.since ? fmtDate(a.activity.since) : "—"}: ${a.activity.pushes} pushes, ${a.activity.pullRequests} pull requests opened, ${a.activity.reviews} reviews, ${a.activity.issues} issues.`
+                ? `Last public activity ${fmtDate(a.activity.lastActiveAt)}. Since ${a.activity.since ? fmtDate(a.activity.since) : "—"}: ${n(a.activity.pushes, "push", "pushes")}, ${n(a.activity.pullRequests, "pull request")} opened, ${n(a.activity.reviews, "review")}, ${n(a.activity.issues, "issue")}.`
                 : "No recent public activity."}
             {a.memberSince ? ` Account created ${fmtDate(a.memberSince)}.` : ""}
           </p>
