@@ -106,6 +106,8 @@ export interface AssessmentView {
   due: string;
   /** Only ever present on a real invitation (assessments.match_score) — the open pool has no per-candidate match to compute. */
   match?: number;
+  /** The candidate's session for this assessment, when they have one — the workspace to resume, or the report to open. */
+  sessionId?: string;
 }
 
 export interface SessionView {
@@ -137,8 +139,21 @@ export interface NewActivityEvent {
 }
 
 export async function listAssessments(): Promise<AssessmentView[]> {
-  return request<AssessmentView[]>("/api/v1/assessments");
+  const rows = await request<(Omit<AssessmentView, "status"> & { status: string })[]>("/api/v1/assessments");
+  // The backend already answers in this app's own status words; this only
+  // guards the type, so a status it doesn't know (or the database's raw
+  // "in_progress", should that ever come through) can't reach the dashboard
+  // as something it has no way to draw.
+  return rows.map((row) => ({ ...row, status: KNOWN_STATUS[row.status] ?? "closed" }));
 }
+
+const KNOWN_STATUS: Record<string, AssessmentStatus> = {
+  invited: "invited",
+  "in-progress": "in-progress",
+  in_progress: "in-progress",
+  submitted: "submitted",
+  closed: "closed",
+};
 
 /**
  * The candidate's real assessments, or `undefined` when nothing could be
@@ -204,6 +219,21 @@ export async function startLiveInterview(sessionId: string, files: Record<string
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ files }),
   });
+}
+
+/**
+ * A ticket and address for the session's live event stream, for a page to
+ * subscribe with — see candidate/backend's handleSessionEvents. Undefined
+ * when there's no backend or it can't be asked: the page then just polls.
+ */
+export async function sessionEventsOrUndefined(sessionId: string): Promise<{ url: string; ticket: string } | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    const { ticket } = await request<{ ticket: string }>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/events-ticket`, { method: "POST" });
+    return { url: baseUrl().replace(/^http/, "ws") + "/api/v1/session-events", ticket };
+  } catch {
+    return undefined;
+  }
 }
 
 /** Where the browser opens the live interview call: the backend's own address, as a WebSocket. */
@@ -334,6 +364,30 @@ export async function getSessionAssessmentOrUndefined(sessionId: string): Promis
   } catch (err) {
     if (err instanceof BackendAuthError) return undefined; // no session cookie / not this candidate's — the page itself already redirects for the former
     console.error("backend: getSessionAssessment failed, falling back to the IDE's own honest defaults:", err);
+    return undefined;
+  }
+}
+
+export interface SavedWorkspaceView {
+  files: Record<string, string>;
+  /** When the server took this copy, ISO 8601. */
+  savedAt: string;
+  /** The interview has begun: the work can be read but no longer changed. */
+  frozen: boolean;
+}
+
+/**
+ * The latest copy of the session's files the server holds, for restoring a
+ * workspace this browser doesn't have. Undefined when nothing has been
+ * saved yet, or it couldn't be asked — the workspace then opens from this
+ * browser's own copy, or the task's starting files.
+ */
+export async function getSavedWorkspaceOrUndefined(sessionId: string): Promise<SavedWorkspaceView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return (await request<SavedWorkspaceView | undefined>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/workspace`)) ?? undefined;
+  } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSavedWorkspace failed:", err);
     return undefined;
   }
 }

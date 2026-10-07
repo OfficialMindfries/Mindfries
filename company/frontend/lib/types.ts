@@ -163,6 +163,18 @@ export interface CandidateReport {
   report: AssessmentReport | null;
   /** The interview as it happened. Empty when none took place. */
   interview: InterviewExchange[];
+  /** Stills of the proctoring camera through the session. */
+  camera: CameraRecord;
+}
+
+/** The proctoring camera's record of a session: a sample of its stills. */
+export interface CameraRecord {
+  /** How many stills were taken in all. */
+  total: number;
+  /** How many have been deleted at the end of their 90-day retention. */
+  expired: number;
+  /** An even sample across the session, oldest first. `url` is signed and short-lived. */
+  stills: { url: string; offsetSeconds: number }[];
 }
 
 /** A candidate whose assessment has a real due date — the Overview calendar widget. */

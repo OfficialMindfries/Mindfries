@@ -139,3 +139,23 @@ func (d *DB) LatestEventPayload(ctx context.Context, sessionID, eventType string
 	}
 	return payload, err
 }
+
+// LatestEvent returns a session's most recent event of the given type, or
+// nil when it has none.
+func (d *DB) LatestEvent(ctx context.Context, sessionID, eventType string) (*ActivityEvent, error) {
+	var e ActivityEvent
+	err := d.pool.QueryRow(ctx, `
+		select id, session_id, event_type, payload, occurred_at
+		from activity_events
+		where session_id = $1 and event_type = $2
+		order by occurred_at desc, id desc
+		limit 1
+	`, sessionID, eventType).Scan(&e.ID, &e.SessionID, &e.EventType, &e.Payload, &e.OccurredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}

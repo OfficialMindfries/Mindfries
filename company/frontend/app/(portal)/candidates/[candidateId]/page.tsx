@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/permissions";
 import { getApplicationForCompany, getCandidateReport } from "@/lib/db";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone, titleCase } from "@/lib/format";
+import { CameraTimeline } from "./CameraTimeline";
 import { EvidenceList } from "./EvidenceList";
 import { InterviewTranscript } from "./InterviewTranscript";
 import { ReviewerDecisionForm } from "./ReviewerDecisionForm";
@@ -19,7 +20,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   const application = await getApplicationForCompany(user.companyId, candidateId);
   if (!application) notFound();
 
-  const { session, report, interview } = await getCandidateReport(application.assessmentId);
+  const { session, report, interview, camera } = await getCandidateReport(application.assessmentId);
   const pending = report?.status === "pending" || report?.status === "generating";
   const canReview = can("candidate:stage", user.role);
 
@@ -108,6 +109,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           )}
 
           <InterviewTranscript exchanges={interview} />
+
+          <CameraTimeline camera={camera} />
 
           {pending && <ReportAutoRefresh />}
         </>

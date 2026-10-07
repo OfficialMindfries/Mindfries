@@ -44,12 +44,22 @@ export function describeEvent(type: string, payload: Record<string, unknown>): s
       return clip(`${payload.role === "candidate" ? "Asked the assistant" : "The assistant replied"}: ${str(payload.text)}`);
     case "interview":
       return clip(`${payload.role === "interviewer" ? "Interviewer asked" : "Candidate answered"}: ${str(payload.text)}`);
+    case "terminal_command":
+      return clip(`Ran ${str(payload.command)}${Number(payload.exitCode) ? ` (exited ${Number(payload.exitCode)})` : ""}`);
+    case "test_run":
+      return payload.parsed === false
+        ? clip(`Ran the tests: ${str(payload.command)} (exited ${Number(payload.exitCode) || 0})`)
+        : `Ran the tests: ${Number(payload.passed) || 0} passed, ${Number(payload.failed) || 0} failed`;
+    case "file_open":
+      return `Opened ${str(payload.path) || "a file"}`;
     case "assistant_copy":
       return `Copied ${Number(payload.chars) || 0} characters out of the assistant panel`;
     case "paste":
       return `Pasted ${Number(payload.chars) || 0} characters into ${str(payload.target) || "the workspace"}`;
     case "tab_hidden":
       return `Returned after ${Number(payload.seconds) || 0} seconds away from the workspace`;
+    case "camera_snapshot":
+      return "A still of the camera was taken";
     case "auto_submitted":
       return "The server submitted the session";
     default:

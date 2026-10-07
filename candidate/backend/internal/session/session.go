@@ -218,3 +218,32 @@ func VerifyCompany(token, secret string) (*CompanyClaims, error) {
 
 // SignCompany is the company equivalent of SignCandidate — for tests.
 func SignCompany(c CompanyClaims, secret string) (string, error) { return sign(c, secret) }
+
+// An events ticket lets a candidate's browser subscribe to their own
+// session's live events — the same LiveTicket shape, signed under a
+// different key so that neither kind of ticket can be spent as the other.
+func eventsTicketSecret(secret string) string { return secret + "|session-events-ticket" }
+
+// SignEventsTicket issues a ticket for a session's event stream.
+func SignEventsTicket(t LiveTicket, secret string) (string, error) {
+	if secret == "" {
+		return "", ErrInvalid
+	}
+	return sign(t, eventsTicketSecret(secret))
+}
+
+// VerifyEventsTicket checks an events ticket's signature and expiry.
+func VerifyEventsTicket(token, secret string) (*LiveTicket, error) {
+	if secret == "" {
+		return nil, ErrInvalid
+	}
+	raw, err := verify(token, eventsTicketSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	var t LiveTicket
+	if err := json.Unmarshal(raw, &t); err != nil || t.SessionID == "" || t.CandidateID == "" {
+		return nil, ErrInvalid
+	}
+	return &t, nil
+}

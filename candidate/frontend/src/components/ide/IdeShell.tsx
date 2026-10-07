@@ -24,7 +24,7 @@ import { addNode, collectFilePaths, findNode, moveNode, removeNode } from "@/lib
 import type { FileContents, TreeNode } from "@/lib/ide/types";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import { emptyNotebookJson } from "@/lib/ide/notebook";
-import { loadPersistedWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
+import { loadPersistedWorkspace, pickWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
 import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview/build-preview";
 import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
@@ -36,6 +36,13 @@ import { checkpointWorkspace, submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
 import { snapshotFiles } from "@/lib/ide/snapshot";
 import { watchProvenance } from "@/lib/ide/provenance";
+import { terminalLog } from "@/lib/ide/terminal-log";
+import { isTestCommand, parseTestRun, testResults } from "@/lib/ide/test-results";
+import { lineChange } from "@/lib/ide/line-change";
+import { DIFF_PREFIX, fileOfTab, isDiffTab, workspaceChanges } from "@/lib/ide/changes";
+import { startCameraSnapshots } from "@/lib/ide/camera-snapshots";
+import { setGitScope } from "@/lib/ide/git/idb";
+import { startSnapshotUpload } from "@/app/ide/interview-actions";
 
 interface IdeShellProps {
   /**
@@ -59,6 +66,11 @@ interface IdeShellProps {
    */
   taskBrief?: string;
   starterFiles?: FileContents;
+  /**
+   * The server's latest copy of this session's work (app/ide/page.tsx), or
+   * undefined when it has none. `savedAt` is ms since the epoch.
+   */
+  serverWorkspace?: { files: FileContents; savedAt: number; frozen: boolean };
   /** The real assessment's name for the header. Undefined without a session. */
   assessmentName?: string;
   /** Seconds left on the real session's clock. Undefined when there's no session to time. */
@@ -66,9 +78,9 @@ interface IdeShellProps {
 }
 
 /** How often the workspace is saved to the backend while the candidate works. */
-const CHECKPOINT_INTERVAL_MS = 2 * 60 * 1000;
+const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -77,6 +89,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // props already resolved server-side before this component ever mounted
   // — not re-derived on every render — since useState only reads its
   // initializer on the very first render anyway.
+  // Git's storage is per session too — set before anything can run git.
+  useState(() => setGitScope(sessionId));
   const [seeded] = useState(() =>
     starterFiles && Object.keys(starterFiles).length > 0
       ? buildInitialWorkspace(starterFiles)
@@ -87,6 +101,13 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   const [savedFiles, setSavedFiles] = useState<FileContents>(seeded.files);
   const [openPaths, setOpenPaths] = useState<string[]>(DEFAULT_OPEN_PATH ? [DEFAULT_OPEN_PATH] : []);
   const [activePath, setActivePath] = useState<string | null>(DEFAULT_OPEN_PATH);
+
+  // The file the active tab is about. A diff tab is "about" the file it
+  // compares, so everything that asks what the candidate is looking at —
+  // the breadcrumbs, the assistant, telemetry — gets a real path.
+  const activeFile = fileOfTab(activePath);
+  // What has changed since the task was handed over — see lib/ide/changes.ts.
+  const changes = useMemo(() => workspaceChanges(seeded.files, files), [seeded.files, files]);
 
   const dirtyPaths = useMemo(() => {
     const dirty = new Set<string>();
@@ -116,8 +137,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // lib/ide/provenance.ts.
   const activePathRef = useRef<string | null>(null);
   useEffect(() => {
-    activePathRef.current = activePath;
-  }, [activePath]);
+    activePathRef.current = activeFile;
+  }, [activeFile]);
   useEffect(() => {
     if (!sessionId) return;
     return watchProvenance(
@@ -125,6 +146,41 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
       () => activePathRef.current,
     );
   }, [sessionId]);
+
+  // Every command that finishes in the terminal (or from the Tests panel):
+  // a test run is read into results for the Tests panel, and — in a real
+  // session — the command, how it exited and how long it took are recorded.
+  // Its output isn't sent, except a test run's counts: what a candidate ran
+  // and whether it worked is the evidence; megabytes of logs aren't.
+  useEffect(
+    () =>
+      terminalLog.onCommand((done) => {
+        telemetryRef.current?.record("terminal_command", { command: done.command.slice(0, 300), exitCode: done.exitCode, ms: done.ms });
+        if (!isTestCommand(done.command)) return;
+        const run = parseTestRun(done.command, done.output, done.exitCode);
+        testResults.record(run);
+        telemetryRef.current?.record("test_run", {
+          command: run.command.slice(0, 300),
+          exitCode: run.exitCode,
+          parsed: run.parsed,
+          passed: run.passed,
+          failed: run.failed,
+          skipped: run.skipped,
+          failing: run.tests.filter((t) => t.status === "fail" || t.status === "error").map((t) => t.name).slice(0, 20),
+        });
+      }),
+    [],
+  );
+
+  // Which file the candidate is looking at, as it changes — the order they
+  // read a codebase in says a lot about how they went looking.
+  useEffect(() => {
+    if (!sessionId || !activeFile) return;
+    const diff = isDiffTab(activePath);
+    // A file flicked past on the way to another isn't one that was read.
+    const timeout = setTimeout(() => telemetryRef.current?.record("file_open", diff ? { path: activeFile, view: "diff" } : { path: activeFile }), 1500);
+    return () => clearTimeout(timeout);
+  }, [sessionId, activeFile, activePath]);
 
   // Relays the Output panel's own channels (git/npm/pip/preview — see
   // lib/ide/output.ts) into telemetry. Tracks how many lines of each
@@ -154,16 +210,38 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     // localStorage is only reachable client-side, so this restore can only
     // happen post-mount — same unavoidable pattern as theme.tsx's read.
     /* eslint-disable react-hooks/set-state-in-effect */
-    const saved = loadPersistedWorkspace();
-    if (saved) {
+    // This session's own copy — never another session's — or, when the
+    // server's is newer (the candidate last worked somewhere else) or this
+    // browser has none, the server's.
+    const saved = loadPersistedWorkspace(sessionId);
+    const source = pickWorkspace(saved, serverWorkspace ?? null);
+    if (source === "local" && saved) {
       setTree(saved.tree);
       setFiles(saved.files);
       setSavedFiles(saved.savedFiles);
       setOpenPaths(saved.openPaths);
       setActivePath(saved.activePath);
+    } else if (source === "server" && serverWorkspace) {
+      const restoredFromServer = buildInitialWorkspace(serverWorkspace.files);
+      setTree(restoredFromServer.tree);
+      setFiles(restoredFromServer.files);
+      setSavedFiles(restoredFromServer.files);
+      // Keep the tabs the candidate had open here, where they still exist.
+      const stillThere = (saved?.openPaths ?? []).filter((p) => p in restoredFromServer.files);
+      setOpenPaths(stillThere);
+      setActivePath(saved?.activePath && saved.activePath in restoredFromServer.files ? saved.activePath : (stillThere[0] ?? null));
+    } else if (sessionId) {
+      // A session opening for the first time starts from its task's own
+      // files, with nothing carried over — the mock project's default tab
+      // doesn't exist in it.
+      setOpenPaths((paths) => paths.filter((p) => p in seeded.files));
+      setActivePath((path) => (path && path in seeded.files ? path : null));
     }
     setRestored(true);
     /* eslint-enable react-hooks/set-state-in-effect */
+    // Runs once, on mount: the props it reads were fixed server-side before
+    // this component existed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist on every change, debounced so fast typing doesn't hit
@@ -173,10 +251,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   useEffect(() => {
     if (!restored) return;
     const timeout = setTimeout(() => {
-      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath });
+      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath }, sessionId);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [restored, tree, files, savedFiles, openPaths, activePath]);
+  }, [restored, sessionId, tree, files, savedFiles, openPaths, activePath]);
 
   // Auto Save, on by default (no setting to flip it off yet — ask if you
   // want that toggle). A short delay after you stop typing, whatever's
@@ -186,14 +264,20 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     if (dirtyPaths.size === 0) return;
     const timeout = setTimeout(() => {
       const paths = [...dirtyPaths];
+      // How much each file changed since it was last saved — the size of the
+      // edit, not its text (the text is in the workspace checkpoints).
+      const changes = paths.map((path) => ({ path, ...lineChange(savedFiles[path] ?? "", files[path] ?? "") }));
       setSavedFiles((prev) => {
         const next = { ...prev };
         for (const path of paths) next[path] = files[path];
         return next;
       });
-      telemetryRef.current?.record("file_edit", { paths });
+      telemetryRef.current?.record("file_edit", { paths, changes });
     }, 800);
     return () => clearTimeout(timeout);
+    // savedFiles is read for the size of the edit only; depending on it
+    // would re-run this the moment it saves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirtyPaths, files]);
 
   const sidebar = useResizable({ initial: 240, min: 160, max: 480, axis: "horizontal" });
@@ -206,6 +290,20 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // The session is camera-proctored: the gate below blocks the workspace
   // until this is live, and re-blocks if the stream ever stops.
   const camera = useProctorCamera();
+  // A still of the camera every half minute, kept with the session — see
+  // lib/ide/camera-snapshots.ts. Only in a real session: a scratch workspace
+  // records nothing.
+  useEffect(() => {
+    if (!sessionId || !camera.stream) return;
+    return startCameraSnapshots(camera.stream, {
+      uploadTarget: async () => {
+        const target = await startSnapshotUpload(sessionId);
+        return "error" in target ? null : target;
+      },
+      stored: (snapshot) => telemetryRef.current?.record("camera_snapshot", snapshot),
+    });
+  }, [sessionId, camera.stream]);
+
   // Real markers from Monaco's TypeScript service — see lib/ide/diagnostics.ts.
   const diagnostics = useDiagnostics(tree, files);
 
@@ -227,7 +325,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // session — there's nothing to ask about a scratch workspace. Confirming
   // is the point of no return: the interviewer talks about their code in
   // specifics, so there is no going back to the editor once it starts.
-  const [interviewing, setInterviewing] = useState(false);
+  // A session resumed after its interview began opens on the interview:
+  // the work is frozen (the backend refuses further changes), so showing the
+  // editor again would only invite edits that go nowhere.
+  const [interviewing, setInterviewing] = useState(() => !!sessionId && !!serverWorkspace?.frozen);
   // The interview has been held (or couldn't be) — all that remains is the submit itself.
   const [interviewed, setInterviewed] = useState(false);
   // The session's clock has run out. Working time is over: the interview
@@ -250,15 +351,25 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   useEffect(() => {
     if (!working || !sessionId) return;
     let lastSent = "";
-    const interval = setInterval(() => {
+    const save = () => {
       const snapshot = currentSnapshot();
       const serialized = JSON.stringify(snapshot);
       if (serialized === lastSent) return;
       void checkpointWorkspace(sessionId, snapshot).then((result) => {
         if (result.ok) lastSent = serialized;
       });
-    }, CHECKPOINT_INTERVAL_MS);
-    return () => clearInterval(interval);
+    };
+    const interval = setInterval(save, CHECKPOINT_INTERVAL_MS);
+    // Leaving the tab is the moment a candidate is most likely not to come
+    // back to this browser, so the server gets a copy then too.
+    const onHidden = () => {
+      if (document.hidden) save();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
   }, [working, sessionId, currentSnapshot]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
@@ -640,14 +751,15 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               palette.border
             )}
           >
-            <Breadcrumbs path={activePath} theme={theme} />
+            <Breadcrumbs path={activeFile} theme={theme} />
             <div className="min-h-0 flex-1">
               <EditorPanel
                 theme={theme}
                 openPaths={openPaths}
                 activePath={activePath}
                 dirtyPaths={dirtyPaths}
-                content={activePath ? files[activePath] ?? "" : ""}
+                content={activeFile ? files[activeFile] ?? "" : ""}
+                original={isDiffTab(activePath) && activeFile ? seeded.files[activeFile] : undefined}
                 onSelectTab={setActivePath}
                 onCloseTab={closeTab}
                 onChange={changeFile}
@@ -677,6 +789,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               cameraStream={camera.stream}
               diagnostics={diagnostics}
               onOpenLocation={(path) => openFile(path)}
+              changes={changes}
+              onOpenDiff={(path) => openFile(`${DIFF_PREFIX}${path}`)}
               previewState={preview}
               onClosePreview={() => {
                 releaseBuild(previewBuildRef.current);
@@ -708,8 +822,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               <ChatPanel
                 theme={theme}
                 sessionId={sessionId}
-                activePath={activePath}
-                activeContent={activePath ? files[activePath] : undefined}
+                activePath={activeFile}
+                activeContent={activeFile ? files[activeFile] : undefined}
                 getFiles={currentSnapshot}
                 onCopy={(chars) => telemetryRef.current?.record("assistant_copy", { chars })}
                 onClose={() => setChatOpen(false)}

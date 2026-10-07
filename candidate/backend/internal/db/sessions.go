@@ -180,6 +180,63 @@ func (d *DB) CountEarlierSessions(ctx context.Context, templateID, sessionID str
 	return n, err
 }
 
+// SelfStarted summarises the sessions a candidate began on their own, from
+// the open pool rather than by invitation: how many since a given moment,
+// and whether one is still running.
+type SelfStarted struct {
+	Recent int
+	Live   bool
+}
+
+// CountSelfStarted is what the limit on self-started sessions is checked
+// against (orchestrator.startFromTemplate). A session with no assessment_id
+// is one nobody invited the candidate to.
+func (d *DB) CountSelfStarted(ctx context.Context, candidateID string, since time.Time) (SelfStarted, error) {
+	var out SelfStarted
+	err := d.pool.QueryRow(ctx, `
+		select count(*) filter (where started_at >= $2),
+		       coalesce(bool_or(status = 'live'), false)
+		from sessions
+		where candidate_id = $1 and assessment_id is null
+	`, candidateID, since).Scan(&out.Recent, &out.Live)
+	return out, err
+}
+
+// SessionRef is where one of a candidate's sessions stands: which invitation
+// or template it is for, and its status.
+type SessionRef struct {
+	ID           string
+	AssessmentID *string
+	TemplateID   *string
+	Status       string
+}
+
+// ListSessionRefsForCandidate returns a candidate's sessions, newest first —
+// what lets their assessments list say which ones are under way (and can be
+// resumed) and which have a report to open.
+func (d *DB) ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]SessionRef, error) {
+	rows, err := d.pool.Query(ctx, `
+		select id, assessment_id, template_id, status
+		from sessions
+		where candidate_id = $1
+		order by started_at desc
+	`, candidateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SessionRef
+	for rows.Next() {
+		var r SessionRef
+		if err := rows.Scan(&r.ID, &r.AssessmentID, &r.TemplateID, &r.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ErrAlreadySubmitted means a session's status was no longer "live" at the
 // moment this tried to move it to "submitted" — either it was already
 // submitted, or a concurrent request beat this one to it. Distinct from a

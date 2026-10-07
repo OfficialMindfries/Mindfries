@@ -4,6 +4,7 @@ import { inviteSecret, signInviteToken } from "./auth/invite-token";
 import { normalizeAssistantConfig } from "./assistant";
 import { citedIds, describeEvent, type Moment } from "./moments";
 import { normalizeInterviewConfig } from "./interview";
+import type { CameraRecord } from "./types";
 import type {
   ApplicationStage,
   AssessmentReport,
@@ -439,7 +440,7 @@ export async function getApplicationForCompany(companyId: string, applicationId:
  * an honest empty state, not an error.
  */
 export async function getCandidateReport(assessmentId: string | null): Promise<CandidateReport> {
-  const empty: CandidateReport = { session: null, report: null, interview: [] };
+  const empty: CandidateReport = { session: null, report: null, interview: [], camera: { total: 0, expired: 0, stills: [] } };
   if (!assessmentId) return empty;
   const c = db();
   if (!c) return empty;
@@ -464,8 +465,8 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
   };
 
   const { data: reportRow } = await c.from("assessment_reports").select("*").eq("session_id", session.id).maybeSingle();
-  const interview = await getInterviewExchanges(session.id);
-  if (!reportRow) return { session, report: null, interview };
+  const [interview, camera] = await Promise.all([getInterviewExchanges(session.id), getCameraRecord(session.id, session.startedAt)]);
+  if (!reportRow) return { session, report: null, interview, camera };
 
   const { data: evidenceRows } = await c
     .from("evidence_items")
@@ -509,7 +510,49 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
     createdAt: n.created_at,
   }));
 
-  return { session, report, interview };
+  return { session, report, interview, camera };
+}
+
+const SNAPSHOTS_BUCKET = "proctor-snapshots";
+/** How many stills the report page shows. A session has one every half minute; a reviewer wants a sense of it, not all 120. */
+const CAMERA_SAMPLE = 24;
+
+/**
+ * The proctoring camera's stills for a session (candidate/frontend's
+ * lib/ide/camera-snapshots.ts): an even sample of them, each with a signed
+ * link valid for an hour. Only paths inside the session's own folder are
+ * used — the events come from the candidate's browser.
+ */
+async function getCameraRecord(sessionId: string, startedAt: string): Promise<CameraRecord> {
+  const c = db();
+  const none: CameraRecord = { total: 0, expired: 0, stills: [] };
+  if (!c) return none;
+  const { data } = await c
+    .from("activity_events")
+    .select("event_type, payload, occurred_at")
+    .eq("session_id", sessionId)
+    .in("event_type", ["camera_snapshot", "camera_snapshot_expired"])
+    .order("occurred_at", { ascending: true });
+  if (!data || data.length === 0) return none;
+
+  const expired = data.filter((r: any) => r.event_type === "camera_snapshot_expired").length;
+  const live = data
+    .filter((r: any) => r.event_type === "camera_snapshot")
+    .map((r: any) => ({ path: (r.payload ?? {}).path as unknown, at: r.occurred_at as string }))
+    .filter((s): s is { path: string; at: string } => typeof s.path === "string" && s.path.startsWith(`${sessionId}/`) && !s.path.includes(".."));
+
+  const step = Math.max(1, Math.ceil(live.length / CAMERA_SAMPLE));
+  const sample = live.filter((_, i) => i % step === 0);
+  const start = new Date(startedAt).getTime();
+  const stills = (
+    await Promise.all(
+      sample.map(async (s) => {
+        const { data: signed } = await c.storage.from(SNAPSHOTS_BUCKET).createSignedUrl(s.path, RECORDING_LINK_SECONDS);
+        return signed?.signedUrl ? { url: signed.signedUrl, offsetSeconds: Math.max(0, (new Date(s.at).getTime() - start) / 1000) } : null;
+      }),
+    )
+  ).filter((s): s is { url: string; offsetSeconds: number } => s !== null);
+  return { total: live.length + expired, expired, stills };
 }
 
 /**

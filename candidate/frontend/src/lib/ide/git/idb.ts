@@ -8,8 +8,22 @@
  * store lives here instead, where `Uint8Array` survives intact.
  */
 
-const DB_NAME = "mindfries-ide-git";
+const SCRATCH_DB = "mindfries-ide-git";
 const DB_VERSION = 1;
+
+// Each assessment session has its own repository, like its own saved
+// workspace (fs-persist.ts) — otherwise the commits made in one assessment
+// are the history the next one opens with. A workspace with no session keeps
+// the original database.
+let dbName = SCRATCH_DB;
+
+/** Points git's storage at one session's repository. Call before any git use, when the workspace opens. */
+export function setGitScope(sessionId?: string): void {
+  const next = sessionId ? `${SCRATCH_DB}:${sessionId}` : SCRATCH_DB;
+  if (next === dbName) return;
+  dbName = next;
+  dbPromise = null;
+}
 const STORE = "entries";
 
 export type GitEntry = { type: "dir" } | { type: "file"; data: Uint8Array };
@@ -19,7 +33,7 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      const request = indexedDB.open(dbName, DB_VERSION);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains(STORE)) {
           request.result.createObjectStore(STORE);

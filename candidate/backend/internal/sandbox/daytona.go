@@ -142,10 +142,20 @@ func (c *Client) ExecuteCommand(ctx context.Context, sandboxID, command string) 
 	if !c.Configured() {
 		return ExecuteResult{}, ErrNotConfigured
 	}
-	var res ExecuteResult
+	// Daytona returns the command's output as "result"; "output" is read too
+	// in case a later version of the route renames it.
+	var raw struct {
+		ExitCode int    `json:"exitCode"`
+		Result   string `json:"result"`
+		Output   string `json:"output"`
+	}
 	url := fmt.Sprintf("%s/toolbox/%s/process/execute", c.proxyURL, sandboxID)
-	if err := c.do(ctx, http.MethodPost, url, map[string]string{"command": command}, &res); err != nil {
+	if err := c.do(ctx, http.MethodPost, url, map[string]string{"command": command}, &raw); err != nil {
 		return ExecuteResult{}, err
+	}
+	res := ExecuteResult{ExitCode: raw.ExitCode, Output: raw.Result}
+	if res.Output == "" {
+		res.Output = raw.Output
 	}
 	return res, nil
 }

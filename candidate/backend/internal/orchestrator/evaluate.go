@@ -32,6 +32,10 @@ const (
 	// What an interview_recording event becomes once its file is deleted at
 	// the end of retention (internal-admin/frontend/lib/retention.ts).
 	eventRecordingExpired = "interview_recording_expired"
+	// A still of the proctoring camera, and what that becomes at the end of
+	// retention. Where a picture is stored isn't something the candidate did.
+	eventCameraSnapshot        = "camera_snapshot"
+	eventCameraSnapshotExpired = "camera_snapshot_expired"
 )
 
 // Evaluate runs the Code Evaluation, Reasoning, Workflow and Interview
@@ -332,7 +336,7 @@ func digestEvents(events []db.ActivityEvent, starter map[string]string) (work st
 				latest = &snap
 			}
 			continue
-		case eventInterview, eventAICost, eventInterviewRecording, eventRecordingExpired, eventVariantAssigned:
+		case eventInterview, eventAICost, eventInterviewRecording, eventRecordingExpired, eventVariantAssigned, eventCameraSnapshot, eventCameraSnapshotExpired:
 			continue
 		case "git":
 			var p struct {

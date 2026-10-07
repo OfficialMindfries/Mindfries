@@ -27,7 +27,7 @@ export const RECORDED_SIGNALS = [
 
 export const WHAT_IS_RECORDED = {
   title: "What is recorded during a session",
-  body: "Your camera feed, code activity, and workspace behaviour are captured throughout a session. Nothing is recorded until you click Enter Workspace on the final onboarding step.",
+  body: "Your camera, code activity, and workspace behaviour are captured throughout a session. The camera is kept as a still image every half minute, not as continuous video; your screen is not recorded. Nothing is recorded until you click Enter Workspace on the final onboarding step.",
 };
 
 export const HOW_EVIDENCE_IS_USED = {

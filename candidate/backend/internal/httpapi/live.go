@@ -240,3 +240,62 @@ func (s *Server) handleLiveInterviewCall(w http.ResponseWriter, r *http.Request)
 		browser.end("fallback", reason)
 	}
 }
+
+// The candidate's own live event stream — the same hub room the admin's
+// session monitor watches — reached the same two-step way as the voice call,
+// and for the same reason: the page's cookie isn't this origin's.
+//
+// It is what lets a page react the moment something happens server-side (a
+// report finishing, most usefully) instead of asking every few seconds.
+
+const eventsTicketTTL = time.Minute
+
+// handleEventsTicket issues a one-minute ticket for the session's stream.
+func (s *Server) handleEventsTicket(w http.ResponseWriter, r *http.Request) {
+	c := candidateFrom(r)
+	sess, ok := s.ownsSession(w, r, r.PathValue("id"), c.ID)
+	if !ok {
+		return
+	}
+	ticket, err := session.SignEventsTicket(session.LiveTicket{
+		SessionID: sess.ID, CandidateID: c.ID, Exp: time.Now().Add(eventsTicketTTL).Unix(),
+	}, s.cfg.CandidateSessionSecret)
+	if err != nil {
+		slog.Error("handleEventsTicket: signing ticket", "error", err)
+		writeError(w, http.StatusInternalServerError, "could not open the event stream")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ticket": ticket})
+}
+
+// handleSessionEvents is the stream: the page connects, sends its ticket as
+// the first message, and from then on receives the session's events.
+func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
+	conn, err := s.hub.Upgrade(w, r)
+	if err != nil {
+		slog.Warn("handleSessionEvents: upgrade refused", "error", err)
+		return
+	}
+	conn.SetReadLimit(4096)
+	conn.SetReadDeadline(time.Now().Add(liveTicketWait))
+	var hello struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := conn.ReadJSON(&hello); err != nil {
+		conn.Close()
+		return
+	}
+	ticket, err := session.VerifyEventsTicket(hello.Ticket, s.cfg.CandidateSessionSecret)
+	if err != nil {
+		conn.Close()
+		return
+	}
+	// The ticket was issued to this session's own candidate; check it still
+	// is one, in case the session was reassigned or removed since.
+	sess, err := s.db.GetSession(r.Context(), ticket.SessionID)
+	if err != nil || sess.CandidateID == nil || *sess.CandidateID != ticket.CandidateID {
+		conn.Close()
+		return
+	}
+	s.hub.Serve(conn, sess.ID) // sets its own read deadline; blocks until the page leaves
+}

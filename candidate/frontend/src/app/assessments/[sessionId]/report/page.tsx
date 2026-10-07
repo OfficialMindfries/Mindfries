@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { ReportAutoRefresh } from "@/components/assessments/ReportAutoRefresh";
-import { BackendAuthError, BackendError, getSession, getSessionReport, type ReportView } from "@/lib/backend/client";
+import { BackendAuthError, BackendError, getSession, getSessionReport, sessionEventsOrUndefined, type ReportView } from "@/lib/backend/client";
 import { currentCandidate } from "@/lib/auth/users";
 
 export const metadata: Metadata = {
@@ -81,7 +81,7 @@ export default async function SessionReportPage({
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
       <DashboardNav sessionName={viewer?.name} />
-      {!isTerminal && <ReportAutoRefresh />}
+      {!isTerminal && <ReportAutoRefresh live={await sessionEventsOrUndefined(sessionId)} />}
 
       <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8">
         <div>

@@ -64,9 +64,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/assistant/stream", s.requireCandidate(s.handleAssistantStream))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/interview", s.requireCandidate(s.handleInterview))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/checkpoint", s.requireCandidate(s.handleCheckpoint))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/workspace", s.requireCandidate(s.handleGetWorkspace))
 	// The live voice interview (live.go): a ticket from the first, spent on the second.
 	mux.HandleFunc("POST /api/v1/sessions/{id}/interview/live", s.requireCandidate(s.handleLiveInterviewStart))
 	mux.HandleFunc("GET /api/v1/live-interview", s.handleLiveInterviewCall)
+	// The candidate's own live event stream, by ticket for the same reason.
+	mux.HandleFunc("POST /api/v1/sessions/{id}/events-ticket", s.requireCandidate(s.handleEventsTicket))
+	mux.HandleFunc("GET /api/v1/session-events", s.handleSessionEvents)
 
 	// Admin Portal API — every route requires the "mf_admin" cookie
 	// internal-admin/frontend issues. The mutating routes additionally

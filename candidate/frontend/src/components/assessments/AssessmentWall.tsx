@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import clsx from "clsx";
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { statusLabels, type Assessment } from "@/lib/dashboard/data";
@@ -110,18 +111,33 @@ function AssessmentNote({
           </Button>
         )}
 
-        {/* No "Resume": a session, once underway, can't be re-entered — see
-            candidate.go's handleSubmit/handlePostEvents and task.md's
-            "Sandbox, codebases, and session integrity" for why re-entry is
-            deliberately not offered rather than pointed at a session that
-            (today) has nothing stopping it from being replayed. The status
-            chip above is the only thing shown for this state. */}
-
-        {status === "submitted" && (
-          <span className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63]")}>
-            under review ✓
-          </span>
+        {/* A session under way can be picked up again. Nothing is gained by
+            leaving and coming back: the clock is the server's and kept
+            running, the work is the copy the server holds (or this
+            browser's, if newer), and once the interview has begun the
+            workspace opens on the interview with the code frozen. */}
+        {status === "in-progress" && assessment.sessionId && (
+          <Link
+            href={`/ide?session=${encodeURIComponent(assessment.sessionId)}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#0A1931] px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+          >
+            Resume <ArrowRight size={13} />
+          </Link>
         )}
+
+        {status === "submitted" &&
+          (assessment.sessionId ? (
+            <Link
+              href={`/assessments/${encodeURIComponent(assessment.sessionId)}/report`}
+              className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63] underline-offset-4 hover:underline")}
+            >
+              under review ✓
+            </Link>
+          ) : (
+            <span className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63]")}>
+              under review ✓
+            </span>
+          ))}
       </div>
     </StickyNote>
   );
