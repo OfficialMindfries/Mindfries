@@ -238,7 +238,14 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 		if err := o.DB.SetInvitationStatus(ctx, *sess.AssessmentID, "submitted"); err != nil {
 			slog.Error("orchestrator: marking invitation submitted failed", "invitation", *sess.AssessmentID, "error", err)
 		}
+		// Capped at the session's own length: a submit that arrives after
+		// the clock ran out (the interview ran past it, or the server
+		// submitted an abandoned session hours later) isn't time spent on
+		// the task.
 		took := int(math.Ceil(time.Since(sess.StartedAt).Minutes()))
+		if sess.DurationMin > 0 {
+			took = min(took, sess.DurationMin)
+		}
 		if err := o.DB.MarkApplicationCompleted(ctx, *sess.AssessmentID, took); err != nil {
 			slog.Error("orchestrator: marking the application completed failed", "invitation", *sess.AssessmentID, "error", err)
 		}
