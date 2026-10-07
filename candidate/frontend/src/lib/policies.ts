@@ -14,6 +14,11 @@ export const RECORDED_SIGNALS = [
   { icon: "💬", label: "AI assistant usage", detail: "How you interact with the AI — what you ask and why" },
   { icon: "⏱️", label: "Time patterns", detail: "Where you spend time — reading, coding, debugging" },
   {
+    icon: "📋",
+    label: "Pasting and focus",
+    detail: "The size of text you paste in (never its content), and how long the workspace tab is out of view",
+  },
+  {
     icon: "🎙️",
     label: "Follow-up interview",
     detail: "Your answers to the AI interviewer — as text, and as a recording of your voice and camera",

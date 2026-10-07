@@ -36,6 +36,9 @@ const CATEGORY_LABEL: Record<string, string> = {
   ai_usage: "AI assistant usage",
   integrity: "Integrity",
   rubric: "Rubric scores",
+  interview_status: "Interview",
+  provenance: "Where the work came from",
+  incomplete: "Missing from this report",
 };
 
 const STATUS_COPY: Record<ReportView["status"], { title: string; body: string }> = {
@@ -148,7 +151,9 @@ export default async function SessionReportPage({
                       <p className="text-xs font-semibold uppercase tracking-widest text-[#4A7FA7]">
                         {CATEGORY_LABEL[item.category] ?? item.category}
                       </p>
-                      <p className="mt-2 text-sm leading-relaxed text-[#0A1931]">{item.observation}</p>
+                      <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-[#0A1931]">
+                        {item.observation.replace(/ ?\[E\d+\]/g, "")}
+                      </p>
                     </div>
                   ))}
                 </div>

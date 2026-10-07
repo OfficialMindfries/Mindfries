@@ -35,6 +35,7 @@ import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/pac
 import { checkpointWorkspace, submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
 import { snapshotFiles } from "@/lib/ide/snapshot";
+import { watchProvenance } from "@/lib/ide/provenance";
 
 interface IdeShellProps {
   /**
@@ -109,6 +110,20 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
       buffer.destroy();
       telemetryRef.current = null;
     };
+  }, [sessionId]);
+
+  // Pastes and time away from the tab — sizes and durations only, see
+  // lib/ide/provenance.ts.
+  const activePathRef = useRef<string | null>(null);
+  useEffect(() => {
+    activePathRef.current = activePath;
+  }, [activePath]);
+  useEffect(() => {
+    if (!sessionId) return;
+    return watchProvenance(
+      (type, payload) => telemetryRef.current?.record(type, payload),
+      () => activePathRef.current,
+    );
   }, [sessionId]);
 
   // Relays the Output panel's own channels (git/npm/pip/preview — see

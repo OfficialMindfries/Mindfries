@@ -130,6 +130,7 @@ export function ChatComposer({
         <div className={clsx("flex w-full flex-col overflow-hidden rounded-[15px]", look.body)}>
           <textarea
             ref={input}
+            data-assistant-composer
             rows={2}
             value={draft}
             onChange={(event) => onDraftChange(event.target.value)}
