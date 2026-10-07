@@ -37,6 +37,10 @@ type assessmentView struct {
 	Status   string   `json:"status"`
 	Due      string   `json:"due"`
 	Match    *int     `json:"match,omitempty"`
+	// SessionID is the candidate's session for this assessment, when they
+	// have one: the workspace to resume while Status is "in_progress", the
+	// report to open once it's "submitted".
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 func techStackTags(stack []string, durationMin int) []string {
@@ -105,12 +109,47 @@ func (s *Server) handleListAssessments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The candidate's own sessions, so each assessment can say whether it is
+	// under way and which workspace that is. Newest first, so the first one
+	// seen for an invitation or a template is the current one. A failure
+	// here costs the Resume links, not the list.
+	byInvitation, byTemplate := map[string]db.SessionRef{}, map[string]db.SessionRef{}
+	if refs, err := s.db.ListSessionRefsForCandidate(r.Context(), c.ID); err != nil {
+		slog.Error("handleListAssessments: sessions", "error", err)
+	} else {
+		for _, ref := range refs {
+			if ref.AssessmentID != nil {
+				if _, seen := byInvitation[*ref.AssessmentID]; !seen {
+					byInvitation[*ref.AssessmentID] = ref
+				}
+			} else if ref.TemplateID != nil {
+				if _, seen := byTemplate[*ref.TemplateID]; !seen {
+					byTemplate[*ref.TemplateID] = ref
+				}
+			}
+		}
+	}
+
 	out := make([]assessmentView, 0, len(invitations)+len(templates))
 	for _, inv := range invitations {
-		out = append(out, toInvitationView(inv))
+		view := toInvitationView(inv)
+		if ref, ok := byInvitation[inv.ID]; ok {
+			view.SessionID = ref.ID
+		}
+		out = append(out, view)
 	}
 	for _, t := range templates {
-		out = append(out, toAssessmentView(t))
+		view := toAssessmentView(t)
+		// The open pool has no invitation to carry a status, so a template
+		// the candidate has a session on takes its status from that session.
+		if ref, ok := byTemplate[t.ID]; ok {
+			view.SessionID = ref.ID
+			view.Status = "submitted"
+			if sessionIsLive(ref.Status) {
+				view.Status = "in_progress"
+			}
+		}
+		out = append(out, view)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -21,6 +21,8 @@ export interface Assessment {
   due: string;
   /** 0–100. Only shown for invitations, where it's a reason to start. */
   match?: number;
+  /** The candidate's session for this assessment, when they have one — the workspace to resume, or the report to open. */
+  sessionId?: string;
 }
 
 export interface Stat {

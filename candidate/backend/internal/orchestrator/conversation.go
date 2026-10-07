@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/llm"
@@ -234,4 +235,35 @@ func describeWork(snapshot *snapshotPayload, starter map[string]string) string {
 		fmt.Fprintf(&b, "Not included here because of size: %s\n", strings.Join(snapshot.Skipped, ", "))
 	}
 	return b.String()
+}
+
+// SavedWorkspace is the candidate's work as the server last had it.
+type SavedWorkspace struct {
+	Files map[string]string `json:"files"`
+	// SavedAt is when that copy was taken.
+	SavedAt time.Time `json:"savedAt"`
+	// Frozen means the interview has begun: the work can be read but no
+	// longer changed (see RecordSnapshot).
+	Frozen bool `json:"frozen"`
+}
+
+// Workspace returns the latest copy of a session's files the server holds —
+// a checkpoint taken while the candidate worked, or the snapshot from a step
+// they took. It is what lets a session be picked up again in another
+// browser, or after this one's storage was cleared. Nil when nothing has
+// been saved yet: the session then starts from the task's own files.
+func (o *Orchestrator) Workspace(ctx context.Context, sessionID string) (*SavedWorkspace, error) {
+	e, err := o.DB.LatestEvent(ctx, sessionID, eventSnapshot)
+	if err != nil || e == nil {
+		return nil, err
+	}
+	var snap snapshotPayload
+	if err := json.Unmarshal(e.Payload, &snap); err != nil || len(snap.Files) == 0 {
+		return nil, nil
+	}
+	frozen, err := o.DB.HasEvent(ctx, sessionID, eventInterview)
+	if err != nil {
+		return nil, err
+	}
+	return &SavedWorkspace{Files: snap.Files, SavedAt: e.OccurredAt, Frozen: frozen}, nil
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/orchestrator"
@@ -262,6 +263,33 @@ func (s *Server) handleInterview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, state)
 }
 
+// checkpointGrace is how long after the session's time runs out a
+// checkpoint is still taken: the last one may already be on its way.
+const checkpointGrace = 90 * time.Second
+
+// handleGetWorkspace returns the latest copy of the session's files the
+// server holds, so the workspace can be restored in a browser that doesn't
+// have it — a different device, or this one after its storage was cleared.
+// 204 when nothing has been saved yet.
+func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
+	c := candidateFrom(r)
+	sess, ok := s.ownsSession(w, r, r.PathValue("id"), c.ID)
+	if !ok {
+		return
+	}
+	saved, err := s.orc.Workspace(r.Context(), sess.ID)
+	if err != nil {
+		slog.Error("handleGetWorkspace", "session", sess.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "could not load the saved workspace")
+		return
+	}
+	if saved == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
+
 // handleCheckpoint saves the workspace as it stands, replacing the previous
 // checkpoint. The workspace sends one every couple of minutes while the
 // candidate works, so that a session nobody submits still has its code on
@@ -274,6 +302,14 @@ func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if !sessionIsLive(sess.Status) {
 		writeError(w, http.StatusConflict, "this session is no longer active ("+sess.Status+")")
+		return
+	}
+	// The clock is the server's. Once the session's time is up the work is
+	// what it was; a checkpoint arriving later — a tab left open, or a
+	// request replayed — doesn't get to change it. (The submit that follows
+	// time-up carries the final files itself and isn't subject to this.)
+	if time.Since(sess.StartedAt) > time.Duration(sess.DurationMin)*time.Minute+checkpointGrace {
+		writeError(w, http.StatusConflict, "this session's time is up")
 		return
 	}
 	files, ok := decodeFiles(w, r)

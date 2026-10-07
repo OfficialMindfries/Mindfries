@@ -24,7 +24,7 @@ import { addNode, collectFilePaths, findNode, moveNode, removeNode } from "@/lib
 import type { FileContents, TreeNode } from "@/lib/ide/types";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import { emptyNotebookJson } from "@/lib/ide/notebook";
-import { loadPersistedWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
+import { loadPersistedWorkspace, pickWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
 import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview/build-preview";
 import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
@@ -59,6 +59,11 @@ interface IdeShellProps {
    */
   taskBrief?: string;
   starterFiles?: FileContents;
+  /**
+   * The server's latest copy of this session's work (app/ide/page.tsx), or
+   * undefined when it has none. `savedAt` is ms since the epoch.
+   */
+  serverWorkspace?: { files: FileContents; savedAt: number; frozen: boolean };
   /** The real assessment's name for the header. Undefined without a session. */
   assessmentName?: string;
   /** Seconds left on the real session's clock. Undefined when there's no session to time. */
@@ -66,9 +71,9 @@ interface IdeShellProps {
 }
 
 /** How often the workspace is saved to the backend while the candidate works. */
-const CHECKPOINT_INTERVAL_MS = 2 * 60 * 1000;
+const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -154,16 +159,38 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     // localStorage is only reachable client-side, so this restore can only
     // happen post-mount — same unavoidable pattern as theme.tsx's read.
     /* eslint-disable react-hooks/set-state-in-effect */
-    const saved = loadPersistedWorkspace();
-    if (saved) {
+    // This session's own copy — never another session's — or, when the
+    // server's is newer (the candidate last worked somewhere else) or this
+    // browser has none, the server's.
+    const saved = loadPersistedWorkspace(sessionId);
+    const source = pickWorkspace(saved, serverWorkspace ?? null);
+    if (source === "local" && saved) {
       setTree(saved.tree);
       setFiles(saved.files);
       setSavedFiles(saved.savedFiles);
       setOpenPaths(saved.openPaths);
       setActivePath(saved.activePath);
+    } else if (source === "server" && serverWorkspace) {
+      const restoredFromServer = buildInitialWorkspace(serverWorkspace.files);
+      setTree(restoredFromServer.tree);
+      setFiles(restoredFromServer.files);
+      setSavedFiles(restoredFromServer.files);
+      // Keep the tabs the candidate had open here, where they still exist.
+      const stillThere = (saved?.openPaths ?? []).filter((p) => p in restoredFromServer.files);
+      setOpenPaths(stillThere);
+      setActivePath(saved?.activePath && saved.activePath in restoredFromServer.files ? saved.activePath : (stillThere[0] ?? null));
+    } else if (sessionId) {
+      // A session opening for the first time starts from its task's own
+      // files, with nothing carried over — the mock project's default tab
+      // doesn't exist in it.
+      setOpenPaths((paths) => paths.filter((p) => p in seeded.files));
+      setActivePath((path) => (path && path in seeded.files ? path : null));
     }
     setRestored(true);
     /* eslint-enable react-hooks/set-state-in-effect */
+    // Runs once, on mount: the props it reads were fixed server-side before
+    // this component existed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist on every change, debounced so fast typing doesn't hit
@@ -173,10 +200,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   useEffect(() => {
     if (!restored) return;
     const timeout = setTimeout(() => {
-      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath });
+      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath }, sessionId);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [restored, tree, files, savedFiles, openPaths, activePath]);
+  }, [restored, sessionId, tree, files, savedFiles, openPaths, activePath]);
 
   // Auto Save, on by default (no setting to flip it off yet — ask if you
   // want that toggle). A short delay after you stop typing, whatever's
@@ -227,7 +254,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // session — there's nothing to ask about a scratch workspace. Confirming
   // is the point of no return: the interviewer talks about their code in
   // specifics, so there is no going back to the editor once it starts.
-  const [interviewing, setInterviewing] = useState(false);
+  // A session resumed after its interview began opens on the interview:
+  // the work is frozen (the backend refuses further changes), so showing the
+  // editor again would only invite edits that go nowhere.
+  const [interviewing, setInterviewing] = useState(() => !!sessionId && !!serverWorkspace?.frozen);
   // The interview has been held (or couldn't be) — all that remains is the submit itself.
   const [interviewed, setInterviewed] = useState(false);
   // The session's clock has run out. Working time is over: the interview
@@ -250,15 +280,25 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   useEffect(() => {
     if (!working || !sessionId) return;
     let lastSent = "";
-    const interval = setInterval(() => {
+    const save = () => {
       const snapshot = currentSnapshot();
       const serialized = JSON.stringify(snapshot);
       if (serialized === lastSent) return;
       void checkpointWorkspace(sessionId, snapshot).then((result) => {
         if (result.ok) lastSent = serialized;
       });
-    }, CHECKPOINT_INTERVAL_MS);
-    return () => clearInterval(interval);
+    };
+    const interval = setInterval(save, CHECKPOINT_INTERVAL_MS);
+    // Leaving the tab is the moment a candidate is most likely not to come
+    // back to this browser, so the server gets a copy then too.
+    const onHidden = () => {
+      if (document.hidden) save();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
   }, [working, sessionId, currentSnapshot]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();

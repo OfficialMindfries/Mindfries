@@ -180,6 +180,41 @@ func (d *DB) CountEarlierSessions(ctx context.Context, templateID, sessionID str
 	return n, err
 }
 
+// SessionRef is where one of a candidate's sessions stands: which invitation
+// or template it is for, and its status.
+type SessionRef struct {
+	ID           string
+	AssessmentID *string
+	TemplateID   *string
+	Status       string
+}
+
+// ListSessionRefsForCandidate returns a candidate's sessions, newest first —
+// what lets their assessments list say which ones are under way (and can be
+// resumed) and which have a report to open.
+func (d *DB) ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]SessionRef, error) {
+	rows, err := d.pool.Query(ctx, `
+		select id, assessment_id, template_id, status
+		from sessions
+		where candidate_id = $1
+		order by started_at desc
+	`, candidateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SessionRef
+	for rows.Next() {
+		var r SessionRef
+		if err := rows.Scan(&r.ID, &r.AssessmentID, &r.TemplateID, &r.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ErrAlreadySubmitted means a session's status was no longer "live" at the
 // moment this tried to move it to "submitted" — either it was already
 // submitted, or a concurrent request beat this one to it. Distinct from a

@@ -106,6 +106,8 @@ export interface AssessmentView {
   due: string;
   /** Only ever present on a real invitation (assessments.match_score) — the open pool has no per-candidate match to compute. */
   match?: number;
+  /** The candidate's session for this assessment, when they have one — the workspace to resume, or the report to open. */
+  sessionId?: string;
 }
 
 export interface SessionView {
@@ -137,8 +139,19 @@ export interface NewActivityEvent {
 }
 
 export async function listAssessments(): Promise<AssessmentView[]> {
-  return request<AssessmentView[]>("/api/v1/assessments");
+  const rows = await request<(Omit<AssessmentView, "status"> & { status: string })[]>("/api/v1/assessments");
+  // The backend speaks the database's status values ("in_progress"); this
+  // app's are hyphenated. Unmapped, an assessment under way matched none of
+  // the statuses the dashboard knows how to draw.
+  return rows.map((row) => ({ ...row, status: BACKEND_STATUS[row.status] ?? "closed" }));
 }
+
+const BACKEND_STATUS: Record<string, AssessmentStatus> = {
+  invited: "invited",
+  in_progress: "in-progress",
+  submitted: "submitted",
+  closed: "closed",
+};
 
 /**
  * The candidate's real assessments, or `undefined` when nothing could be
@@ -334,6 +347,30 @@ export async function getSessionAssessmentOrUndefined(sessionId: string): Promis
   } catch (err) {
     if (err instanceof BackendAuthError) return undefined; // no session cookie / not this candidate's — the page itself already redirects for the former
     console.error("backend: getSessionAssessment failed, falling back to the IDE's own honest defaults:", err);
+    return undefined;
+  }
+}
+
+export interface SavedWorkspaceView {
+  files: Record<string, string>;
+  /** When the server took this copy, ISO 8601. */
+  savedAt: string;
+  /** The interview has begun: the work can be read but no longer changed. */
+  frozen: boolean;
+}
+
+/**
+ * The latest copy of the session's files the server holds, for restoring a
+ * workspace this browser doesn't have. Undefined when nothing has been
+ * saved yet, or it couldn't be asked — the workspace then opens from this
+ * browser's own copy, or the task's starting files.
+ */
+export async function getSavedWorkspaceOrUndefined(sessionId: string): Promise<SavedWorkspaceView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return (await request<SavedWorkspaceView | undefined>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/workspace`)) ?? undefined;
+  } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSavedWorkspace failed:", err);
     return undefined;
   }
 }
