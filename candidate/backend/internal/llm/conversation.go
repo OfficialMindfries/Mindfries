@@ -128,10 +128,10 @@ Write specific, evidence-grounded observations, quoting short phrases where usef
 // AnalyzeInterview turns an interview transcript into evidence observations.
 func (a *Agents) AnalyzeInterview(ctx context.Context, work, transcript string) (string, error) {
 	if strings.TrimSpace(transcript) == "" {
-		return "", errors.New("llm: no interview took place for this session")
+		return "", fmt.Errorf("%w: no interview took place for this session", ErrNothingToAnalyze)
 	}
 	return a.prose(withAgent(ctx, "interview_analysis"), a.models.Report, []ChatMessage{
-		{Role: "system", Content: interviewAnalysisSystemPrompt + injectionRule},
+		{Role: "system", Content: interviewAnalysisSystemPrompt + citeRule + injectionRule},
 		{Role: "user", Content: "WHAT THE CANDIDATE CHANGED\n" + untrusted("code changes", orNone(work)) + "\n\nINTERVIEW TRANSCRIPT\n" + untrusted("interview transcript", transcript)},
 	}, analysisTokens)
 }

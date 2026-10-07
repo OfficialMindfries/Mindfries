@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -88,6 +89,19 @@ func (a *Agents) OnUsage(fn func(ctx context.Context, usage Usage)) { a.client.O
 // Configured reports whether the underlying OpenRouter client has a key.
 func (a *Agents) Configured() bool { return a.client.Configured() }
 
+// ErrNothingToAnalyze is returned by an analysis agent that was given no
+// material — no code changes, no trail, no interview. It is not a failure of
+// the agent, and trying again won't change it.
+var ErrNothingToAnalyze = errors.New("llm: nothing to analyse")
+
+// citeRule asks an agent to say which entries an observation rests on. The
+// orchestrator labels every trail entry and interview turn "[E<id>]" and
+// turns the citations into links for the hiring team (and drops any that
+// name an entry that doesn't exist).
+const citeRule = `
+
+Each entry you are given begins with a reference in square brackets, such as [E412]. When an observation rests on particular entries, cite them inline in exactly that form, right after the claim they support — for example: "ran the tests before changing anything [E412]". Cite only references that appear in the material, never invent one, and don't cite more than three for one claim.`
+
 const codeEvalSystemPrompt = `You are the Code Evaluation agent in Mindfries' evidence-based hiring platform.
 You are given the task the candidate was set, and what they changed: for each file, the version they were given and the version they submitted.
 Judge the engineering in THEIR CHANGES against THAT TASK:
@@ -103,7 +117,7 @@ The platform's principle: don't just judge the candidate, collect evidence about
 // and in a live run it called an untouched, still-buggy file correct.
 func (a *Agents) EvaluateCode(ctx context.Context, brief, diff string) (string, error) {
 	if strings.TrimSpace(diff) == "" {
-		return "", errors.New("llm: no code-change evidence available for this session")
+		return "", fmt.Errorf("%w: no code-change evidence available for this session", ErrNothingToAnalyze)
 	}
 	return a.prose(withAgent(ctx, "code_evaluation"), a.models.CodeEvaluation, []ChatMessage{
 		{Role: "system", Content: codeEvalSystemPrompt + injectionRule},
@@ -119,10 +133,10 @@ Write specific, evidence-grounded observations, not speculation dressed as certa
 // Reasoning agent's read on why the candidate worked the way they did.
 func (a *Agents) AnalyzeReasoning(ctx context.Context, eventsDigest string) (string, error) {
 	if strings.TrimSpace(eventsDigest) == "" {
-		return "", errors.New("llm: no event trail available for this session")
+		return "", fmt.Errorf("%w: no event trail available for this session", ErrNothingToAnalyze)
 	}
 	return a.prose(withAgent(ctx, "reasoning"), a.models.Reasoning, []ChatMessage{
-		{Role: "system", Content: reasoningSystemPrompt + injectionRule},
+		{Role: "system", Content: reasoningSystemPrompt + citeRule + injectionRule},
 		{Role: "user", Content: untrusted("activity trail", eventsDigest)},
 	}, analysisTokens)
 }
@@ -135,10 +149,10 @@ Write specific, evidence-grounded observations about working style, not a verdic
 // lens on it (working style rather than intent).
 func (a *Agents) AnalyzeWorkflow(ctx context.Context, eventsDigest string) (string, error) {
 	if strings.TrimSpace(eventsDigest) == "" {
-		return "", errors.New("llm: no event trail available for this session")
+		return "", fmt.Errorf("%w: no event trail available for this session", ErrNothingToAnalyze)
 	}
 	return a.prose(withAgent(ctx, "workflow"), a.models.Workflow, []ChatMessage{
-		{Role: "system", Content: workflowSystemPrompt + injectionRule},
+		{Role: "system", Content: workflowSystemPrompt + citeRule + injectionRule},
 		{Role: "user", Content: untrusted("activity trail", eventsDigest)},
 	}, analysisTokens)
 }

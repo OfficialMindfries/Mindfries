@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -78,13 +79,23 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	var evidence []db.EvidenceItem
 	var forReport []string
 	var integrity []string
+	// Sections that should be in this report and aren't, because the agent
+	// that writes them failed twice. They are named in the report itself.
+	var missing []string
+	known := eventIDs(events)
 
-	// collect files one agent's output as evidence. Anything the agent
-	// flagged as the candidate trying to steer it is lifted out, so it is
-	// reported once, under its own heading, rather than buried in prose.
-	collect := func(category, heading, out string, err error) {
+	// run calls one agent — again, once, if it fails — and files what it
+	// wrote as evidence. Anything the agent flagged as the candidate trying
+	// to steer it is lifted out, so it is reported once, under its own
+	// heading, rather than buried in prose; citations are checked against
+	// the session's real events.
+	run := func(category, heading string, call func() (string, error)) {
+		out, err := retryOnce(ctx, call)
 		if err != nil {
 			slog.Warn("orchestrator: "+category+" skipped", "session", sessionID, "error", err)
+			if !errors.Is(err, llm.ErrNothingToAnalyze) {
+				missing = append(missing, heading)
+			}
 			return
 		}
 		observations, findings := llm.SplitIntegrity(out)
@@ -92,21 +103,26 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 		if observations == "" {
 			return
 		}
+		observations = keepKnownRefs(observations, known)
 		evidence = append(evidence, db.EvidenceItem{Category: category, Observation: observations})
 		forReport = append(forReport, heading+":\n"+observations)
 	}
 
-	out, err := o.Agents.EvaluateCode(ctx, briefOf(tc), work)
-	collect("code_evaluation", "Code Evaluation", out, err)
-	out, err = o.Agents.AnalyzeReasoning(ctx, trail)
-	collect("reasoning", "Reasoning", out, err)
-	out, err = o.Agents.AnalyzeWorkflow(ctx, trail)
-	collect("workflow", "Workflow", out, err)
-	out, err = o.Agents.AnalyzeInterview(ctx, work, formatTranscript(turnsOf(events, eventInterview)))
-	collect("interview", "Interview", out, err)
+	run("code_evaluation", "Code Evaluation", func() (string, error) { return o.Agents.EvaluateCode(ctx, briefOf(tc), work) })
+	run("reasoning", "Reasoning", func() (string, error) { return o.Agents.AnalyzeReasoning(ctx, trail) })
+	run("workflow", "Workflow", func() (string, error) { return o.Agents.AnalyzeWorkflow(ctx, trail) })
+	run("interview", "Interview", func() (string, error) { return o.Agents.AnalyzeInterview(ctx, work, interviewTranscript(events)) })
 
 	if len(forReport) == 0 {
 		return fail("no agent produced usable evidence for this session (see server logs for each agent's error)")
+	}
+
+	// Whether the interview happened at all. Said first and plainly: a
+	// report reads much the same with or without the candidate's own
+	// account in it, unless it is told to say which.
+	if status := interviewStatus(events, o.DB.GetInterviewConfig(ctx, sess.AssessmentID)); status != "" {
+		evidence = append(evidence, db.EvidenceItem{Category: "interview_status", Observation: status})
+		forReport = append(forReport, "Interview status (a fact about the session, not a judgement of the candidate):\n"+status)
 	}
 
 	// How the assistant was used, and whether its code is in the submission —
@@ -114,6 +130,12 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	if uptake := assistantUptake(events); uptake != "" {
 		evidence = append(evidence, db.EvidenceItem{Category: "ai_usage", Observation: uptake})
 		forReport = append(forReport, "AI assistant usage:\n"+uptake)
+	}
+
+	// Pastes from outside and time away from the tab — reported as signals.
+	if signals := provenanceSignals(events); signals != "" {
+		evidence = append(evidence, db.EvidenceItem{Category: "provenance", Observation: signals})
+		forReport = append(forReport, "Where the work came from:\n"+signals)
 	}
 
 	// The agents are asked to flag steering themselves, but whether they do
@@ -133,9 +155,16 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	// scorecard — the report doesn't depend on one.
 	var scores []llm.RubricScore
 	if rubric := parseRubric(tc.Rubric); len(rubric) > 0 {
-		if scores, err = o.Agents.ScoreRubric(ctx, rubric, forReport); err != nil {
+		for attempt := 0; attempt < 2; attempt++ {
+			if scores, err = o.Agents.ScoreRubric(ctx, rubric, forReport); err == nil || !retryable(ctx, err) {
+				break
+			}
+			sleep(ctx, retryDelay)
+		}
+		if err != nil {
 			slog.Warn("orchestrator: rubric scoring skipped", "session", sessionID, "error", err)
 			scores = nil
+			missing = append(missing, "Rubric scores")
 		} else {
 			text := formatScorecard(scores)
 			evidence = append(evidence, db.EvidenceItem{Category: "rubric", Observation: text})
@@ -143,10 +172,22 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 		}
 	}
 
+	if len(missing) > 0 {
+		text := "Part of this analysis could not be produced, after a second attempt, and is missing from the report: " + strings.Join(missing, "; ") + ". The recommendation was made without it. Re-running the evaluation may fill it in."
+		evidence = append(evidence, db.EvidenceItem{Category: "incomplete", Observation: text})
+		forReport = append(forReport, "Missing from this report:\n"+text)
+	}
+
 	result, err := o.Agents.GenerateReport(ctx, forReport)
+	if err != nil && retryable(ctx, err) {
+		sleep(ctx, retryDelay)
+		result, err = o.Agents.GenerateReport(ctx, forReport)
+	}
 	if err != nil {
 		return fail(err.Error())
 	}
+	// The summary is read on its own, where a reference has nothing to link to.
+	result.Summary = stripRefs(result.Summary)
 
 	if err := o.DB.SaveReportResult(ctx, report.ID, result.Recommendation, result.Summary, evidence); err != nil {
 		return err
@@ -269,13 +310,16 @@ func digestEvents(events []db.ActivityEvent, starter map[string]string) (work st
 	// The run being collapsed: its event type and payload, when it started
 	// and last recurred, and how many times.
 	var runKey, runFirst, runLast string
+	var runID int64
 	runCount := 0
+	// Each line opens with the event's reference (see eventRef) so an agent
+	// can cite it; a collapsed run is cited by its first event.
 	flush := func() {
 		switch {
 		case runCount == 1:
-			lines = append(lines, fmt.Sprintf("[%s] %s", runFirst, runKey))
+			lines = append(lines, fmt.Sprintf("[%s] %s %s", eventRef(runID), runFirst, runKey))
 		case runCount > 1:
-			lines = append(lines, fmt.Sprintf("[%s–%s] %s (×%d)", runFirst, runLast, runKey, runCount))
+			lines = append(lines, fmt.Sprintf("[%s] %s–%s %s (×%d)", eventRef(runID), runFirst, runLast, runKey, runCount))
 		}
 		runCount = 0
 	}
@@ -310,7 +354,7 @@ func digestEvents(events []db.ActivityEvent, starter map[string]string) (work st
 			continue
 		}
 		flush()
-		runKey, runFirst, runLast, runCount = key, at, at, 1
+		runKey, runFirst, runLast, runCount, runID = key, at, at, 1, e.ID
 	}
 	flush()
 
@@ -375,4 +419,36 @@ func (o *Orchestrator) recordUsage(_ context.Context, u llm.Usage) {
 	if err := o.DB.InsertActivityEvents(ctx, u.SessionID, []db.NewActivityEvent{{EventType: eventAICost, Payload: payload}}); err != nil {
 		slog.Error("orchestrator: recording model usage failed", "session", u.SessionID, "error", err)
 	}
+}
+
+// retryDelay is the pause before an agent's second attempt — long enough
+// for a rate limit or a provider hiccup to pass. A variable so tests don't
+// wait for it.
+var retryDelay = 3 * time.Second
+
+// retryable reports whether calling a model again could help. Not when it
+// was given nothing to work on, not when there's no key, and not when the
+// request itself has been given up on.
+func retryable(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() == nil &&
+		!errors.Is(err, llm.ErrNothingToAnalyze) && !errors.Is(err, llm.ErrNotConfigured)
+}
+
+func sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
+}
+
+// retryOnce calls an agent, and once more if the first attempt failed in a
+// way a second could fix. One section of a report used to vanish without a
+// word whenever a single model call hit a rate limit.
+func retryOnce(ctx context.Context, call func() (string, error)) (string, error) {
+	out, err := call()
+	if !retryable(ctx, err) {
+		return out, err
+	}
+	sleep(ctx, retryDelay)
+	return call()
 }
