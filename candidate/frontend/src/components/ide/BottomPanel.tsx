@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
@@ -12,16 +12,19 @@ import { ProblemsPanel } from "./ProblemsPanel";
 import { OutputPanel } from "./OutputPanel";
 import { DebugConsolePanel } from "./DebugConsolePanel";
 import { PortsPanel } from "./PortsPanel";
+import { TestsPanel } from "./TestsPanel";
+import { testResults } from "@/lib/ide/test-results";
 import type { Diagnostic } from "@/lib/ide/diagnostics";
 import { useResizable } from "@/lib/ide/use-resizable";
 
-type PanelTab = "problems" | "output" | "debug" | "terminal" | "ports";
+type PanelTab = "problems" | "output" | "debug" | "terminal" | "tests" | "ports";
 
 const TABS: { id: PanelTab; label: string }[] = [
   { id: "problems", label: "Problems" },
   { id: "output", label: "Output" },
   { id: "debug", label: "Debug Console" },
   { id: "terminal", label: "Terminal" },
+  { id: "tests", label: "Tests" },
   { id: "ports", label: "Ports" },
 ];
 
@@ -48,6 +51,7 @@ export function BottomPanel({
 }) {
   const palette = idePalette(theme);
   const [active, setActive] = useState<PanelTab>("terminal");
+  const lastTestRun = useSyncExternalStore(testResults.subscribe, testResults.getSnapshot, testResults.getSnapshot);
   const cameraPane = useResizable({ initial: 260, min: 160, max: 520, axis: "horizontal", invert: true });
 
   return (
@@ -66,6 +70,16 @@ export function BottomPanel({
             )}
           >
             {tab.label}
+            {tab.id === "tests" && lastTestRun?.parsed && (
+              <span
+                className={clsx(
+                  "ml-1.5 rounded-full px-1.5 text-[10px]",
+                  lastTestRun.failed > 0 ? "bg-red-500/25 text-red-400" : "bg-emerald-500/20 text-emerald-500",
+                )}
+              >
+                {lastTestRun.failed > 0 ? lastTestRun.failed : "✓"}
+              </span>
+            )}
             {tab.id === "problems" && diagnostics.length > 0 && (
               <span className="ml-1.5 rounded-full bg-[#4A7FA7]/30 px-1.5 text-[10px]">
                 {diagnostics.length}
@@ -97,6 +111,7 @@ export function BottomPanel({
           <div className="h-full" style={{ display: active === "debug" ? "block" : "none" }}>
             <DebugConsolePanel theme={theme} />
           </div>
+          {active === "tests" && <TestsPanel theme={theme} vfs={vfs} preview={preview} />}
           {active === "ports" && (
             <PortsPanel
               theme={theme}

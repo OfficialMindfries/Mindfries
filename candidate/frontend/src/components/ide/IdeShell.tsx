@@ -36,6 +36,9 @@ import { checkpointWorkspace, submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
 import { snapshotFiles } from "@/lib/ide/snapshot";
 import { watchProvenance } from "@/lib/ide/provenance";
+import { terminalLog } from "@/lib/ide/terminal-log";
+import { isTestCommand, parseTestRun, testResults } from "@/lib/ide/test-results";
+import { lineChange } from "@/lib/ide/line-change";
 
 interface IdeShellProps {
   /**
@@ -131,6 +134,40 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     );
   }, [sessionId]);
 
+  // Every command that finishes in the terminal (or from the Tests panel):
+  // a test run is read into results for the Tests panel, and — in a real
+  // session — the command, how it exited and how long it took are recorded.
+  // Its output isn't sent, except a test run's counts: what a candidate ran
+  // and whether it worked is the evidence; megabytes of logs aren't.
+  useEffect(
+    () =>
+      terminalLog.onCommand((done) => {
+        telemetryRef.current?.record("terminal_command", { command: done.command.slice(0, 300), exitCode: done.exitCode, ms: done.ms });
+        if (!isTestCommand(done.command)) return;
+        const run = parseTestRun(done.command, done.output, done.exitCode);
+        testResults.record(run);
+        telemetryRef.current?.record("test_run", {
+          command: run.command.slice(0, 300),
+          exitCode: run.exitCode,
+          parsed: run.parsed,
+          passed: run.passed,
+          failed: run.failed,
+          skipped: run.skipped,
+          failing: run.tests.filter((t) => t.status === "fail" || t.status === "error").map((t) => t.name).slice(0, 20),
+        });
+      }),
+    [],
+  );
+
+  // Which file the candidate is looking at, as it changes — the order they
+  // read a codebase in says a lot about how they went looking.
+  useEffect(() => {
+    if (!sessionId || !activePath) return;
+    // A file flicked past on the way to another isn't one that was read.
+    const timeout = setTimeout(() => telemetryRef.current?.record("file_open", { path: activePath }), 1500);
+    return () => clearTimeout(timeout);
+  }, [sessionId, activePath]);
+
   // Relays the Output panel's own channels (git/npm/pip/preview — see
   // lib/ide/output.ts) into telemetry. Tracks how many lines of each
   // channel have already been sent, since the store only exposes full
@@ -213,14 +250,20 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     if (dirtyPaths.size === 0) return;
     const timeout = setTimeout(() => {
       const paths = [...dirtyPaths];
+      // How much each file changed since it was last saved — the size of the
+      // edit, not its text (the text is in the workspace checkpoints).
+      const changes = paths.map((path) => ({ path, ...lineChange(savedFiles[path] ?? "", files[path] ?? "") }));
       setSavedFiles((prev) => {
         const next = { ...prev };
         for (const path of paths) next[path] = files[path];
         return next;
       });
-      telemetryRef.current?.record("file_edit", { paths });
+      telemetryRef.current?.record("file_edit", { paths, changes });
     }, 800);
     return () => clearTimeout(timeout);
+    // savedFiles is read for the size of the edit only; depending on it
+    // would re-run this the moment it saves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirtyPaths, files]);
 
   const sidebar = useResizable({ initial: 240, min: 160, max: 480, axis: "horizontal" });
