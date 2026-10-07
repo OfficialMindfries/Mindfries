@@ -23,6 +23,12 @@ export interface Assessment {
   match?: number;
   /** The candidate's session for this assessment, when they have one — the workspace to resume, or the report to open. */
   sessionId?: string;
+  /**
+   * Present when this is a company's invitation to this candidate, and
+   * absent for an open-pool assessment anyone can start: whether they have
+   * accepted it, or declined it (a declined invitation's status is "closed").
+   */
+  invitation?: { accepted: boolean; declined: boolean };
 }
 
 export interface Stat {

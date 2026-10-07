@@ -10,6 +10,7 @@ import { hand } from "@/lib/dashboard/fonts";
 import { startAssessment } from "@/app/dashboard/actions";
 import { StickyNote } from "@/components/dashboard/StickyNote";
 import { TONE } from "@/components/dashboard/noteTones";
+import { InvitationAnswer } from "./InvitationAnswer";
 
 /**
  * The note-wall grid, shared by the dashboard's preview and the full
@@ -17,12 +18,10 @@ import { TONE } from "@/components/dashboard/noteTones";
  * exactly the same way and share one Start implementation rather than two
  * that could drift apart.
  *
- * Every button still goes somewhere: Start begins the onboarding wizard;
- * Submitted shows its state rather than a button wired to nothing.
- * In-progress has no action at all — deliberately: nothing lets a candidate
- * re-enter a session once it's underway (see the "in-progress" case below
- * for why), so there's nothing honest to link it to. See AssessmentNotes for
- * the fuller rationale — it hasn't moved, only the rendering has.
+ * Every button goes somewhere. A company's invitation asks to be accepted
+ * or declined first (InvitationAnswer); once accepted — and for an
+ * open-pool assessment straight away — Start begins the onboarding wizard.
+ * In-progress resumes the session, and Submitted opens its report.
  */
 export function AssessmentWall({
   items,
@@ -72,12 +71,15 @@ function AssessmentNote({
   pending: boolean;
   onStart: () => void;
 }) {
-  const { status } = assessment;
+  const { status, invitation } = assessment;
+  // A company's invitation the candidate hasn't answered yet: it asks for
+  // an answer before it offers Start.
+  const unanswered = status === "invited" && !!invitation && !invitation.accepted;
 
   return (
     <StickyNote tone={TONE[status]} index={index} faded={status === "closed"} className="min-h-[232px]">
       <div className="flex items-center gap-2 text-[10.5px] font-semibold tracking-[0.08em] text-[#1A3D63] uppercase">
-        <span>{statusLabels[status]}</span>
+        <span>{invitation?.declined ? "Declined" : status === "invited" && invitation?.accepted ? "Accepted" : statusLabels[status]}</span>
         {assessment.match !== undefined && (
           <span className="ml-auto tracking-normal normal-case">{assessment.match}% match</span>
         )}
@@ -95,9 +97,12 @@ function AssessmentNote({
       {/* Pinned to the bottom, so the actions line up across a row even when
           one role's name wraps to two lines and its neighbour's doesn't. */}
       <div className="mt-auto flex items-end justify-between gap-3 pt-5">
-        <span className="text-xs text-[#1A3D63]">{assessment.due}</span>
+        {!unanswered && <span className="text-xs text-[#1A3D63]">{assessment.due}</span>}
+        {unanswered && <span className="self-start text-xs text-[#1A3D63]">{assessment.due}</span>}
 
-        {status === "invited" && (
+        {unanswered && <InvitationAnswer assessmentId={assessment.id} />}
+
+        {status === "invited" && !unanswered && (
           <Button
             type="button"
             size="sm"

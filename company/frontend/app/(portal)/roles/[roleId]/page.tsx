@@ -16,7 +16,7 @@ import { RoleStatusToggle } from "./RoleStatusToggle";
 
 export const dynamic = "force-dynamic";
 
-const STAGE_ORDER: ApplicationStage[] = ["invited", "in_progress", "completed", "shortlisted", "rejected", "hired"];
+const STAGE_ORDER: ApplicationStage[] = ["invited", "in_progress", "completed", "shortlisted", "rejected", "hired", "declined"];
 
 /** YYYY-MM-DD, comparable lexically against createdAt's ISO timestamp prefix. */
 function dateOnly(iso: string): string {

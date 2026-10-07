@@ -7,7 +7,7 @@ import type { ApplicationStage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const STAGE_ORDER: ApplicationStage[] = ["invited", "in_progress", "completed", "shortlisted", "rejected", "hired"];
+const STAGE_ORDER: ApplicationStage[] = ["invited", "in_progress", "completed", "shortlisted", "rejected", "hired", "declined"];
 
 /**
  * One row per role, with a per-stage pipeline breakdown at a glance

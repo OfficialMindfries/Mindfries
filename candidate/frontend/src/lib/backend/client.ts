@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "@/lib/auth/session";
 import { currentCandidate } from "@/lib/auth/users";
 import type { AssessmentStatus } from "@/lib/dashboard/data";
 import { listAssessmentsFromDatabase } from "@/lib/dashboard/direct";
+import { db } from "@/lib/supabase";
 
 /**
  * Server-only client for the Go candidate backend
@@ -108,6 +109,8 @@ export interface AssessmentView {
   match?: number;
   /** The candidate's session for this assessment, when they have one — the workspace to resume, or the report to open. */
   sessionId?: string;
+  /** Set for a company's invitation to this candidate — see Assessment in lib/dashboard/data.ts. */
+  invitation?: { accepted: boolean; declined: boolean };
 }
 
 export interface SessionView {
@@ -165,17 +168,40 @@ const KNOWN_STATUS: Record<string, AssessmentStatus> = {
  * callers render an honest "unavailable" state for it.
  */
 export async function listAssessmentsOrUndefined(): Promise<AssessmentView[] | undefined> {
+  const candidate = await currentCandidate();
   if (backendReady()) {
     try {
-      return await listAssessments();
+      return withInvitationAnswers(await listAssessments(), candidate?.email);
     } catch (err) {
       if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this
       console.error("backend: listAssessments failed, reading the database directly instead:", err);
     }
   }
-  const candidate = await currentCandidate();
   if (!candidate) return undefined;
-  return listAssessmentsFromDatabase(candidate.email);
+  const rows = await listAssessmentsFromDatabase(candidate.email);
+  return rows && withInvitationAnswers(rows, candidate.email);
+}
+
+/**
+ * Marks which rows are a company's invitation to this candidate, and what
+ * they answered (lib/invitations.ts). Read from the shared database beside
+ * either listing, so the dashboard shows the same thing whichever source
+ * produced the list. If it can't be read the rows go through unmarked — an
+ * invitation then shows a plain Start, as it did before answers existed.
+ */
+async function withInvitationAnswers(rows: AssessmentView[], email: string | undefined): Promise<AssessmentView[]> {
+  const c = db();
+  if (!c || !email || rows.length === 0) return rows;
+  const { data, error } = await c
+    .from("assessments")
+    .select("id, accepted_at, declined_at")
+    .eq("candidate_email", email.trim().toLowerCase());
+  if (error || !data) return rows;
+  const answers = new Map(data.map((r) => [r.id as string, { accepted: !!r.accepted_at, declined: !!r.declined_at }]));
+  return rows.map((row) => {
+    const invitation = answers.get(row.id);
+    return invitation ? { ...row, invitation } : row;
+  });
 }
 
 export async function startSession(templateId: string): Promise<SessionView> {

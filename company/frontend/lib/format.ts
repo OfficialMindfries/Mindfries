@@ -9,6 +9,7 @@ export const stageLabel: Record<ApplicationStage, string> = {
   shortlisted: "Shortlisted",
   rejected: "Rejected",
   hired: "Hired",
+  declined: "Declined",
 };
 
 export const stageTone: Record<ApplicationStage, Tone> = {
@@ -18,6 +19,7 @@ export const stageTone: Record<ApplicationStage, Tone> = {
   shortlisted: "green",
   rejected: "coral",
   hired: "green",
+  declined: "gray",
 };
 
 export const roleStatusTone: Record<RoleStatus, Tone> = {

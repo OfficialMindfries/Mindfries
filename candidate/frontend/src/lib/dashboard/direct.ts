@@ -24,6 +24,9 @@ const STATUSES: Record<string, AssessmentStatus> = {
   in_progress: "in-progress",
   submitted: "submitted",
   closed: "closed",
+  // An invitation the candidate turned down is finished, as far as the wall
+  // is concerned; `invitation.declined` is what says why.
+  declined: "closed",
 };
 
 // Mirrors techStackTags in candidate/backend/internal/httpapi/candidate.go.

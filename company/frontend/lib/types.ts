@@ -57,7 +57,11 @@ export type ApplicationStage =
   | "completed"
   | "shortlisted"
   | "rejected"
-  | "hired";
+  | "hired"
+  // The candidate turned the invitation down (candidate/frontend's
+  // lib/invitations.ts sets it) — theirs to set, not one of the moves a
+  // company makes.
+  | "declined";
 
 export interface CandidateApplication {
   id: string;
@@ -156,6 +160,16 @@ export interface InterviewExchange {
   recording: { url: string; kind: "audio" | "video"; seconds: number } | null;
   /** There was a recording, and it has been deleted at the end of its 90-day retention. */
   recordingExpired: boolean;
+}
+
+/** What the candidate did with the invitation, and whether it was mailed to them. */
+export interface InvitationResponse {
+  /** When the invitation email was sent; null when no mail went out. */
+  emailedAt: string | null;
+  acceptedAt: string | null;
+  declinedAt: string | null;
+  /** The candidate's own words, if they gave any. */
+  declineReason: string | null;
 }
 
 export interface CandidateReport {
