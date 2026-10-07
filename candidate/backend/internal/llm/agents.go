@@ -30,6 +30,7 @@ const (
 	assistantTokens = 800  // a concise answer in the workspace chat
 	interviewTokens = 600  // one question
 	taskGenTokens   = 6000 // a brief plus a small codebase
+	rubricTokens    = 1200 // a score and a short reason per criterion, as JSON
 )
 
 // AgentModels is which OpenRouter model slug each agent calls.
@@ -80,6 +81,10 @@ func NewAgents(client *OpenRouterClient, models AgentModels) *Agents {
 	return &Agents{client: client, models: models}
 }
 
+// OnUsage registers the function told what each model call cost — see
+// OpenRouterClient.OnUsage.
+func (a *Agents) OnUsage(fn func(ctx context.Context, usage Usage)) { a.client.OnUsage = fn }
+
 // Configured reports whether the underlying OpenRouter client has a key.
 func (a *Agents) Configured() bool { return a.client.Configured() }
 
@@ -93,9 +98,9 @@ func (a *Agents) EvaluateCode(ctx context.Context, diff string) (string, error) 
 	if strings.TrimSpace(diff) == "" {
 		return "", errors.New("llm: no code-change evidence available for this session")
 	}
-	return a.prose(ctx, a.models.CodeEvaluation, []ChatMessage{
-		{Role: "system", Content: codeEvalSystemPrompt},
-		{Role: "user", Content: diff},
+	return a.prose(withAgent(ctx, "code_evaluation"), a.models.CodeEvaluation, []ChatMessage{
+		{Role: "system", Content: codeEvalSystemPrompt + injectionRule},
+		{Role: "user", Content: untrusted("code changes", diff)},
 	}, analysisTokens)
 }
 
@@ -109,9 +114,9 @@ func (a *Agents) AnalyzeReasoning(ctx context.Context, eventsDigest string) (str
 	if strings.TrimSpace(eventsDigest) == "" {
 		return "", errors.New("llm: no event trail available for this session")
 	}
-	return a.prose(ctx, a.models.Reasoning, []ChatMessage{
-		{Role: "system", Content: reasoningSystemPrompt},
-		{Role: "user", Content: eventsDigest},
+	return a.prose(withAgent(ctx, "reasoning"), a.models.Reasoning, []ChatMessage{
+		{Role: "system", Content: reasoningSystemPrompt + injectionRule},
+		{Role: "user", Content: untrusted("activity trail", eventsDigest)},
 	}, analysisTokens)
 }
 
@@ -125,9 +130,9 @@ func (a *Agents) AnalyzeWorkflow(ctx context.Context, eventsDigest string) (stri
 	if strings.TrimSpace(eventsDigest) == "" {
 		return "", errors.New("llm: no event trail available for this session")
 	}
-	return a.prose(ctx, a.models.Workflow, []ChatMessage{
-		{Role: "system", Content: workflowSystemPrompt},
-		{Role: "user", Content: eventsDigest},
+	return a.prose(withAgent(ctx, "workflow"), a.models.Workflow, []ChatMessage{
+		{Role: "system", Content: workflowSystemPrompt + injectionRule},
+		{Role: "user", Content: untrusted("activity trail", eventsDigest)},
 	}, analysisTokens)
 }
 
@@ -138,7 +143,7 @@ type ReportResult struct {
 }
 
 const reportSystemPrompt = `You are the Report agent in Mindfries' evidence-based hiring platform.
-You are given the other agents' evidence — code evaluation, reasoning, and workflow observations — for one candidate's assessment session.
+You are given the other agents' evidence — code evaluation, reasoning, workflow and interview observations, and rubric scores where the hiring team set a rubric — for one candidate's assessment session.
 Compose it into a report a hiring team can act on: what the evidence shows, and a recommendation.
 Reply with strict JSON only, no prose outside it, no markdown code fence:
 {"recommendation": "strong_hire" | "hire" | "lean_no" | "no_hire", "summary": "2-4 sentences a hiring manager would actually read"}`
@@ -151,9 +156,11 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	if len(evidence) == 0 {
 		return ReportResult{}, errors.New("llm: no evidence available to generate a report from")
 	}
-	raw, err := a.prose(ctx, a.models.Report, []ChatMessage{
-		{Role: "system", Content: reportSystemPrompt},
-		{Role: "user", Content: strings.Join(evidence, "\n\n---\n\n")},
+	raw, err := a.prose(withAgent(ctx, "report"), a.models.Report, []ChatMessage{
+		{Role: "system", Content: reportSystemPrompt + injectionRule},
+		// The evidence is other agents' prose, but it quotes the candidate
+		// freely — so it gets the same fence as the material it came from.
+		{Role: "user", Content: untrusted("evidence", strings.Join(evidence, "\n\n---\n\n"))},
 	}, reportTokens)
 	if err != nil {
 		return ReportResult{}, err

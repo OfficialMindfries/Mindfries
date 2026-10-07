@@ -42,7 +42,7 @@ func TestAssistSendsBriefFileHistoryAndTheNoSolutionRule(t *testing.T) {
 		t.Errorf("model = %q, want %q", got.Model, conversationModel)
 	}
 	all, _ := json.Marshal(got.Messages)
-	for _, want := range []string{"Never write the solution", "Fix the auth bug", "src/auth.js", "earlier answer"} {
+	for _, want := range []string{"Never say or imply WHERE the defect is", "Fix the auth bug", "src/auth.js", "earlier answer"} {
 		if !strings.Contains(string(all), want) {
 			t.Errorf("request is missing %q", want)
 		}
@@ -68,7 +68,7 @@ func TestInterviewTurnCarriesTheWorkAndTranscript(t *testing.T) {
 		t.Errorf("question should be trimmed, got %q", q)
 	}
 	prompt := got.Messages[len(got.Messages)-1].Content
-	for _, want := range []string{"probe the expiry check", "design review", "Ask the question in Hindi", "a.js (modified)", "Interviewer: First question?", "Candidate: My answer.", "question 2 of 4"} {
+	for _, want := range []string{"probe the expiry check", "design review", "Ask the question in Hindi", "a.js (modified)", "Interviewer: First question?", "My answer.", "question 2 of 4"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt is missing %q:\n%s", want, prompt)
 		}

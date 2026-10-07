@@ -88,6 +88,7 @@ func (o *Orchestrator) InterviewNext(ctx context.Context, sess db.Session, answe
 	if !o.configured() {
 		return InterviewState{}, ErrNotConfigured
 	}
+	ctx = llm.WithSession(ctx, sess.ID)
 	cfg := o.DB.GetInterviewConfig(ctx, sess.AssessmentID)
 	events, err := o.DB.GetSessionEvents(ctx, sess.ID)
 	if err != nil {
@@ -151,6 +152,7 @@ func (o *Orchestrator) interviewStep(ctx context.Context, sess db.Session, cfg d
 
 	tc := o.templateContent(ctx, sess)
 	work, trail := digestEvents(events, tc.StarterFiles)
+	work, trail = clipMiddle(work, maxWorkChars), clipMiddle(trail, maxInterviewTrailChars)
 	chat := make([]llm.ChatMessage, 0, len(transcript))
 	for _, t := range transcript {
 		role := "user"

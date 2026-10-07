@@ -116,6 +116,7 @@ func (o *Orchestrator) AskAssistant(ctx context.Context, sess db.Session, messag
 	if !o.configured() {
 		return "", ErrNotConfigured
 	}
+	ctx = llm.WithSession(ctx, sess.ID)
 	events, err := o.DB.GetSessionEvents(ctx, sess.ID)
 	if err != nil {
 		return "", err

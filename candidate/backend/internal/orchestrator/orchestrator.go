@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/llm"
@@ -32,7 +34,11 @@ type Orchestrator struct {
 }
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {
-	return &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
+	o := &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
+	if agents != nil {
+		agents.OnUsage(o.recordUsage)
+	}
+	return o
 }
 
 // wsEvent is the shape broadcast over a session's WebSocket room — small and
@@ -98,6 +104,10 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 		// The session is real either way; log rather than fail a candidate's
 		// entry over the invitation's own status bookkeeping.
 		slog.Error("orchestrator: marking invitation in_progress failed", "invitation", inv.ID, "error", err)
+	}
+	// The hiring team's pipeline follows the session too (db/applications.go).
+	if err := o.DB.MarkApplicationStarted(ctx, inv.ID); err != nil {
+		slog.Error("orchestrator: moving the application to in_progress failed", "invitation", inv.ID, "error", err)
 	}
 
 	sess = o.provisionAndAnnounce(ctx, sess)
@@ -228,6 +238,10 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 		if err := o.DB.SetInvitationStatus(ctx, *sess.AssessmentID, "submitted"); err != nil {
 			slog.Error("orchestrator: marking invitation submitted failed", "invitation", *sess.AssessmentID, "error", err)
 		}
+		took := int(math.Ceil(time.Since(sess.StartedAt).Minutes()))
+		if err := o.DB.MarkApplicationCompleted(ctx, *sess.AssessmentID, took); err != nil {
+			slog.Error("orchestrator: marking the application completed failed", "invitation", *sess.AssessmentID, "error", err)
+		}
 	}
 	// The candidate is done editing the moment they submit — the sandbox
 	// (if one was ever provisioned) has no further reason to exist, and
@@ -236,135 +250,4 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 
 	o.broadcast(sessionID, "session_submitted", map[string]string{"sessionId": sessionID})
 	return o.Evaluate(ctx, sessionID)
-}
-
-// Evaluate runs the Code Evaluation, Reasoning, Workflow and Interview
-// agents over a session's recorded evidence, then the Report agent over their combined
-// output, and stores the result. If the agent layer isn't configured
-// (no OPENROUTER_API_KEY), the report is saved as "failed" with that exact
-// reason — never a fabricated recommendation.
-func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
-	report, err := o.DB.CreatePendingReport(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("orchestrator: creating report row: %w", err)
-	}
-	if err := o.DB.SetReportGenerating(ctx, report.ID); err != nil {
-		return err
-	}
-	o.broadcast(sessionID, "report_generating", map[string]string{"sessionId": sessionID, "reportId": report.ID})
-
-	if o.Agents == nil || !o.Agents.Configured() {
-		reason := "OpenRouter is not configured (OPENROUTER_API_KEY unset) — no model was called"
-		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": reason})
-		return fmt.Errorf("orchestrator: %s", reason)
-	}
-
-	events, err := o.DB.GetSessionEvents(ctx, sessionID)
-	if err != nil {
-		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
-		return err
-	}
-	var starter map[string]string
-	if sess, err := o.DB.GetSession(ctx, sessionID); err == nil {
-		starter = o.templateContent(ctx, sess).StarterFiles
-	}
-	diff, digest := digestEvents(events, starter)
-
-	var evidence []db.EvidenceItem
-	var forReport []string
-
-	if out, err := o.Agents.EvaluateCode(ctx, diff); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "code_evaluation", Observation: out})
-		forReport = append(forReport, "Code Evaluation:\n"+out)
-	} else {
-		slog.Warn("orchestrator: code evaluation skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeReasoning(ctx, digest); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "reasoning", Observation: out})
-		forReport = append(forReport, "Reasoning:\n"+out)
-	} else {
-		slog.Warn("orchestrator: reasoning analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeWorkflow(ctx, digest); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "workflow", Observation: out})
-		forReport = append(forReport, "Workflow:\n"+out)
-	} else {
-		slog.Warn("orchestrator: workflow analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeInterview(ctx, diff, formatTranscript(turnsOf(events, eventInterview))); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "interview", Observation: out})
-		forReport = append(forReport, "Interview:\n"+out)
-	} else {
-		slog.Warn("orchestrator: interview analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if len(forReport) == 0 {
-		reason := "no agent produced usable evidence for this session (see server logs for each agent's error)"
-		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": reason})
-		return fmt.Errorf("orchestrator: %s", reason)
-	}
-
-	result, err := o.Agents.GenerateReport(ctx, forReport)
-	if err != nil {
-		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": err.Error()})
-		return err
-	}
-
-	if err := o.DB.SaveReportResult(ctx, report.ID, result.Recommendation, result.Summary, evidence); err != nil {
-		return err
-	}
-	o.broadcast(sessionID, "report_ready", map[string]string{"sessionId": sessionID, "reportId": report.ID})
-	return nil
-}
-
-// digestEvents turns a session's raw activity_events into (a) what the
-// candidate actually changed, for the Code Evaluation agent and the
-// interviewer, and (b) a plain chronological text trail for the Reasoning
-// and Workflow agents.
-//
-// The work comes from the latest workspace snapshot compared against the
-// starter files (see describeWork); a session with no snapshot falls back to
-// whatever diffs its "git" events carried. The trail leaves out snapshots
-// (a codebase isn't an action) and the interview (its own evidence, analysed
-// separately), and clips each payload so one large event can't crowd out the
-// rest.
-func digestEvents(events []db.ActivityEvent, starter map[string]string) (work string, trail string) {
-	var diffLines []string
-	var lines []string
-	var latest *snapshotPayload
-	for _, e := range events {
-		switch e.EventType {
-		case eventSnapshot:
-			var snap snapshotPayload
-			if json.Unmarshal(e.Payload, &snap) == nil {
-				latest = &snap
-			}
-			continue
-		case eventInterview:
-			continue
-		case "git":
-			var p struct {
-				Diff string `json:"diff"`
-			}
-			if json.Unmarshal(e.Payload, &p) == nil && p.Diff != "" {
-				diffLines = append(diffLines, p.Diff)
-			}
-		}
-		payload := string(e.Payload)
-		if len(payload) > maxTrailPayload {
-			payload = payload[:maxTrailPayload] + "…"
-		}
-		lines = append(lines, fmt.Sprintf("[%s] %s: %s", e.OccurredAt.Format("15:04:05"), e.EventType, payload))
-	}
-	work = describeWork(latest, starter)
-	if work == "" {
-		work = strings.Join(diffLines, "\n\n")
-	}
-	return work, strings.Join(lines, "\n")
 }

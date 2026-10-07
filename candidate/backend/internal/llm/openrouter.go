@@ -31,6 +31,11 @@ type OpenRouterClient struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+
+	// OnUsage, when set, is called once after every completed call with
+	// what it cost. It runs on the calling goroutine, after the reply has
+	// been read; keep it quick and never let it fail the call.
+	OnUsage func(ctx context.Context, usage Usage)
 }
 
 // NewOpenRouterClient builds a client. An empty apiKey is allowed —
@@ -62,6 +67,12 @@ type chatRequest struct {
 	Temperature float64       `json:"temperature,omitempty"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	Reasoning   *reasoning    `json:"reasoning,omitempty"`
+	// Usage asks OpenRouter to put the call's real cost in the response.
+	Usage usageOption `json:"usage"`
+}
+
+type usageOption struct {
+	Include bool `json:"include"`
 }
 
 type reasoning struct {
@@ -75,7 +86,12 @@ type chatChoice struct {
 
 type chatResponse struct {
 	Choices []chatChoice `json:"choices"`
-	Error   *struct {
+	Usage   *struct {
+		PromptTokens     int     `json:"prompt_tokens"`
+		CompletionTokens int     `json:"completion_tokens"`
+		Cost             float64 `json:"cost"`
+	} `json:"usage,omitempty"`
+	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
@@ -107,7 +123,7 @@ func (c *OpenRouterClient) complete(ctx context.Context, model string, messages 
 		return "", ErrNotConfigured
 	}
 
-	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens, Reasoning: think})
+	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens, Reasoning: think, Usage: usageOption{Include: true}})
 	if err != nil {
 		return "", err
 	}
@@ -146,6 +162,13 @@ func (c *OpenRouterClient) complete(ctx context.Context, model string, messages 
 	}
 	if len(out.Choices) == 0 {
 		return "", errors.New("llm: openrouter returned no choices")
+	}
+	if c.OnUsage != nil && out.Usage != nil {
+		agent, sessionID := tagsFrom(ctx)
+		c.OnUsage(ctx, Usage{
+			Agent: agent, SessionID: sessionID, Model: model,
+			PromptTokens: out.Usage.PromptTokens, CompletionTokens: out.Usage.CompletionTokens, CostUSD: out.Usage.Cost,
+		})
 	}
 	content := out.Choices[0].Message.Content
 	if out.Choices[0].FinishReason == "length" {
