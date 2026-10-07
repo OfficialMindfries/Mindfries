@@ -140,14 +140,16 @@ export interface NewActivityEvent {
 
 export async function listAssessments(): Promise<AssessmentView[]> {
   const rows = await request<(Omit<AssessmentView, "status"> & { status: string })[]>("/api/v1/assessments");
-  // The backend speaks the database's status values ("in_progress"); this
-  // app's are hyphenated. Unmapped, an assessment under way matched none of
-  // the statuses the dashboard knows how to draw.
-  return rows.map((row) => ({ ...row, status: BACKEND_STATUS[row.status] ?? "closed" }));
+  // The backend already answers in this app's own status words; this only
+  // guards the type, so a status it doesn't know (or the database's raw
+  // "in_progress", should that ever come through) can't reach the dashboard
+  // as something it has no way to draw.
+  return rows.map((row) => ({ ...row, status: KNOWN_STATUS[row.status] ?? "closed" }));
 }
 
-const BACKEND_STATUS: Record<string, AssessmentStatus> = {
+const KNOWN_STATUS: Record<string, AssessmentStatus> = {
   invited: "invited",
+  "in-progress": "in-progress",
   in_progress: "in-progress",
   submitted: "submitted",
   closed: "closed",

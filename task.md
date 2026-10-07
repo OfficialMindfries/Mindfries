@@ -90,17 +90,17 @@ and social accounts are connected through **Composio**.
 | # | What | State today |
 |---|---|---|
 | 22 | Hosted backend so an assessment can be started at all | Deployed on Railway (`mindfries-candidate-backend.up.railway.app`), database and OpenRouter key configured. Whether the deployed candidate and admin sites point at it (`CANDIDATE_BACKEND_URL` / `ADMIN_BACKEND_URL` on Vercel) has not been checked |
-| 23 | Real sandbox (Daytona) instead of in-browser execution | Client built, switched off, and never asked to run a command |
-| 24 | Test runner and test results panel | Partly. `python -m unittest` runs a multi-file Python project's tests, and `node --test` / `npm test` now run JavaScript and TypeScript projects' tests (node:test and node:assert; other Node built-ins are not available and say so). Checked in Node against ES module, TypeScript and CommonJS projects, not yet typed into the workspace terminal in a browser. No results panel |
-| 25 | Raw terminal command capture | Not built — only file saves and git / npm / pip output are recorded |
-| 26 | Navigation, edit-by-edit, paste and tab-switch capture | Partly. Pastes (size and where, never the text) and time with the tab out of view are recorded and reach the report. Navigation and edit-by-edit capture are not built |
-| 27 | Camera recording / snapshots | Camera is required and shown, nothing is stored |
-| 28 | Screen recording | Not built, though the dashboard says the screen is recorded |
+| 23 | Real sandbox (Daytona) instead of in-browser execution | Not built for the workspace. A client exists and the task verifier can run a generated task in a sandbox, but no key has ever been set, so neither has run. The candidate's terminal still executes in the browser |
+| 24 | Test runner and test results panel | Built. `python -m unittest` and `node --test` / `npm test` run a project's tests, and a Tests tab shows the last run as results — each test, pass or fail, and what a failure said — whether run from the panel or the terminal. Seen working in a browser on 2026-10-07 |
+| 25 | Raw terminal command capture | Built. Each finished command is recorded with its exit code and duration; a test run with its counts and failing tests. Output is not sent, apart from test counts |
+| 26 | Navigation, edit-by-edit, paste and tab-switch capture | Mostly built. Recorded: the file being looked at as it changes, lines added and removed on each save, pastes (size and where, never the text), and time with the tab out of view. Not keystroke-level |
+| 27 | Camera recording / snapshots | Built as stills: one small image every half minute during a real session, in a private bucket, shown on the company's report page as an even sample, deleted after 90 days. Not video, and nothing analyses them. Seen storing real images on 2026-10-07 |
+| 28 | Screen recording | Not built, and the dashboard no longer says the screen is recorded. Whether to build it is an open decision |
 | 29 | Auto-submit when the timer reaches zero | Built. In the browser the interview opens at zero and the work is submitted after it. If the tab is closed instead, the backend submits the session itself once the time and the interview's allowance have passed, using a copy of the workspace the browser saves every two minutes. Run live on 2026-10-07: the server submitted an abandoned session and moved the invitation and pipeline with it; the evaluation that follows could not be checked because the test OpenRouter key was out of credit |
-| 30 | Workspace saved to the server | Browser only; lost on another device |
-| 31 | Separate saved workspace per assessment | Missing — one browser storage key is shared by every session |
-| 32 | Resume an in-progress session from the dashboard | Not built |
-| 33 | Git changes view and diff viewer | Not built |
+| 30 | Workspace saved to the server | Built. Saved every minute and when the tab is hidden; restored from the server when this browser has no copy or an older one. Seen restoring in a browser on 2026-10-07 |
+| 31 | Separate saved workspace per assessment | Built. Each session has its own browser storage key |
+| 32 | Resume an in-progress session from the dashboard | Built. An assessment under way has a Resume link; the clock keeps running on the server, and a session resumed after its interview began opens on the interview |
+| 33 | Git changes view and diff viewer | Built as a Changes tab: files that differ from the task as given, with lines added and removed, each opening as a side-by-side diff. It compares with the starting files rather than git's index. Seen working in a browser on 2026-10-07 |
 | 34 | `git clone` / `push` / `pull` | Refuses honestly; needs a proxy or the sandbox |
 | 35 | Live status over WebSocket | Server broadcasts; the browser polls instead |
 

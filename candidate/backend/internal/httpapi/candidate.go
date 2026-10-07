@@ -146,7 +146,7 @@ func (s *Server) handleListAssessments(w http.ResponseWriter, r *http.Request) {
 			view.SessionID = ref.ID
 			view.Status = "submitted"
 			if sessionIsLive(ref.Status) {
-				view.Status = "in_progress"
+				view.Status = "in-progress"
 			}
 		}
 		out = append(out, view)
