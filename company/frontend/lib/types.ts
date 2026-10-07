@@ -123,6 +123,8 @@ export interface InterviewExchange {
   unanswered: boolean;
   /** The candidate's recorded answer, when one was uploaded. `url` is signed and short-lived. */
   recording: { url: string; kind: "audio" | "video"; seconds: number } | null;
+  /** There was a recording, and it has been deleted at the end of its 90-day retention. */
+  recordingExpired: boolean;
 }
 
 export interface CandidateReport {

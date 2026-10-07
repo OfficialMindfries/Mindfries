@@ -430,14 +430,21 @@ async function getInterviewExchanges(sessionId: string): Promise<InterviewExchan
     .from("activity_events")
     .select("event_type, payload, occurred_at")
     .eq("session_id", sessionId)
-    .in("event_type", ["interview", "interview_recording"])
+    .in("event_type", ["interview", "interview_recording", "interview_recording_expired"])
     .order("occurred_at", { ascending: true });
   if (error || !data) return [];
 
   const exchanges: InterviewExchange[] = [];
   const clips = new Map<number, { path: string; kind: "audio" | "video"; seconds: number }>();
+  // Recordings are deleted after 90 days (internal-admin's lib/retention.ts),
+  // which leaves this event behind in place of the one pointing at the file.
+  const expired = new Set<number>();
   for (const row of data) {
     const p = (row.payload ?? {}) as Record<string, unknown>;
+    if (row.event_type === "interview_recording_expired") {
+      if (typeof p.question === "number") expired.add(p.question);
+      continue;
+    }
     if (row.event_type === "interview_recording") {
       if (typeof p.path === "string" && typeof p.question === "number" && p.path.startsWith(`${sessionId}/`)) {
         clips.set(p.question, { path: p.path, kind: p.kind === "video" ? "video" : "audio", seconds: Number(p.seconds) || 0 });
@@ -446,7 +453,7 @@ async function getInterviewExchanges(sessionId: string): Promise<InterviewExchan
     }
     if (typeof p.text !== "string") continue;
     if (p.role === "interviewer") {
-      exchanges.push({ number: exchanges.length + 1, question: p.text, answer: null, seconds: null, timedOut: false, unanswered: false, recording: null });
+      exchanges.push({ number: exchanges.length + 1, question: p.text, answer: null, seconds: null, timedOut: false, unanswered: false, recording: null, recordingExpired: false });
     } else if (p.role === "candidate" && exchanges.length > 0) {
       const last = exchanges[exchanges.length - 1];
       last.answer = p.text;
@@ -459,7 +466,10 @@ async function getInterviewExchanges(sessionId: string): Promise<InterviewExchan
   await Promise.all(
     exchanges.map(async (x) => {
       const clip = clips.get(x.number);
-      if (!clip) return;
+      if (!clip) {
+        x.recordingExpired = expired.has(x.number);
+        return;
+      }
       const { data: signed } = await c.storage.from(RECORDINGS_BUCKET).createSignedUrl(clip.path, RECORDING_LINK_SECONDS);
       if (signed?.signedUrl) x.recording = { url: signed.signedUrl, kind: clip.kind, seconds: clip.seconds };
     }),
