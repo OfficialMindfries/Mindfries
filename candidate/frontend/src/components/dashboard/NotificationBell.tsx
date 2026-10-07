@@ -1,10 +1,14 @@
 "use client";
 
 import { Bell, BellOff, X } from "lucide-react";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { TONES } from "@/lib/notifications/data";
-import { useNotifications } from "@/lib/notifications/storage";
+import { dismissNotification, loadNotifications, markNotificationsRead, type BellItem } from "@/lib/notifications/actions";
 import { useDismissablePanel } from "@/lib/useDismissablePanel";
+
+/** Ids already reported as read in this page's lifetime, so opening the panel twice doesn't send them twice. */
+const seen = new Set<string>();
 
 function formatWhen(iso: string): string {
   const ms = Date.now() - Date.parse(iso);
@@ -19,20 +23,54 @@ function formatWhen(iso: string): string {
  * to the reference design: a pastel card per tone, the icon in its own
  * lighter badge, a bold title over a muted subtitle, a dismiss X.
  *
- * Nothing feeds it yet, so it opens on its empty state
- * (lib/notifications/data.ts). Dismissing a notification and the unread count are
- * both real, kept in this browser (lib/notifications/storage.ts) — opening
- * the panel marks everything read, and a dismissed item stays gone across a
- * reload.
+ * What it shows is worked out from the candidate's own records each time
+ * (lib/notifications/derive.ts): an invitation waiting for an answer, a due
+ * date coming up, a report that has finished. Read and dismissed are kept
+ * on the server, so they follow the candidate to another browser. Opening
+ * the panel marks everything read; a dismissed item stays gone.
+ *
+ * It asks again when the tab comes back into view, so a tab left open
+ * overnight isn't showing yesterday's list.
  */
 export function NotificationBell() {
   const { open, setOpen, ref } = useDismissablePanel<HTMLDivElement>();
-  const { items, unreadCount, dismiss, markAllRead } = useNotifications();
+  const [items, setItems] = useState<BellItem[]>([]);
+
+  const refresh = useCallback(() => {
+    loadNotifications()
+      .then(setItems)
+      .catch(() => {
+        // A failed read leaves the bell as it was; it will ask again.
+      });
+  }, []);
 
   useEffect(() => {
-    if (open) markAllRead();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only ever needs to fire on open, not whenever markAllRead's identity happens to change
-  }, [open]);
+    refresh();
+    const onVisible = () => document.visibilityState === "visible" && refresh();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refresh]);
+
+  const unreadCount = items.filter((n) => !n.read).length;
+
+  // Opening the panel is reading it. The dot clears at once; the cards keep
+  // their unread look until the panel is closed, so it's clear which were new.
+  useEffect(() => {
+    if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- settles the list once the panel that was showing "new" markers has closed
+      setItems((list) => (list.some((n) => !n.read && seen.has(n.id)) ? list.map((n) => (seen.has(n.id) ? { ...n, read: true } : n)) : list));
+      return;
+    }
+    const unread = items.filter((n) => !n.read && !seen.has(n.id)).map((n) => n.id);
+    if (unread.length === 0) return;
+    unread.forEach((id) => seen.add(id));
+    void markNotificationsRead(unread);
+  }, [open, items]);
+
+  function dismiss(id: string) {
+    setItems((list) => list.filter((n) => n.id !== id));
+    void dismissNotification(id);
+  }
 
   return (
     <div ref={ref} className="relative">
@@ -44,7 +82,7 @@ export function NotificationBell() {
         className="relative rounded-lg p-2 text-[#4A7FA7] transition-colors hover:bg-[#B3CFE5]/30 hover:text-[#1A3D63]"
       >
         <Bell size={17} />
-        {unreadCount > 0 && (
+        {unreadCount > 0 && !open && (
           <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#E06C75]" />
         )}
       </button>
@@ -73,11 +111,14 @@ export function NotificationBell() {
                     >
                       <Icon size={15} />
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] leading-snug font-semibold text-[#0A1931]">{n.title}</p>
+                    <Link href={n.href} onClick={() => setOpen(false)} className="min-w-0 flex-1">
+                      <p className="text-[13px] leading-snug font-semibold text-[#0A1931]">
+                        {n.title}
+                        {!n.read && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#E06C75] align-middle" aria-label="new" />}
+                      </p>
                       <p className="mt-0.5 text-[12px] leading-snug text-[#0A1931]/70">{n.body}</p>
                       <p className="mt-1 text-[10.5px] text-[#0A1931]/50">{formatWhen(n.at)}</p>
-                    </div>
+                    </Link>
                     <button
                       type="button"
                       onClick={() => dismiss(n.id)}
