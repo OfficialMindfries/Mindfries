@@ -8,7 +8,7 @@ import {
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
 import { targetsStore } from "@/lib/targets-store";
 import { requireAdminRole } from "@/lib/auth/admins";
-import { backendReady, resetSessionViaBackend, retriggerEvaluationViaBackend } from "@/lib/backend/client";
+import { backendReady, generateTaskViaBackend, resetSessionViaBackend, retriggerEvaluationViaBackend, type GeneratedTask } from "@/lib/backend/client";
 import type { EmailTemplate } from "@/lib/email-templates";
 import type { CompanyStatus, LeadStage, MemberRole, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
 
@@ -144,6 +144,27 @@ export async function createGameTemplate(input: {
     return { ok: true };
   } catch (e) {
     return fail(e);
+  }
+}
+
+/**
+ * Drafts a task brief and starter codebase with the Task Generation agent,
+ * from what the author has already filled in plus free-text notes about the
+ * company and role. Returns the draft for the form to show — the author
+ * reads and edits it, then saves it like any hand-written game. There is no
+ * fallback: without the backend and a model key there is nothing to draft
+ * with, and the form says so.
+ */
+export async function generateTaskDraft(input: {
+  name: string; taskVariant: TaskVariant; techStack: string[]; durationMin: number; notes: string;
+}): Promise<{ ok: true; task: GeneratedTask } | { ok: false; error: string }> {
+  try {
+    await requireAdminRole();
+    if (!input.name.trim()) throw new Error("Give the game a name first — the task is generated from it");
+    if (!backendReady()) throw new Error("Task generation isn't connected — set ADMIN_BACKEND_URL to the candidate backend");
+    return { ok: true, task: await generateTaskViaBackend(input) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 

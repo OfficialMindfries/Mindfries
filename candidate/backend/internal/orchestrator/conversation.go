@@ -212,7 +212,11 @@ func (o *Orchestrator) InterviewNext(ctx context.Context, sess db.Session, answe
 		chat = append(chat, llm.ChatMessage{Role: role, Content: t.Text})
 	}
 
-	question, err := o.Agents.InterviewTurn(ctx, briefOf(tc), work, trail, chat, asked+1, InterviewQuestions)
+	guidance := ""
+	if tc.InterviewerPrompt != nil {
+		guidance = *tc.InterviewerPrompt
+	}
+	question, err := o.Agents.InterviewTurn(ctx, briefOf(tc), guidance, work, trail, chat, asked+1, InterviewQuestions)
 	if err != nil {
 		return InterviewState{}, err
 	}

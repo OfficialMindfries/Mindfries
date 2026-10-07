@@ -9,9 +9,9 @@ import { SampleBadge } from "@/components/admin/SampleBadge";
 import { VARIANT } from "@/components/admin/visuals";
 import { countWithin, cumulative, DAY, WEEK } from "@/lib/overview";
 import { fmtDate, taskVariantLabel } from "@/lib/format";
-import { createGameTemplate, toggleTemplateStatus } from "@/app/admin/actions";
+import { createGameTemplate, generateTaskDraft, toggleTemplateStatus } from "@/app/admin/actions";
 import { toast } from "@/components/admin/toast";
-import { parseStarterFiles } from "@/lib/starter-files";
+import { parseStarterFiles, serializeStarterFiles } from "@/lib/starter-files";
 
 const variantTone: Record<TaskVariant, "violet" | "coral" | "amber" | "green"> = {
   bug_fix: "coral",
@@ -48,6 +48,8 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
   const [publishNow, setPublishNow] = useState(false);
   const [taskBrief, setTaskBrief] = useState("");
   const [starterFilesText, setStarterFilesText] = useState("");
+  const [genNotes, setGenNotes] = useState("");
+  const [generating, startGenerating] = useTransition();
 
   const rubricTotal = rubric.reduce((sum, r) => sum + (Number(r.weight) || 0), 0);
   const starterFileCount = Object.keys(parseStarterFiles(starterFilesText)).length;
@@ -55,7 +57,25 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
   function reset() {
     setName(""); setTaskVariant("bug_fix"); setRepoTemplate(""); setStack("");
     setDurationMin(60); setPrompt(""); setRubric(defaultRubric()); setPublishNow(false);
-    setTaskBrief(""); setStarterFilesText("");
+    setTaskBrief(""); setStarterFilesText(""); setGenNotes("");
+  }
+
+  // Fills the brief and starter files with a model-written draft. It only
+  // fills the form — nothing is saved until the author reads it and saves.
+  function generate() {
+    startGenerating(async () => {
+      const res = await generateTaskDraft({
+        name,
+        taskVariant,
+        techStack: stack.split(",").map((s) => s.trim()).filter(Boolean),
+        durationMin,
+        notes: genNotes,
+      });
+      if (!res.ok) { toast.error(res.error); return; }
+      setTaskBrief(res.task.taskBrief);
+      setStarterFilesText(serializeStarterFiles(res.task.starterFiles));
+      toast.success("Draft generated — read it through before saving");
+    });
   }
 
   function editCriterion(id: string, patch: Partial<RubricCriterion>) {
@@ -218,6 +238,23 @@ export function LibraryView({ initial, asOfIso, sample }: { initial: GameTemplat
           </div>
           <Field label="AI interviewer prompt" hint="How the AI interviewer probes the candidate's reasoning.">
             <Textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Probe how the candidate located the failing path…" />
+          </Field>
+
+          <Field
+            label="Generate with AI"
+            hint="Optional. Describe the company, the role and what the task should reflect; the name, variant, stack and duration above are used too. This drafts the brief and starter files below, replacing what's there — review before saving."
+          >
+            <Textarea
+              rows={3}
+              value={genNotes}
+              onChange={(e) => setGenNotes(e.target.value)}
+              placeholder="Fintech payments API team hiring a backend engineer. Day-to-day is rate limiting, idempotency and retries…"
+            />
+            <div className="mt-2">
+              <Button size="sm" variant="ghost" onClick={generate} disabled={generating || !name.trim()}>
+                {generating ? "Generating… (up to a minute)" : "Generate brief and starter files"}
+              </Button>
+            </div>
           </Field>
 
           <Field

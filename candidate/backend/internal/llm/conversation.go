@@ -56,14 +56,18 @@ Rules:
 - If they changed nothing, ask how they approached the problem and what stopped them.
 Reply with the question text only — no numbering, no preamble, no quotes.`
 
-// InterviewTurn produces the next interviewer question. work is the
+// InterviewTurn produces the next interviewer question. guidance is the
+// template author's own note on what to probe (may be empty); work is the
 // candidate's actual changes, trail their activity log, and transcript the
 // interview so far ("assistant" = interviewer, "user" = candidate). n is the
 // 1-based number of the question being asked, out of total.
-func (a *Agents) InterviewTurn(ctx context.Context, brief, work, trail string, transcript []ChatMessage, n, total int) (string, error) {
+func (a *Agents) InterviewTurn(ctx context.Context, brief, guidance, work, trail string, transcript []ChatMessage, n, total int) (string, error) {
 	var b strings.Builder
 	if strings.TrimSpace(brief) != "" {
 		b.WriteString("TASK BRIEF\n" + brief + "\n\n")
+	}
+	if strings.TrimSpace(guidance) != "" {
+		b.WriteString("WHAT THE TASK'S AUTHOR WANTS PROBED\n" + guidance + "\n\n")
 	}
 	b.WriteString("WHAT THE CANDIDATE CHANGED\n" + orNone(work) + "\n\n")
 	b.WriteString("ACTIVITY TRAIL\n" + orNone(trail) + "\n\n")
