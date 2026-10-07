@@ -53,6 +53,7 @@ func (s *Server) Routes() http.Handler {
 	// The workspace assistant and the follow-up interview (conversation.go).
 	mux.HandleFunc("GET /api/v1/sessions/{id}/assistant", s.requireCandidate(s.handleAssistantHistory))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/assistant", s.requireCandidate(s.handleAssistantAsk))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/assistant/stream", s.requireCandidate(s.handleAssistantStream))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/interview", s.requireCandidate(s.handleInterview))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/checkpoint", s.requireCandidate(s.handleCheckpoint))
 	// The live voice interview (live.go): a ticket from the first, spent on the second.

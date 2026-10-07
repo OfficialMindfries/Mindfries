@@ -26,10 +26,6 @@ const (
 	roleAssistant   = "assistant"
 	roleInterviewer = "interviewer"
 
-	// MaxAssistantTurns bounds one session's assistant use — a ceiling on
-	// model spend per candidate, well above what a real session needs.
-	MaxAssistantTurns = 60
-
 	maxSnapshotBytes = 300 * 1024
 	maxSnapshotFile  = 60 * 1024
 	maxTrailPayload  = 600
@@ -38,9 +34,6 @@ const (
 // ErrNotConfigured means no model can be called — surfaced as-is so the
 // HTTP layer can say so instead of inventing a reply.
 var ErrNotConfigured = llm.ErrNotConfigured
-
-// ErrAssistantLimit is returned once a session has used MaxAssistantTurns.
-var ErrAssistantLimit = errors.New("orchestrator: this session has reached its assistant message limit")
 
 // ErrWorkLocked is returned for anything that belongs to working on the
 // task — asking the assistant, most obviously — once the interview has
@@ -60,6 +53,9 @@ type Turn struct {
 	// TimedOut marks an interview answer that ran past its time limit, or
 	// that was never given.
 	TimedOut bool `json:"timedOut,omitempty"`
+	// Offered is, on an assistant reply, the lines of code it showed that
+	// were not already in the candidate's project — see assistantUptake.
+	Offered []string `json:"offered,omitempty"`
 }
 
 func turnsOf(events []db.ActivityEvent, eventType string) []Turn {
@@ -102,60 +98,6 @@ func briefOf(tc db.TemplateContent) string {
 		return ""
 	}
 	return *tc.TaskBrief
-}
-
-// AssistantHistory is the session's assistant conversation so far.
-func (o *Orchestrator) AssistantHistory(ctx context.Context, sessionID string) ([]Turn, error) {
-	events, err := o.DB.GetSessionEvents(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return turnsOf(events, eventAIUsage), nil
-}
-
-// AskAssistant answers one message from the candidate and records both
-// sides of the exchange as evidence. The candidate's message is recorded
-// only once a reply exists — a failed model call leaves no half-exchange in
-// the trail.
-func (o *Orchestrator) AskAssistant(ctx context.Context, sess db.Session, message, filePath, fileContent string) (string, error) {
-	if !o.configured() {
-		return "", ErrNotConfigured
-	}
-	ctx = llm.WithSession(ctx, sess.ID)
-	events, err := o.DB.GetSessionEvents(ctx, sess.ID)
-	if err != nil {
-		return "", err
-	}
-	if len(turnsOf(events, eventInterview)) > 0 {
-		return "", ErrWorkLocked
-	}
-	history := turnsOf(events, eventAIUsage)
-	asked := 0
-	chat := make([]llm.ChatMessage, 0, len(history))
-	for _, t := range history {
-		role := "assistant"
-		if t.Role == roleCandidate {
-			role = "user"
-			asked++
-		}
-		chat = append(chat, llm.ChatMessage{Role: role, Content: t.Text})
-	}
-	if asked >= MaxAssistantTurns {
-		return "", ErrAssistantLimit
-	}
-
-	reply, err := o.Agents.Assist(ctx, briefOf(o.templateContent(ctx, sess)), filePath, fileContent, chat, message)
-	if err != nil {
-		return "", err
-	}
-
-	if err := o.RecordEvents(ctx, sess.ID, []db.NewActivityEvent{
-		turnEvent(eventAIUsage, Turn{Role: roleCandidate, Text: message, File: filePath}),
-		turnEvent(eventAIUsage, Turn{Role: roleAssistant, Text: reply}),
-	}); err != nil {
-		return "", err
-	}
-	return reply, nil
 }
 
 type snapshotPayload struct {

@@ -261,6 +261,20 @@ func sessionIsLive(status string) bool {
 	return status == "live"
 }
 
+// serverOnlyEventTypes are the parts of a session's trail that this backend
+// writes from what it saw itself: what the assistant and the interviewer
+// said and were told, the code that was submitted, what a model call cost.
+// They are evidence precisely because the candidate's browser didn't supply
+// them, so the telemetry endpoint — which takes whatever a browser posts —
+// refuses them.
+var serverOnlyEventTypes = map[string]bool{
+	"ai_usage":           true,
+	"interview":          true,
+	"workspace_snapshot": true,
+	"ai_cost":            true,
+	"auto_submitted":     true,
+}
+
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
 // §1.7), real and in real use — candidate/frontend's workspace batches
 // git/npm/pip activity, preview rebuilds, and file saves here via
@@ -302,6 +316,10 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 	for _, e := range body.Events {
 		if e.Type == "" || !eventTypePattern.MatchString(e.Type) {
 			writeError(w, http.StatusBadRequest, "event type must be lowercase letters, digits and underscores, starting with a letter, 64 characters or fewer")
+			return
+		}
+		if serverOnlyEventTypes[e.Type] {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("event type %q is recorded by the server and can't be submitted", e.Type))
 			return
 		}
 		if len(e.Payload) > maxEventTypePayloadBytes {
