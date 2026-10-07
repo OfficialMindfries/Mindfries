@@ -31,6 +31,9 @@ type Orchestrator struct {
 	Agents  *llm.Agents
 	Sandbox *sandbox.Client
 	Hub     *ws.Hub
+	// Live is the interviewer's live voice line. Nil or unconfigured means
+	// interviews are held turn by turn through Agents.
+	Live *llm.LiveClient
 }
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {

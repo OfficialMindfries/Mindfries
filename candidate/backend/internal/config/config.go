@@ -49,6 +49,13 @@ type Config struct {
 	OpenRouterAPIKey  string
 	OpenRouterBaseURL string
 
+	// GeminiAPIKey is for the one call OpenRouter can't carry: the
+	// interviewer's live voice line (Gemini's Live API, internal/llm/live.go).
+	// Empty means the interview runs turn by turn over OpenRouter instead.
+	// GeminiLiveModel overrides which Live model is used.
+	GeminiAPIKey    string
+	GeminiLiveModel string
+
 	// DaytonaAPIKey / DaytonaBaseURL — sandbox orchestration. Empty means
 	// session start still records a real row, but sandbox provisioning
 	// reports itself as not wired up rather than pretending a workspace
@@ -91,6 +98,8 @@ func Load() (Config, error) {
 		AllowedOrigins:         splitCSV(getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001")),
 		OpenRouterAPIKey:       os.Getenv("OPENROUTER_API_KEY"),
 		OpenRouterBaseURL:      getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+		GeminiAPIKey:           os.Getenv("GEMINI_API_KEY"),
+		GeminiLiveModel:        os.Getenv("GEMINI_LIVE_MODEL"),
 		DaytonaAPIKey:          os.Getenv("DAYTONA_API_KEY"),
 		DaytonaBaseURL:         getenv("DAYTONA_BASE_URL", "https://app.daytona.io/api"),
 	}
@@ -119,6 +128,9 @@ func (c Config) Warnings() []string {
 	}
 	if c.OpenRouterAPIKey == "" {
 		w = append(w, "OPENROUTER_API_KEY is not set — the evaluation agents, the workspace assistant, the interviewer and task generation will answer 'not configured'")
+	}
+	if c.GeminiAPIKey == "" {
+		w = append(w, "GEMINI_API_KEY is not set — the interview runs turn by turn instead of as a live voice call")
 	}
 	if c.DaytonaAPIKey == "" {
 		w = append(w, "DAYTONA_API_KEY is not set — sandbox provisioning will answer 'not configured'; sessions still record")

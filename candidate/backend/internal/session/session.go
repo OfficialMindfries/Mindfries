@@ -148,3 +148,43 @@ func VerifyAdmin(token, secret string) (*AdminClaims, error) {
 	}
 	return &a, nil
 }
+
+// LiveTicket lets a candidate's browser open one WebSocket straight to this
+// backend for the live voice interview. The browser can't present the
+// "mf_candidate" cookie there — that cookie belongs to candidate/frontend's
+// origin — so the frontend's server, which can, asks for a ticket on the
+// candidate's behalf and hands it to the page.
+type LiveTicket struct {
+	SessionID   string `json:"sid"`
+	CandidateID string `json:"cid"`
+	Exp         int64  `json:"exp"`
+}
+
+// liveTicketSecret keeps tickets and cookies from being interchangeable: a
+// ticket is signed with a key derived from the session secret, so neither
+// verifies as the other even though both are HMACs under the same setting.
+func liveTicketSecret(secret string) string { return secret + "|live-interview-ticket" }
+
+// SignLiveTicket issues a ticket valid until t.Exp (unix seconds).
+func SignLiveTicket(t LiveTicket, secret string) (string, error) {
+	if secret == "" {
+		return "", ErrInvalid
+	}
+	return sign(t, liveTicketSecret(secret))
+}
+
+// VerifyLiveTicket checks a ticket's signature and expiry.
+func VerifyLiveTicket(token, secret string) (*LiveTicket, error) {
+	if secret == "" {
+		return nil, ErrInvalid
+	}
+	raw, err := verify(token, liveTicketSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	var t LiveTicket
+	if err := json.Unmarshal(raw, &t); err != nil || t.SessionID == "" || t.CandidateID == "" {
+		return nil, ErrInvalid
+	}
+	return &t, nil
+}

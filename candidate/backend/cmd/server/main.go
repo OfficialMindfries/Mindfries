@@ -51,6 +51,7 @@ func main() {
 	sandboxClient := sandbox.New(cfg.DaytonaAPIKey, cfg.DaytonaBaseURL)
 	hub := ws.NewHub(cfg.AllowedOrigins)
 	orc := orchestrator.New(database, agents, sandboxClient, hub)
+	orc.Live = llm.NewLiveClient(cfg.GeminiAPIKey, cfg.GeminiLiveModel)
 
 	// Sessions whose candidate closed the tab are submitted from here — see
 	// orchestrator/abandoned.go.
