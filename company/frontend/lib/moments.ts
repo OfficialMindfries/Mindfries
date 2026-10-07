@@ -58,6 +58,8 @@ export function describeEvent(type: string, payload: Record<string, unknown>): s
       return `Pasted ${Number(payload.chars) || 0} characters into ${str(payload.target) || "the workspace"}`;
     case "tab_hidden":
       return `Returned after ${Number(payload.seconds) || 0} seconds away from the workspace`;
+    case "camera_snapshot":
+      return "A still of the camera was taken";
     case "auto_submitted":
       return "The server submitted the session";
     default:

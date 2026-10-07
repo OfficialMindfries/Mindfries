@@ -40,6 +40,8 @@ import { terminalLog } from "@/lib/ide/terminal-log";
 import { isTestCommand, parseTestRun, testResults } from "@/lib/ide/test-results";
 import { lineChange } from "@/lib/ide/line-change";
 import { DIFF_PREFIX, fileOfTab, isDiffTab, workspaceChanges } from "@/lib/ide/changes";
+import { startCameraSnapshots } from "@/lib/ide/camera-snapshots";
+import { startSnapshotUpload } from "@/app/ide/interview-actions";
 
 interface IdeShellProps {
   /**
@@ -285,6 +287,20 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // The session is camera-proctored: the gate below blocks the workspace
   // until this is live, and re-blocks if the stream ever stops.
   const camera = useProctorCamera();
+  // A still of the camera every half minute, kept with the session — see
+  // lib/ide/camera-snapshots.ts. Only in a real session: a scratch workspace
+  // records nothing.
+  useEffect(() => {
+    if (!sessionId || !camera.stream) return;
+    return startCameraSnapshots(camera.stream, {
+      uploadTarget: async () => {
+        const target = await startSnapshotUpload(sessionId);
+        return "error" in target ? null : target;
+      },
+      stored: (snapshot) => telemetryRef.current?.record("camera_snapshot", snapshot),
+    });
+  }, [sessionId, camera.stream]);
+
   // Real markers from Monaco's TypeScript service — see lib/ide/diagnostics.ts.
   const diagnostics = useDiagnostics(tree, files);
 

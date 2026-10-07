@@ -150,3 +150,31 @@ export async function confirmRecording(
     return failure(err, "Could not record the upload.");
   }
 }
+
+/** Where the proctoring camera's stills live. Private, like the recordings. */
+const SNAPSHOTS_BUCKET = "proctor-snapshots";
+const MAX_SNAPSHOT_BYTES = 200 * 1024;
+
+/**
+ * Hands the browser a one-off signed URL to upload one still of the
+ * proctoring camera to (lib/ide/camera-snapshots.ts). Ownership is checked
+ * the same way as for an interview recording: by asking the backend for the
+ * session with the candidate's own cookie.
+ */
+export async function startSnapshotUpload(sessionId: string): Promise<RecordingUpload | { error: string }> {
+  if (!backendReady()) return { error: AI_OFFLINE };
+  try {
+    const session = await getSession(sessionId);
+    if (session.status !== "live") return { error: "This session is no longer active." };
+  } catch (err) {
+    return failure(err, "Could not verify the session.");
+  }
+  const storage = db()?.storage;
+  if (!storage) return { error: "Snapshot storage isn't configured." };
+
+  await storage.createBucket(SNAPSHOTS_BUCKET, { public: false, fileSizeLimit: MAX_SNAPSHOT_BYTES });
+  const path = `${safeSegment(sessionId)}/${Date.now()}.jpg`;
+  const { data, error } = await storage.from(SNAPSHOTS_BUCKET).createSignedUploadUrl(path);
+  if (error || !data) return { error: error?.message ?? "Could not prepare the upload." };
+  return { uploadUrl: data.signedUrl, path };
+}
