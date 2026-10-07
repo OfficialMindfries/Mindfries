@@ -10,6 +10,7 @@ import { NextSteps } from "@/components/profile/NextSteps";
 import { currentCandidate } from "@/lib/auth/users";
 import { getProfile, getResumeUrl } from "@/lib/profile/actions";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
+import type { ResumeFields } from "@/lib/profile/resume-fields";
 
 export const metadata: Metadata = {
   title: "Profile · Mindfries",
@@ -25,9 +26,8 @@ export const metadata: Metadata = {
  * profile" button (EditProfileModal) — there used to be a separate "About
  * you" card with its own edit affordance; folding it in here left one thing
  * to open instead of two. The resume and linked accounts manage themselves
- * inline, genuinely interactive, kept in this browser rather than on a
- * server that doesn't exist yet — see ResumeUpload and LinkedAccounts for
- * exactly what "saved" means there.
+ * inline and are saved to the candidate's account — see ResumeUpload and
+ * LinkedAccounts.
  *
  * "View as others see" (PreviewModeProvider) is a real toggle, not a label:
  * it hides every edit affordance and every not-yet-connected platform, so
@@ -44,6 +44,15 @@ export default async function ProfilePage() {
     listAssessmentsOrUndefined(),
   ]);
   const resumeUrl = await getResumeUrl(profile?.resume_path || null);
+  const parsed = (profile?.resume_parsed ?? null) as ResumeFields | null;
+  // What the resume could fill in that the candidate hasn't written themselves.
+  const emptyFields = parsed
+    ? [
+        !profile?.role && parsed.role ? "headline" : "",
+        !profile?.location && parsed.location ? "location" : "",
+        !profile?.bio && parsed.bio ? "about you" : "",
+      ].filter(Boolean)
+    : [];
 
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
@@ -62,7 +71,7 @@ export default async function ProfilePage() {
             </div>
 
             <aside className="space-y-4">
-              <ResumeUpload resumePath={profile?.resume_path} resumeUrl={resumeUrl} />
+              <ResumeUpload resumePath={profile?.resume_path} resumeUrl={resumeUrl} parsed={parsed} emptyFields={emptyFields} />
               <EvidenceSummary items={assessments} />
               <NextSteps hasResume={!!profile?.resume_path} links={profile?.links || {}} />
             </aside>

@@ -3,6 +3,7 @@
 import { db } from "@/lib/supabase";
 import { currentCandidate } from "@/lib/auth/users";
 import { revalidatePath } from "next/cache";
+import { MAX_RESUME_TEXT, parseResumeText, type ResumeFields } from "./resume-fields";
 
 export async function getProfile() {
   const session = await currentCandidate();
@@ -13,7 +14,7 @@ export async function getProfile() {
 
   const { data } = await c
     .from("candidate_users")
-    .select("name, role, location, bio, notice_period, open_to, resume_path, links, profile_updated_at")
+    .select("name, role, location, bio, notice_period, open_to, resume_path, resume_parsed, resume_parsed_at, links, profile_updated_at, email_verified_at")
     .eq("id", session.id)
     .single();
 
@@ -125,15 +126,67 @@ export async function uploadResume(formData: FormData) {
     
   if (uploadError) return { error: uploadError.message };
 
+  // The page extracts the text (lib/profile/resumeParse.ts) and sends it
+  // with the file; the fields are read out of it here, so what is stored is
+  // this code's reading of the text and not something the page asserted. No
+  // text — a .doc, a scanned PDF, an extraction that failed — clears what an
+  // earlier resume left behind rather than leaving it to describe this one.
+  const textRaw = formData.get("text");
+  const text = typeof textRaw === "string" ? textRaw.replace(/\u0000/g, "").slice(0, MAX_RESUME_TEXT).trim() : "";
+  const parsed: ResumeFields | null = text ? parseResumeText(text) : null;
+
   const { error: dbError } = await c
     .from("candidate_users")
-    .update({ resume_path: path })
+    .update({
+      resume_path: path,
+      resume_text: text || null,
+      resume_parsed: parsed,
+      resume_parsed_at: parsed ? new Date().toISOString() : null,
+    })
     .eq("id", session.id);
 
   if (dbError) return { error: dbError.message };
 
   revalidatePath("/profile");
-  return { ok: true, path };
+  return { ok: true, path, parsed };
+}
+
+/**
+ * Copies what was read from the resume into the profile — only into fields
+ * the candidate has left empty, and only when they ask. Nothing they wrote
+ * is replaced.
+ */
+export async function fillProfileFromResume() {
+  const session = await currentCandidate();
+  if (!session) return { error: "Not signed in" };
+
+  const c = db();
+  if (!c) return { error: "Database not connected" };
+
+  const { data } = await c
+    .from("candidate_users")
+    .select("role, location, bio, links, resume_parsed")
+    .eq("id", session.id)
+    .single();
+  const parsed = (data?.resume_parsed ?? null) as ResumeFields | null;
+  if (!parsed) return { error: "Nothing has been read from a resume yet." };
+
+  const update: Record<string, unknown> = {};
+  const filled: string[] = [];
+  if (!data?.role && parsed.role) { update.role = parsed.role; filled.push("headline"); }
+  if (!data?.location && parsed.location) { update.location = parsed.location; filled.push("location"); }
+  if (!data?.bio && parsed.bio) { update.bio = parsed.bio; filled.push("about you"); }
+  if (filled.length === 0) return { ok: true, filled };
+
+  const { error } = await c
+    .from("candidate_users")
+    .update({ ...update, profile_updated_at: new Date().toISOString() })
+    .eq("id", session.id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/profile");
+  revalidatePath("/dashboard");
+  return { ok: true, filled };
 }
 
 export async function removeResume() {
@@ -150,7 +203,7 @@ export async function removeResume() {
 
   const { error } = await c
     .from("candidate_users")
-    .update({ resume_path: null })
+    .update({ resume_path: null, resume_text: null, resume_parsed: null, resume_parsed_at: null })
     .eq("id", session.id);
 
   if (error) return { error: error.message };
