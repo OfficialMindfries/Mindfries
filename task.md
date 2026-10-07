@@ -53,12 +53,12 @@ and social accounts are connected through **Composio**.
 
 | # | What | State today |
 |---|---|---|
-| 1 | AI chat assistant in the workspace | Built. Answers with the task and open file as context; refuses to write the solution. Checked against the real model |
-| 2 | AI interviewer (follow-up questions about the candidate's work) | Built. Opens when the candidate clicks Submit; four questions grounded in their actual changes. Checked against the real model, not yet clicked through in a browser |
+| 1 | AI chat assistant in the workspace | Built and run live (2026-10-07). Refuses to write the fix, but in the live run it pointed at the exact faulty line — the prompt needs tightening |
+| 2 | AI interviewer (follow-up questions about the candidate's work) | Built and run live through the backend: four distinct questions about the real change, resumable. The dialog itself has not been clicked through (needs a camera) |
 | 3 | Voice for the interviewer | Built, turn-based: questions read aloud and answers dictated with the browser's own speech features (Chrome and Edge). Not a live call — OpenRouter has no live-audio stream |
 | 4 | Recording AI usage as evidence (prompts, what was accepted) | Partly. Every assistant and interview turn is recorded and reaches the report. Whether a suggestion was then used in the code is not tracked |
-| 5 | Task generation per company / role | Partly. The admin library can draft a brief and starter codebase from notes about the company and role. Not yet run against the real model (key had too little credit), and a company can't trigger it from its own portal |
-| 6 | Evaluation report | Built. Now reads the candidate's real code changes and the interview. Not yet run end to end with the real key |
+| 5 | Task generation per company / role | Built and run live from the backend: produced a 7-file Python project whose tests fail on the planted bug and pass once fixed. Admin button not yet clicked; a company can't trigger it from its own portal; only Python tasks have runnable tests in the workspace |
+| 6 | Evaluation report | Built and run live end to end: code, reasoning, workflow and interview evidence plus a recommendation. The live run used a cheaper model than the default for the four analysis agents |
 
 **Profile and accounts**
 
@@ -91,7 +91,7 @@ and social accounts are connected through **Composio**.
 |---|---|---|
 | 22 | Hosted backend so an assessment can be started at all | Not deployed — the live site can list assessments but not start one |
 | 23 | Real sandbox (Daytona) instead of in-browser execution | Client built, switched off, and never asked to run a command |
-| 24 | Test runner and test results panel | Not built |
+| 24 | Test runner and test results panel | Partly. `python -m unittest` now runs a multi-file Python project's tests in the terminal. No results panel, and JavaScript projects still can't run tests (`npm test`, multi-file `node`) |
 | 25 | Raw terminal command capture | Not built — only file saves and git / npm / pip output are recorded |
 | 26 | Navigation, edit-by-edit, paste and tab-switch capture | Not built |
 | 27 | Camera recording / snapshots | Camera is required and shown, nothing is stored |
