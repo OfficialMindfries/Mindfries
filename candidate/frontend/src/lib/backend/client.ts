@@ -179,8 +179,71 @@ export async function postSessionEvents(sessionId: string, events: NewActivityEv
   });
 }
 
-export async function submitSession(sessionId: string): Promise<{ sessionId: string; status: string }> {
-  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`, { method: "POST" });
+/**
+ * Ends the session. `files` is the workspace as the candidate left it — the
+ * backend records it as the final snapshot evaluation reads.
+ */
+export async function submitSession(
+  sessionId: string,
+  files?: Record<string, string>,
+): Promise<{ sessionId: string; status: string }> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files: files ?? {} }),
+  });
+}
+
+// ── The workspace assistant and the follow-up interview
+// (candidate/backend/internal/httpapi/conversation.go) ─────────────────────
+
+export interface ConversationTurn {
+  role: "candidate" | "assistant";
+  text: string;
+}
+
+export interface AssistantHistory {
+  messages: ConversationTurn[];
+  /** False when the backend has no model key — the panel says so instead of accepting questions it can't answer. */
+  configured: boolean;
+}
+
+export async function getAssistantHistory(sessionId: string): Promise<AssistantHistory> {
+  return request<AssistantHistory>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`);
+}
+
+export async function askAssistant(
+  sessionId: string,
+  message: string,
+  filePath?: string,
+  fileContent?: string,
+): Promise<{ reply: string }> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, filePath: filePath ?? "", fileContent: fileContent ?? "" }),
+  });
+}
+
+export interface InterviewState {
+  /** The question waiting for an answer. Absent once `done`. */
+  question?: string;
+  done: boolean;
+  asked: number;
+  total: number;
+}
+
+/** One step of the interview: records `answer` if given, returns the next question or `done`. */
+export async function interviewStep(
+  sessionId: string,
+  answer?: string,
+  files?: Record<string, string>,
+): Promise<InterviewState> {
+  return request<InterviewState>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/interview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer: answer ?? "", files: files ?? {} }),
+  });
 }
 
 export async function getSessionReport(sessionId: string): Promise<ReportView> {

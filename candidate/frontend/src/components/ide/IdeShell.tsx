@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import clsx from "clsx";
 import { GripVertical, GripHorizontal } from "lucide-react";
 import { FileExplorer } from "./FileExplorer";
@@ -13,6 +13,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
 import { EndSessionDialog, SessionEnded } from "./EndSession";
+import { InterviewDialog } from "./InterviewDialog";
 import { HeaderPanel, SubmitConfirmDialog } from "./HeaderPanel";
 import { TaskDescriptionPanel, SCRATCH_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
 import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
@@ -33,6 +34,7 @@ import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
 import { submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
+import { snapshotFiles } from "@/lib/ide/snapshot";
 
 interface IdeShellProps {
   /**
@@ -202,6 +204,17 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // candidate now. Without one (no tracked session for this workspace),
   // it falls back to the original local-only confirmation screen.
   const [submitting, setSubmitting] = useState(false);
+  // The follow-up interview sits between the Submit button and that
+  // confirmation (PRD §1.6: workspace → interview → submit) — only for a
+  // real session, since there's nothing to ask about a scratch workspace.
+  const [interviewing, setInterviewing] = useState(false);
+  // Read through a ref so the interview and submit always send the files as
+  // they are at that moment, without re-creating callbacks on every keystroke.
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+  const currentSnapshot = useCallback(() => snapshotFiles(filesRef.current), []);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
@@ -508,7 +521,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         theme={theme}
         assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Scratch workspace")}
         durationSeconds={remainingSeconds}
-        onSubmit={() => setSubmitting(true)}
+        onSubmit={() => (sessionId ? setInterviewing(true) : setSubmitting(true))}
       />
       <div className="flex min-h-0 flex-1 gap-1">
         <div
@@ -630,7 +643,13 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               style={{ width: chatPane.size }}
               className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
             >
-              <ChatPanel theme={theme} onClose={() => setChatOpen(false)} />
+              <ChatPanel
+                theme={theme}
+                sessionId={sessionId}
+                activePath={activePath}
+                activeContent={activePath ? files[activePath] : undefined}
+                onClose={() => setChatOpen(false)}
+              />
             </div>
           </>
         )}
@@ -659,6 +678,18 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
           onEnd={endSession}
         />
       )}
+      {interviewing && sessionId && (
+        <InterviewDialog
+          theme={theme}
+          sessionId={sessionId}
+          getFiles={currentSnapshot}
+          onCancel={() => setInterviewing(false)}
+          onDone={() => {
+            setInterviewing(false);
+            setSubmitting(true);
+          }}
+        />
+      )}
       {submitting && (
         <SubmitConfirmDialog
           theme={theme}
@@ -681,7 +712,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               return;
             }
             startSubmitTransition(async () => {
-              const result = await submitAssessment(sessionId);
+              const result = await submitAssessment(sessionId, currentSnapshot());
               // A successful call redirects and never returns here.
               if (result?.error) setSubmitError(result.error);
             });

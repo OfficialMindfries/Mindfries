@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { Sparkles, X } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
+import { askWorkspaceAssistant, loadAssistant } from "@/app/ide/actions";
 import { ChatComposer } from "./ChatComposer";
 
 /**
@@ -13,57 +14,95 @@ import { ChatComposer } from "./ChatComposer";
  * The copy below is a **behavioural contract, not decoration**. It tells the
  * candidate this assistant explains and discusses but does not write their
  * solution, and that the conversation forms part of the session's evidence
- * (PRD §1.7 counts AI usage as an evidence dimension). Whoever wires a model
- * in must enforce the same boundary in its system prompt — if the UI promises
- * "it won't write the solution" and the model happily does, the product is
- * lying to the person being assessed.
+ * (PRD §1.7 counts AI usage as an evidence dimension). The backend's system
+ * prompt (candidate/backend/internal/llm/conversation.go) enforces the same
+ * boundary — if the UI promises "it won't write the solution" and the model
+ * happily does, the product is lying to the person being assessed. Change
+ * one, change the other.
  *
  * Telling the candidate their AI use is observed is the same principle as the
  * camera disclosure: they can see what is being captured, before it happens.
  *
- * There is no model behind it yet. Rather than inventing plausible answers,
- * the assistant turn says so. Wiring it up means replacing `respondTo` with a
- * real request; history, layout and input handling already work.
+ * Every exchange goes through the backend, which answers with the task brief
+ * and the open file as context and records both sides as `ai_usage` events.
+ * The conversation is therefore the session's, not this component's: it is
+ * reloaded from the backend on mount. Outside a real session — a scratch
+ * workspace, or no model configured — the panel says the assistant is
+ * unavailable rather than answering with something made up.
  */
 
 interface Message {
   id: number;
-  author: "you" | "assistant";
+  author: "you" | "assistant" | "notice";
   text: string;
 }
 
-const NOT_CONNECTED =
-  "Mindfries AI isn't connected to a model yet, so I can't answer properly — " +
-  "this panel is the interface only. Once a model is wired in, I'll help you " +
-  "reason about the task, and still leave the code to you.";
-
-function respondTo(): string {
-  return NOT_CONNECTED;
+interface ChatPanelProps {
+  theme: IdeTheme;
+  /** The real session this workspace belongs to. Undefined in a scratch workspace. */
+  sessionId?: string;
+  /** The file open in the editor, sent with each question as context. */
+  activePath?: string | null;
+  activeContent?: string;
+  onClose: () => void;
 }
 
-export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => void }) {
+const SCRATCH = "The assistant is only available inside an assessment. Start one from your dashboard.";
+const NOT_CONFIGURED = "The assistant isn't switched on for this workspace yet, so it can't answer.";
+
+export function ChatPanel({ theme, sessionId, activePath, activeContent, onClose }: ChatPanelProps) {
   const palette = idePalette(theme);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  // undefined while the history request is in flight; a string once we know
+  // the assistant can't be used here, and why.
+  const [unavailable, setUnavailable] = useState<string | undefined>(sessionId ? undefined : SCRATCH);
   const nextId = useRef(1);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    void loadAssistant(sessionId).then((result) => {
+      if (cancelled) return;
+      if ("error" in result) {
+        setUnavailable(result.error);
+        return;
+      }
+      if (!result.configured) setUnavailable(NOT_CONFIGURED);
+      setMessages(
+        result.messages.map((turn) => ({
+          id: nextId.current++,
+          author: turn.role === "candidate" ? "you" : "assistant",
+          text: turn.text,
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages]);
+  }, [messages, pending]);
 
-  const send = () => {
+  const send = async () => {
     const text = draft.trim();
-    if (!text) return;
-    const id = nextId.current;
-    nextId.current += 2;
+    if (!text || pending || !sessionId || unavailable) return;
+    setMessages((prev) => [...prev, { id: nextId.current++, author: "you", text }]);
+    setDraft("");
+    setPending(true);
+    const result = await askWorkspaceAssistant(sessionId, text, activePath ?? undefined, activeContent);
+    setPending(false);
     setMessages((prev) => [
       ...prev,
-      { id, author: "you", text },
-      { id: id + 1, author: "assistant", text: respondTo() },
+      "error" in result
+        ? { id: nextId.current++, author: "notice", text: `${result.error} Your message wasn't recorded.` }
+        : { id: nextId.current++, author: "assistant", text: result.reply },
     ]);
-    setDraft("");
   };
 
   return (
@@ -85,7 +124,7 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        {messages.length === 0 ? (
+        {messages.length === 0 && (
           <div className={clsx("space-y-2.5 text-xs leading-relaxed", palette.textMuted)}>
             <p className={palette.text}>
               An assistant for the assessment — not a coding agent.
@@ -97,15 +136,18 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
             </p>
             <p>
               Your conversation here forms part of the evidence from this session, so a sharp
-              question is worth more than asking for the answer.
-            </p>
-            <p className="opacity-80">
-              No model is connected yet, so replies are a placeholder — the panel, history and
-              input all work, only the answer is missing.
+              question is worth more than asking for the answer. It can see the task and the file
+              you have open.
             </p>
           </div>
-        ) : (
-          messages.map((message) => (
+        )}
+
+        {messages.map((message) =>
+          message.author === "notice" ? (
+            <p key={message.id} className="rounded-md border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+              {message.text}
+            </p>
+          ) : (
             <div
               key={message.id}
               className={clsx("flex", message.author === "you" ? "justify-end" : "justify-start")}
@@ -121,12 +163,15 @@ export function ChatPanel({ theme, onClose }: { theme: IdeTheme; onClose: () => 
                 {message.text}
               </div>
             </div>
-          ))
+          ),
         )}
+
+        {pending && <p className={clsx("text-xs", palette.textMuted)}>Thinking…</p>}
+        {unavailable && <p className={clsx("text-xs", palette.textMuted)}>{unavailable}</p>}
       </div>
 
       <div className={clsx("shrink-0 border-t p-2.5", palette.border)}>
-        <ChatComposer theme={theme} draft={draft} onDraftChange={setDraft} onSend={send} />
+        <ChatComposer theme={theme} draft={draft} onDraftChange={setDraft} onSend={() => void send()} />
       </div>
     </div>
   );
