@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import { inviteSecret, signInviteToken } from "./auth/invite-token";
+import { normalizeAssistantConfig } from "./assistant";
 import { normalizeInterviewConfig } from "./interview";
 import type {
   ApplicationStage,
@@ -69,6 +70,8 @@ function toJobRole(r: any): JobRole {
     createdAt: r.created_at,
     // Absent before migration 0014 has run; normalizing fills the defaults either way.
     interviewConfig: normalizeInterviewConfig(r.interview_config),
+    // Absent before migration 0015 has run; same.
+    assistantConfig: normalizeAssistantConfig(r.assistant_config),
   };
 }
 
@@ -167,6 +170,26 @@ export async function setJobRoleInterview(companyId: string, roleId: string, con
   // instead of a raw Postgres message about a schema cache.
   if (error && (error.code === "PGRST204" || error.code === "42703")) {
     throw new Error("Interview settings aren't available yet — the database is missing migration 0014_interview_config.");
+  }
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Role not found");
+}
+
+/**
+ * Saves whether candidates for a role get the AI assistant and how many
+ * messages they may send it. Normalized first, like the interview settings.
+ */
+export async function setJobRoleAssistant(companyId: string, roleId: string, config: unknown): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("job_roles")
+    .update({ assistant_config: normalizeAssistantConfig(config) })
+    .eq("company_id", companyId)
+    .eq("id", roleId)
+    .select("id");
+  if (error && (error.code === "PGRST204" || error.code === "42703")) {
+    throw new Error("Assistant settings aren't available yet — the database is missing migration 0015_assistant_config.");
   }
   if (error) throw error;
   if (!data || data.length === 0) throw new Error("Role not found");

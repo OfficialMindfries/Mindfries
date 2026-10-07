@@ -247,23 +247,35 @@ export interface AssistantHistory {
   messages: ConversationTurn[];
   /** False when the backend has no model key — the panel says so instead of accepting questions it can't answer. */
   configured: boolean;
+  /** False when the hiring company switched the assistant off for this role. */
+  enabled: boolean;
+  /** How many messages the candidate may send in this session, and how many they have. */
+  limit: number;
+  used: number;
 }
 
 export async function getAssistantHistory(sessionId: string): Promise<AssistantHistory> {
   return request<AssistantHistory>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`);
 }
 
-export async function askAssistant(
-  sessionId: string,
-  message: string,
-  filePath?: string,
-  fileContent?: string,
-): Promise<{ reply: string }> {
-  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`, {
+/**
+ * One question to the workspace assistant, answered as a stream. Returns the
+ * backend's raw response rather than a parsed value: on success its body is
+ * server-sent events ("delta" pieces, then "done"), which the caller passes
+ * on to the browser as they arrive; when the question is refused outright it
+ * is an ordinary JSON error with the backend's own status.
+ */
+export async function streamAssistant(sessionId: string, question: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
+  const cookie = await authHeader();
+  const res = await fetch(`${baseUrl()}/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, filePath: filePath ?? "", fileContent: fileContent ?? "" }),
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", Cookie: cookie },
+    body: JSON.stringify(question),
+    cache: "no-store",
+    signal,
   });
+  if (res.status === 401) throw new BackendAuthError();
+  return res;
 }
 
 export interface InterviewState {

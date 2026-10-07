@@ -1,3 +1,4 @@
+import type { AssistantConfig } from "@/lib/assistant";
 import type { InterviewConfig } from "@/lib/interview";
 
 // Domain model for the Company Portal (IMPLEMENTATION.md §7).
@@ -43,6 +44,8 @@ export interface JobRole {
   createdAt: string;
   /** How the AI interview runs for this role — always complete, defaults filled in. */
   interviewConfig: InterviewConfig;
+  /** Whether candidates for this role get the AI assistant, and its message limit — always complete. */
+  assistantConfig: AssistantConfig;
 }
 
 export type ApplicationStage =

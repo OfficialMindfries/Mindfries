@@ -33,6 +33,9 @@ const CATEGORY_LABEL: Record<string, string> = {
   reasoning: "Reasoning",
   workflow: "Workflow",
   interview: "Interview",
+  ai_usage: "AI assistant usage",
+  integrity: "Integrity",
+  rubric: "Rubric scores",
 };
 
 const STATUS_COPY: Record<ReportView["status"], { title: string; body: string }> = {

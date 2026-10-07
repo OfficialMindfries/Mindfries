@@ -35,6 +35,7 @@ export interface AiSpend {
 const AGENT_LABELS: Record<string, string> = {
   assistant: "Workspace assistant",
   interviewer: "Interviewer",
+  interviewer_live: "Interviewer (live voice)",
   code_evaluation: "Code evaluation",
   reasoning: "Reasoning analysis",
   workflow: "Workflow analysis",
