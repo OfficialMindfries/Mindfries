@@ -36,6 +36,11 @@ type Config struct {
 	// signs the same way. Same rule: copy internal-admin's SESSION_SECRET.
 	AdminSessionSecret string
 
+	// CompanySessionSecret verifies the "mf_company" cookie company/frontend
+	// signs — needed only for the routes that portal calls here (generating
+	// a task). Copy company/frontend's SESSION_SECRET.
+	CompanySessionSecret string
+
 	// AllowedOrigins is the CORS allowlist — the Next.js apps' own origins,
 	// since cookies only travel cross-origin with an explicit allowed origin
 	// (never "*") and credentials mode.
@@ -95,6 +100,7 @@ func Load() (Config, error) {
 		DatabaseURL:            os.Getenv("DATABASE_URL"),
 		CandidateSessionSecret: os.Getenv("CANDIDATE_SESSION_SECRET"),
 		AdminSessionSecret:     os.Getenv("ADMIN_SESSION_SECRET"),
+		CompanySessionSecret:   os.Getenv("COMPANY_SESSION_SECRET"),
 		AllowedOrigins:         splitCSV(getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001")),
 		OpenRouterAPIKey:       os.Getenv("OPENROUTER_API_KEY"),
 		OpenRouterBaseURL:      getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),

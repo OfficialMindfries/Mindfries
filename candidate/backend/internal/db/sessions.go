@@ -167,6 +167,19 @@ func (d *DB) ListLiveSessionsPastTime(ctx context.Context, maxAge time.Duration)
 	return out, rows.Err()
 }
 
+// CountEarlierSessions is how many sessions were started on a template
+// before the given one — what deals task variants out in turn (see
+// orchestrator/variants.go).
+func (d *DB) CountEarlierSessions(ctx context.Context, templateID, sessionID string) (int, error) {
+	var n int
+	err := d.pool.QueryRow(ctx, `
+		select count(*) from sessions
+		where template_id = $1 and id <> $2
+		  and started_at <= (select started_at from sessions where id = $2)
+	`, templateID, sessionID).Scan(&n)
+	return n, err
+}
+
 // ErrAlreadySubmitted means a session's status was no longer "live" at the
 // moment this tried to move it to "submitted" — either it was already
 // submitted, or a concurrent request beat this one to it. Distinct from a

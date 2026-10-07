@@ -113,6 +113,7 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 		slog.Error("orchestrator: moving the application to in_progress failed", "invitation", inv.ID, "error", err)
 	}
 
+	o.assignVariant(ctx, sess)
 	sess = o.provisionAndAnnounce(ctx, sess)
 	return sess, nil
 }
@@ -129,6 +130,7 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)
 	}
+	o.assignVariant(ctx, sess)
 	sess = o.provisionAndAnnounce(ctx, sess)
 	return sess, nil
 }

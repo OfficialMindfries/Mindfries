@@ -332,7 +332,7 @@ func digestEvents(events []db.ActivityEvent, starter map[string]string) (work st
 				latest = &snap
 			}
 			continue
-		case eventInterview, eventAICost, eventInterviewRecording, eventRecordingExpired:
+		case eventInterview, eventAICost, eventInterviewRecording, eventRecordingExpired, eventVariantAssigned:
 			continue
 		case "git":
 			var p struct {

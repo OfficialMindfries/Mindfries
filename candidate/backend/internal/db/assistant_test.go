@@ -22,3 +22,24 @@ func TestParseAssistantConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplateContentVersion(t *testing.T) {
+	original := "original brief"
+	tc := TemplateContent{
+		Name: "Limiter", TaskBrief: &original, StarterFiles: map[string]string{"a.py": "original"},
+		Variants: []TemplateVariant{{TaskBrief: "variant one", StarterFiles: map[string]string{"b.py": "one"}}},
+	}
+	if v := tc.Version(0); *v.TaskBrief != "original brief" || v.StarterFiles["a.py"] != "original" {
+		t.Errorf("version 0 is the original: %+v", v)
+	}
+	v := tc.Version(1)
+	if *v.TaskBrief != "variant one" || v.StarterFiles["b.py"] != "one" || v.Name != "Limiter" {
+		t.Errorf("version 1 is the first variant under the template's own name: %+v", v)
+	}
+	if *tc.TaskBrief != "original brief" {
+		t.Error("taking a version must not change the template")
+	}
+	if v := tc.Version(7); *v.TaskBrief != "original brief" {
+		t.Errorf("a version that doesn't exist falls back to the original: %+v", v)
+	}
+}

@@ -79,18 +79,10 @@ func turnEvent(eventType string, t Turn) db.NewActivityEvent {
 
 func (o *Orchestrator) configured() bool { return o.Agents != nil && o.Agents.Configured() }
 
-// templateContent is the brief and starter files behind a session, or empty
-// values when it has no template or the lookup fails — the agents work with
-// less context rather than not at all.
+// templateContent is TemplateContent under the name the rest of this
+// package has always called it by.
 func (o *Orchestrator) templateContent(ctx context.Context, sess db.Session) db.TemplateContent {
-	if sess.TemplateID == nil {
-		return db.TemplateContent{}
-	}
-	tc, err := o.DB.GetTemplateContent(ctx, *sess.TemplateID)
-	if err != nil {
-		return db.TemplateContent{}
-	}
-	return tc
+	return o.TemplateContent(ctx, sess)
 }
 
 func briefOf(tc db.TemplateContent) string {

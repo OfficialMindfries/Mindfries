@@ -209,12 +209,10 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	content, err := s.db.GetTemplateContent(r.Context(), *sess.TemplateID)
-	if err != nil {
-		slog.Error("handleGetSessionAssessment", "session", sess.ID, "template", *sess.TemplateID, "error", err)
-		writeError(w, http.StatusInternalServerError, "could not load assessment content")
-		return
-	}
+	// The version of the task this session was dealt — see
+	// orchestrator/variants.go. Only ever the brief and starting files:
+	// a template's reference solution is not part of TemplateContent.
+	content := s.orc.TemplateContent(r.Context(), sess)
 	writeJSON(w, http.StatusOK, sessionAssessmentResponse{Name: content.Name, TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
 }
 
@@ -273,6 +271,7 @@ var serverOnlyEventTypes = map[string]bool{
 	"workspace_snapshot": true,
 	"ai_cost":            true,
 	"auto_submitted":     true,
+	"variant_assigned":   true,
 }
 
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
