@@ -1,5 +1,6 @@
 import { moduleUrlFor } from "./packages";
 import { getPyodide } from "./pyodide-runtime";
+import { moduleScript, mountScript } from "./python-workspace";
 
 export interface RunResult {
   output: string[];
@@ -147,4 +148,29 @@ export async function runPython(code: string): Promise<RunResult> {
     output.push(err instanceof Error ? err.message : String(err));
   }
   return { output, errored };
+}
+
+/**
+ * Copies the workspace's files into Pyodide's filesystem and makes `cwd` the
+ * working directory, so the next run sees the project the candidate sees —
+ * see python-workspace.ts. Called before every terminal `python` run.
+ */
+export async function mountPythonWorkspace(files: Record<string, string>, cwd: string[]): Promise<void> {
+  const pyodide = await getPyodide();
+  await pyodide.runPythonAsync(mountScript(files, cwd));
+}
+
+/** `python -m <module> <args…>` — errored when the module exits non-zero or raises. */
+export async function runPythonModule(module: string, args: string[]): Promise<RunResult> {
+  const output: string[] = [];
+  const pyodide = await getPyodide();
+  pyodide.setStdout({ batched: (text) => output.push(text) });
+  pyodide.setStderr({ batched: (text) => output.push(text) });
+  try {
+    const code = await pyodide.runPythonAsync(moduleScript(module, args));
+    return { output, errored: code !== 0 };
+  } catch (err) {
+    output.push(err instanceof Error ? err.message : String(err));
+    return { output, errored: true };
+  }
 }
