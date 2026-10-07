@@ -55,7 +55,7 @@ and social accounts are connected through **Composio**.
 |---|---|---|
 | 1 | AI chat assistant in the workspace | Built and run live. Refuses to write the fix, to say where the defect is, or to confirm a guess; still answers genuine concept questions. Closed once the interview starts |
 | 2 | AI interviewer (follow-up questions about the candidate's work) | Built and run live through the backend. A company sets the number of questions, tone, language and time per answer on the role (needs migration 0014 applied). Each answer is timed by the server; at zero it is sent as it stands or recorded as unanswered. When the session clock runs out the interview opens by itself and the work is submitted after it. The dialog has not been clicked through on screen (needs a camera and microphone) |
-| 3 | Voice for the interviewer | Built as a hands-free spoken conversation: the question is read aloud, the microphone opens, and a pause after speaking sends the answer. Turn-based over the browser's speech features (Chrome and Edge), not one open audio line — that would need Gemini's Live API directly. Answers are recorded (voice, plus camera when on) and playable from the company's report page. Untested on a real microphone |
+| 3 | Voice for the interviewer | Built as a hands-free spoken conversation: the question is read aloud, the microphone opens, and a pause after speaking sends the answer. Turn-based over the browser's speech features (Chrome and Edge), not one open audio line — that would need Gemini's Live API directly. Answers are recorded (voice, plus camera when on) and playable from the company's report page, and deleted after 90 days by a daily job in the admin app (needs `CRON_SECRET` set there; not yet run). Untested on a real microphone |
 | 4 | Recording AI usage as evidence (prompts, what was accepted) | Partly. Every assistant and interview turn is recorded and reaches the report, and every model call's tokens and billed cost are stored per session (shown on the admin Costs page). Whether a suggestion was then used in the code is not tracked. Cost recording is unit-tested but not yet run against the live database |
 | 5 | Task generation per company / role | Built and run live from the backend: produced a 7-file Python project whose tests fail on the planted bug and pass once fixed. Admin button not yet clicked; a company can't trigger it from its own portal; only Python tasks have runnable tests in the workspace |
 | 6 | Evaluation report | Built and run live at the model level. Code evaluation now reads the task brief; the template's rubric is scored per criterion with reasons and a weighted overall; attempts to instruct the AI are reported as an integrity finding and did not change the outcome in testing; the activity log sent to models is bounded. Only tested on Gemini models — the default (Claude Sonnet 4.5) has never been run |
@@ -89,14 +89,14 @@ and social accounts are connected through **Composio**.
 
 | # | What | State today |
 |---|---|---|
-| 22 | Hosted backend so an assessment can be started at all | Not deployed — the live site can list assessments but not start one |
+| 22 | Hosted backend so an assessment can be started at all | Deployed on Railway (`mindfries-candidate-backend.up.railway.app`), database and OpenRouter key configured. Whether the deployed candidate and admin sites point at it (`CANDIDATE_BACKEND_URL` / `ADMIN_BACKEND_URL` on Vercel) has not been checked |
 | 23 | Real sandbox (Daytona) instead of in-browser execution | Client built, switched off, and never asked to run a command |
 | 24 | Test runner and test results panel | Partly. `python -m unittest` now runs a multi-file Python project's tests in the terminal. No results panel, and JavaScript projects still can't run tests (`npm test`, multi-file `node`) |
 | 25 | Raw terminal command capture | Not built — only file saves and git / npm / pip output are recorded |
 | 26 | Navigation, edit-by-edit, paste and tab-switch capture | Not built |
 | 27 | Camera recording / snapshots | Camera is required and shown, nothing is stored |
 | 28 | Screen recording | Not built, though the dashboard says the screen is recorded |
-| 29 | Auto-submit when the timer reaches zero | Missing — the clock stops and nothing happens; the server doesn't enforce the limit either |
+| 29 | Auto-submit when the timer reaches zero | Built. In the browser the interview opens at zero and the work is submitted after it. If the tab is closed instead, the backend submits the session itself once the time and the interview's allowance have passed, using a copy of the workspace the browser saves every two minutes. The server-side part is unit-tested only — not yet run against the live database |
 | 30 | Workspace saved to the server | Browser only; lost on another device |
 | 31 | Separate saved workspace per assessment | Missing — one browser storage key is shared by every session |
 | 32 | Resume an in-progress session from the dashboard | Not built |
