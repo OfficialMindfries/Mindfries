@@ -44,10 +44,10 @@ export interface Stat {
  * assessment can be in, so a counter and the assessments it counts share a
  * colour.
  *
- * "Practice runs" has no real source yet — nothing in this product tracks a
- * practice session anywhere — so it reports 0 and says so.
+ * "Practice runs" counts the practice runs the candidate has opened
+ * (practice_runs) — that one happened is all that is kept about it.
  */
-export function deriveStats(items: Assessment[]): Stat[] {
+export function deriveStats(items: Assessment[], practiceRuns = 0): Stat[] {
   const count = (status: AssessmentStatus) => items.filter((a) => a.status === status).length;
   const invited = count("invited");
   const inProgress = count("in-progress");
@@ -72,7 +72,12 @@ export function deriveStats(items: Assessment[]): Stat[] {
       value: submitted,
       hint: submitted === 0 ? "Nothing submitted yet" : submitted === 1 ? "Under review" : "All under review",
     },
-    { kind: "practice", label: "Practice runs", value: 0, hint: "Not tracked yet" },
+    {
+      kind: "practice",
+      label: "Practice runs",
+      value: practiceRuns,
+      hint: practiceRuns === 0 ? "Try the workspace first" : "Never recorded or scored",
+    },
   ];
 }
 

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { IdeShell } from "@/components/ide/IdeShell";
 import { currentCandidate } from "@/lib/auth/users";
 import { getSavedWorkspaceOrUndefined, getSessionAssessmentOrUndefined, getSessionOrUndefined, secondsRemaining } from "@/lib/backend/client";
+import { PRACTICE_BRIEF, PRACTICE_FILES, PRACTICE_NAME } from "@/lib/ide/practice-task";
 
 export const metadata: Metadata = {
   title: "Mindfries Workspace",
@@ -12,9 +13,14 @@ export const metadata: Metadata = {
 export default async function IdePage({
   searchParams,
 }: {
-  searchParams: Promise<{ session?: string }>;
+  searchParams: Promise<{ session?: string; practice?: string }>;
 }) {
-  const [{ session }, candidate] = await Promise.all([searchParams, currentCandidate()]);
+  const [{ session, practice }, candidate] = await Promise.all([searchParams, currentCandidate()]);
+  // A practice run (app/practice): the same workspace on a throwaway task,
+  // with no session — so nothing in it is timed, recorded or submitted.
+  if (!session && practice) {
+    return <IdeShell practice candidateName={candidate?.name} assessmentName={PRACTICE_NAME} taskBrief={PRACTICE_BRIEF} starterFiles={PRACTICE_FILES} />;
+  }
   // Fetched here, server-side, before the IDE ever renders — not from
   // inside IdeShell — so the workspace's very first paint already has the
   // real starting files/brief (or the honest fallback) rather than

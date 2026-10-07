@@ -22,7 +22,7 @@ const COPY: Record<string, { title: string; body: string; cta: string; href?: st
   },
   "Practice run": {
     title: "Take a practice run",
-    body: "A real workspace with a throwaway task. Nothing from it is recorded, scored, or shared.",
+    body: "The real workspace with a throwaway task. Nothing you do in it is recorded, scored or shared.",
     cta: "Open a practice run",
     href: "/practice",
   },
@@ -34,11 +34,21 @@ const COPY: Record<string, { title: string; body: string; cta: string; href?: st
   },
 };
 
-export function SetupCard({ isProfileDone }: { isProfileDone: boolean }) {
+export function SetupCard({
+  isProfileDone,
+  environmentChecked,
+  practiced,
+}: {
+  isProfileDone: boolean;
+  /** An environment check has passed (lib/setup-state.ts). */
+  environmentChecked: boolean;
+  /** At least one practice run has been opened. */
+  practiced: boolean;
+}) {
   const setupSteps = [
     { label: "Profile", done: isProfileDone },
-    { label: "Environment check", done: false }, // Not tracked yet
-    { label: "Practice run", done: false }, // Not tracked yet
+    { label: "Environment check", done: environmentChecked },
+    { label: "Practice run", done: practiced },
   ];
 
   const next = setupSteps.find((step) => !step.done);

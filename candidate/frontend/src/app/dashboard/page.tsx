@@ -10,6 +10,7 @@ import { currentCandidate } from "@/lib/auth/users";
 import { getProfile } from "@/lib/profile/actions";
 import { emailLinksReady } from "@/lib/auth/email-links";
 import { EmailNotice } from "@/components/dashboard/EmailNotice";
+import { getSetupState } from "@/lib/setup-state";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
@@ -39,6 +40,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   ]);
 
   // Use DB profile if the candidate has saved it, otherwise just the session name.
+  const setup = await getSetupState(session?.id);
   const displayName = profile?.name || session?.name || "there";
   const hasUpdatedProfile = !!profile?.profile_updated_at;
 
@@ -80,14 +82,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
 
         <div className="mt-8">
-          <StatNotes items={items} />
+          <StatNotes items={items} practiceRuns={setup.practiceRuns} />
         </div>
 
         <div className="mt-12 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
           {/* `min-w-0` stops a grid item's default `min-width: auto` from
               letting wide content stretch this column past the viewport. */}
           <div className="min-w-0 space-y-10">
-            <SetupCard isProfileDone={hasUpdatedProfile} />
+            <SetupCard isProfileDone={hasUpdatedProfile} environmentChecked={!!setup.environmentCheckedAt} practiced={setup.practiceRuns > 0} />
             <AssessmentNotes items={items} />
             <ActivityFeed items={items} />
           </div>
