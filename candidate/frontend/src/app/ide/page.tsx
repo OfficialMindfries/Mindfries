@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { IdeShell } from "@/components/ide/IdeShell";
 import { currentCandidate } from "@/lib/auth/users";
-import { getSessionAssessmentOrUndefined } from "@/lib/backend/client";
+import { getSessionAssessmentOrUndefined, getSessionOrUndefined, secondsRemaining } from "@/lib/backend/client";
 
 export const metadata: Metadata = {
   title: "Mindfries Workspace",
@@ -18,11 +18,18 @@ export default async function IdePage({
   // inside IdeShell — so the workspace's very first paint already has the
   // real starting files/brief (or the honest fallback) rather than
   // flashing empty/mock content while a client-side fetch resolves.
-  const assessment = session ? await getSessionAssessmentOrUndefined(session) : undefined;
+  const [assessment, live] = session
+    ? await Promise.all([getSessionAssessmentOrUndefined(session), getSessionOrUndefined(session)])
+    : [undefined, undefined];
+  // What's really left on this session's clock, measured from when it
+  // started — a reload doesn't hand the candidate their time back.
+  const remainingSeconds = live ? secondsRemaining(live) : undefined;
   return (
     <IdeShell
       sessionId={session}
       candidateName={candidate?.name}
+      assessmentName={assessment?.name}
+      remainingSeconds={remainingSeconds}
       taskBrief={assessment?.taskBrief}
       starterFiles={assessment?.starterFiles}
     />

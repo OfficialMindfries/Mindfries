@@ -14,7 +14,7 @@ import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
 import { EndSessionDialog, SessionEnded } from "./EndSession";
 import { HeaderPanel, SubmitConfirmDialog } from "./HeaderPanel";
-import { TaskDescriptionPanel, MOCK_TASK_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
+import { TaskDescriptionPanel, SCRATCH_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
 import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -38,9 +38,8 @@ interface IdeShellProps {
   /**
    * The real session id this workspace was opened for (onboarding's
    * enterWorkspace passes it as `?session=<id>` on success). Undefined for
-   * a workspace opened without a tracked session — directly at /ide, or
-   * onboarding's own honest fallback when the backend isn't configured —
-   * in which case Submit stays local-only, same as before this was wired.
+   * a workspace opened without a tracked session — directly at /ide — in
+   * which case it's a scratch workspace and Submit stays local-only.
    */
   sessionId?: string;
   /** The signed-in candidate's real name from the active session. */
@@ -52,14 +51,18 @@ interface IdeShellProps {
    * server-side before the IDE ever renders). Undefined whenever `sessionId`
    * is, when the backend isn't configured, or when the fetch itself failed
    * — every one of those degrades to the same honest fallback content
-   * (MOCK_TASK_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
+   * (SCRATCH_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
    * than a special case for each.
    */
   taskBrief?: string;
   starterFiles?: FileContents;
+  /** The real assessment's name for the header. Undefined without a session. */
+  assessmentName?: string;
+  /** Seconds left on the real session's clock. Undefined when there's no session to time. */
+  remainingSeconds?: number;
 }
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -503,8 +506,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
     <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.canvas, palette.text)}>
       <HeaderPanel
         theme={theme}
-        assessmentName="Frontend Engineering — Auth Bug Fix"
-        durationSeconds={5400}
+        assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Scratch workspace")}
+        durationSeconds={remainingSeconds}
         onSubmit={() => setSubmitting(true)}
       />
       <div className="flex min-h-0 flex-1 gap-1">
@@ -514,7 +517,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
         >
           <TaskDescriptionPanel
             theme={theme}
-            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : MOCK_TASK_MARKDOWN}
+            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : SCRATCH_MARKDOWN}
             collapsed={taskCollapsed}
             onToggle={() => setTaskCollapsed((prev) => !prev)}
           />

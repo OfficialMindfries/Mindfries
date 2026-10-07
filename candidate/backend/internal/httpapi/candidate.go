@@ -182,6 +182,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type sessionAssessmentResponse struct {
+	Name         string            `json:"name,omitempty"`
 	TaskBrief    *string           `json:"taskBrief,omitempty"`
 	StarterFiles map[string]string `json:"starterFiles,omitempty"`
 }
@@ -214,7 +215,7 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "could not load assessment content")
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionAssessmentResponse{TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
+	writeJSON(w, http.StatusOK, sessionAssessmentResponse{Name: content.Name, TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
 }
 
 type postEventsRequest struct {

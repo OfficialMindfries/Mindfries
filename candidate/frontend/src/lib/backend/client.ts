@@ -188,14 +188,15 @@ export async function getSessionReport(sessionId: string): Promise<ReportView> {
 }
 
 export interface SessionAssessmentView {
+  /** The template's real name — what the workspace header shows. */
+  name?: string;
   taskBrief?: string;
   starterFiles?: Record<string, string>;
 }
 
 /**
  * The real task brief + starting files behind a session — what makes the
- * IDE's task panel and workspace real instead of MOCK_TASK_MARKDOWN and an
- * empty VFS (see IdeShell.tsx). Fetched once, server-side, when the IDE
+ * IDE's task panel, header and workspace real (see IdeShell.tsx). Fetched once, server-side, when the IDE
  * page renders — not polled the way session status is, since starterFiles
  * can be real file content.
  */
@@ -208,4 +209,25 @@ export async function getSessionAssessmentOrUndefined(sessionId: string): Promis
     console.error("backend: getSessionAssessment failed, falling back to the IDE's own honest defaults:", err);
     return undefined;
   }
+}
+
+/**
+ * The session's own clock — how long it runs and when it started — so the
+ * workspace timer counts down from what's really left rather than restarting
+ * a fixed duration on every page load. Same honest degrade as above.
+ */
+export async function getSessionOrUndefined(sessionId: string): Promise<SessionView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return await getSession(sessionId);
+  } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSession failed:", err);
+    return undefined;
+  }
+}
+
+/** Seconds left on a session, measured from when it actually started. Never negative. */
+export function secondsRemaining(session: SessionView): number {
+  const elapsed = (Date.now() - Date.parse(session.startedAt)) / 1000;
+  return Math.max(0, Math.round(session.durationMin * 60 - elapsed));
 }

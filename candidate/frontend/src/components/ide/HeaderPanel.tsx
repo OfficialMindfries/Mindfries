@@ -9,8 +9,8 @@ import type { IdeTheme } from "@/lib/ide/theme";
 interface HeaderPanelProps {
   theme: IdeTheme;
   assessmentName: string;
-  /** Total assessment duration in seconds. */
-  durationSeconds: number;
+  /** Seconds left on the session's clock. Undefined when nothing is being timed — the timer is hidden rather than counting down an invented duration. */
+  durationSeconds?: number;
   onSubmit: () => void;
 }
 
@@ -18,16 +18,15 @@ interface HeaderPanelProps {
  * Top-level header bar for the assessment workspace (PRD §1.6).
  *
  * Shows the assessment name on the left, a live countdown timer in the
- * center, and a Submit button on the right. The timer is client-side only
- * for now — a real assessment timer will be server-authoritative once the
- * backend exists (PRD §2.3).
+ * center, and a Submit button on the right. The timer starts from what the
+ * backend says is left on the session and ticks locally from there.
  */
 export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }: HeaderPanelProps) {
   const palette = idePalette(theme);
-  const [remaining, setRemaining] = useState(durationSeconds);
+  const [remaining, setRemaining] = useState(durationSeconds ?? 0);
 
   useEffect(() => {
-    if (remaining <= 0) return;
+    if (durationSeconds === undefined || remaining <= 0) return;
     const id = setInterval(() => {
       setRemaining((prev) => {
         if (prev <= 1) {
@@ -38,7 +37,7 @@ export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [remaining]);
+  }, [remaining, durationSeconds]);
 
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
@@ -65,6 +64,7 @@ export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }
       </div>
 
       {/* Center: Timer */}
+      {durationSeconds !== undefined && (
       <div
         className={clsx("flex items-center gap-1.5 rounded-lg px-3 py-1 font-mono text-sm", {
           "bg-[#4A7FA7]/20 text-[#B3CFE5]": !isLow && theme === "dark",
@@ -76,6 +76,7 @@ export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }
         {isLow ? <AlertTriangle size={14} /> : <Clock size={14} />}
         <span>{formatted}</span>
       </div>
+      )}
 
       {/* Right: Submit button */}
       <button

@@ -63,6 +63,7 @@ func (d *DB) GetPublishedTemplate(ctx context.Context, id string) (*Template, er
 // published template shouldn't drag that along for assessments nobody
 // started.
 type TemplateContent struct {
+	Name         string
 	TaskBrief    *string
 	StarterFiles map[string]string
 }
@@ -77,10 +78,10 @@ func (d *DB) GetTemplateContent(ctx context.Context, templateID string) (Templat
 	var tc TemplateContent
 	var starterFilesRaw []byte
 	err := d.pool.QueryRow(ctx, `
-		select task_brief, starter_files
+		select name, task_brief, starter_files
 		from game_templates
 		where id = $1
-	`, templateID).Scan(&tc.TaskBrief, &starterFilesRaw)
+	`, templateID).Scan(&tc.Name, &tc.TaskBrief, &starterFilesRaw)
 	if err != nil {
 		return TemplateContent{}, err
 	}
