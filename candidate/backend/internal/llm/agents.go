@@ -21,6 +21,17 @@ const defaultModel = "anthropic/claude-sonnet-4.5"
 // three are answering a person who is waiting.
 const conversationModel = "google/gemini-3.8-flash"
 
+// Reply ceilings per kind of call — see OpenRouterClient.Complete for why
+// every call sets one. Sized to what each agent actually writes, with room
+// to spare.
+const (
+	analysisTokens  = 2000  // an evidence agent's handful of paragraphs
+	reportTokens    = 1000  // a recommendation and a short summary, as JSON
+	assistantTokens = 800   // a concise answer in the workspace chat
+	interviewTokens = 600   // one question
+	taskGenTokens   = 12000 // a brief plus a small codebase, as JSON
+)
+
 // AgentModels is which OpenRouter model slug each agent calls.
 type AgentModels struct {
 	CodeEvaluation string
@@ -85,7 +96,7 @@ func (a *Agents) EvaluateCode(ctx context.Context, diff string) (string, error) 
 	return a.client.Complete(ctx, a.models.CodeEvaluation, []ChatMessage{
 		{Role: "system", Content: codeEvalSystemPrompt},
 		{Role: "user", Content: diff},
-	})
+	}, analysisTokens)
 }
 
 const reasoningSystemPrompt = `You are the Reasoning agent in Mindfries' evidence-based hiring platform.
@@ -101,7 +112,7 @@ func (a *Agents) AnalyzeReasoning(ctx context.Context, eventsDigest string) (str
 	return a.client.Complete(ctx, a.models.Reasoning, []ChatMessage{
 		{Role: "system", Content: reasoningSystemPrompt},
 		{Role: "user", Content: eventsDigest},
-	})
+	}, analysisTokens)
 }
 
 const workflowSystemPrompt = `You are the Workflow agent in Mindfries' evidence-based hiring platform.
@@ -117,7 +128,7 @@ func (a *Agents) AnalyzeWorkflow(ctx context.Context, eventsDigest string) (stri
 	return a.client.Complete(ctx, a.models.Workflow, []ChatMessage{
 		{Role: "system", Content: workflowSystemPrompt},
 		{Role: "user", Content: eventsDigest},
-	})
+	}, analysisTokens)
 }
 
 // ReportResult is the Report agent's structured output.
@@ -143,7 +154,7 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	raw, err := a.client.Complete(ctx, a.models.Report, []ChatMessage{
 		{Role: "system", Content: reportSystemPrompt},
 		{Role: "user", Content: strings.Join(evidence, "\n\n---\n\n")},
-	})
+	}, reportTokens)
 	if err != nil {
 		return ReportResult{}, err
 	}

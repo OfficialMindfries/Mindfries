@@ -56,6 +56,7 @@ type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
 }
 
 type chatResponse struct {
@@ -71,12 +72,17 @@ type chatResponse struct {
 // message content. model is an OpenRouter model slug, e.g.
 // "anthropic/claude-sonnet-4.5" — see agents.go for how each agent's model is
 // chosen and overridden.
-func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages []ChatMessage) (string, error) {
+//
+// maxTokens caps the reply. It is always set by callers: left out,
+// OpenRouter reserves the model's full output window against the key's
+// credit before running anything, and refuses the request outright on a key
+// that can't cover it — however short the real answer would have been.
+func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
 	if !c.Configured() {
 		return "", ErrNotConfigured
 	}
 
-	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2})
+	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens})
 	if err != nil {
 		return "", err
 	}

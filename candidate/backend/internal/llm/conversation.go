@@ -43,7 +43,7 @@ func (a *Agents) Assist(ctx context.Context, brief, filePath, fileContent string
 	}
 	messages = append(messages, history...)
 	messages = append(messages, ChatMessage{Role: "user", Content: message})
-	return a.client.Complete(ctx, a.models.Assistant, messages)
+	return a.client.Complete(ctx, a.models.Assistant, messages, assistantTokens)
 }
 
 const interviewSystemPrompt = `You are the AI Interviewer in Mindfries' evidence-based hiring platform.
@@ -83,7 +83,7 @@ func (a *Agents) InterviewTurn(ctx context.Context, brief, work, trail string, t
 	out, err := a.client.Complete(ctx, a.models.Interviewer, []ChatMessage{
 		{Role: "system", Content: interviewSystemPrompt},
 		{Role: "user", Content: b.String()},
-	})
+	}, interviewTokens)
 	if err != nil {
 		return "", err
 	}
@@ -102,7 +102,7 @@ func (a *Agents) AnalyzeInterview(ctx context.Context, work, transcript string) 
 	return a.client.Complete(ctx, a.models.Report, []ChatMessage{
 		{Role: "system", Content: interviewAnalysisSystemPrompt},
 		{Role: "user", Content: "WHAT THE CANDIDATE CHANGED\n" + orNone(work) + "\n\nINTERVIEW TRANSCRIPT\n" + transcript},
-	})
+	}, analysisTokens)
 }
 
 func orNone(s string) string {
@@ -164,7 +164,7 @@ func (a *Agents) GenerateTask(ctx context.Context, spec TaskSpec) (GeneratedTask
 	raw, err := a.client.Complete(ctx, a.models.TaskGeneration, []ChatMessage{
 		{Role: "system", Content: taskGenSystemPrompt},
 		{Role: "user", Content: b.String()},
-	})
+	}, taskGenTokens)
 	if err != nil {
 		return GeneratedTask{}, err
 	}

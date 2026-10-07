@@ -14,7 +14,7 @@ func TestCompleteRefusesWhenNotConfigured(t *testing.T) {
 	if c.Configured() {
 		t.Fatal("expected Configured() to be false with an empty key")
 	}
-	if _, err := c.Complete(context.Background(), "any-model", nil); err != ErrNotConfigured {
+	if _, err := c.Complete(context.Background(), "any-model", nil, 100); err != ErrNotConfigured {
 		t.Fatalf("expected ErrNotConfigured, got %v", err)
 	}
 }
@@ -49,7 +49,7 @@ func TestCompleteReturnsFirstChoice(t *testing.T) {
 	defer srv.Close()
 
 	c := NewOpenRouterClient("test-key", srv.URL)
-	got, err := c.Complete(context.Background(), "anthropic/claude-sonnet-4.5", []ChatMessage{{Role: "user", Content: "hello"}})
+	got, err := c.Complete(context.Background(), "anthropic/claude-sonnet-4.5", []ChatMessage{{Role: "user", Content: "hello"}}, 100)
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestCompleteSurfacesAPIError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewOpenRouterClient("test-key", srv.URL)
-	_, err := c.Complete(context.Background(), "m", []ChatMessage{{Role: "user", Content: "hi"}})
+	_, err := c.Complete(context.Background(), "m", []ChatMessage{{Role: "user", Content: "hi"}}, 100)
 	if err == nil || !strings.Contains(err.Error(), "rate limited") {
 		t.Fatalf("expected the API's error message to surface, got %v", err)
 	}
