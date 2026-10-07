@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "./supabase";
 import { inviteSecret, signInviteToken } from "./auth/invite-token";
 import { normalizeAssistantConfig } from "./assistant";
+import { citedIds, describeEvent, type Moment } from "./moments";
 import { normalizeInterviewConfig } from "./interview";
 import type {
   ApplicationStage,
@@ -426,9 +427,129 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
     summary: reportRow.summary ?? null,
     error: reportRow.error ?? null,
     evidence: (evidenceRows ?? []).map((e: any) => ({ id: e.id, category: e.category, observation: e.observation })),
+    moments: [],
+    annotations: [],
+    review:
+      reportRow.reviewer_recommendation || reportRow.reviewer_note
+        ? {
+            recommendation: reportRow.reviewer_recommendation ?? null,
+            note: reportRow.reviewer_note ?? null,
+            by: reportRow.reviewed_by ?? null,
+            at: reportRow.reviewed_at ?? null,
+          }
+        : null,
   };
+  report.moments = await getMoments(session.id, session.startedAt, citedIds(report.evidence.map((e) => e.observation)));
+
+  // Absent before migration 0016 has run — then there are simply no notes yet.
+  const { data: noteRows } = await c
+    .from("report_annotations")
+    .select("id, category, kind, body, author_name, created_at")
+    .eq("report_id", reportRow.id)
+    .order("created_at", { ascending: true });
+  report.annotations = (noteRows ?? []).map((n: any) => ({
+    id: n.id,
+    category: n.category ?? null,
+    kind: n.kind === "correction" ? "correction" : "note",
+    body: n.body,
+    authorName: n.author_name,
+    createdAt: n.created_at,
+  }));
 
   return { session, report, interview };
+}
+
+/**
+ * The session events a report's evidence cites, as moments: how far into
+ * the session, and what happened. Restricted to the session's own events, so
+ * a citation can only ever resolve to something that session recorded.
+ */
+async function getMoments(sessionId: string, startedAt: string, ids: number[]): Promise<Moment[]> {
+  const c = db();
+  if (!c || ids.length === 0) return [];
+  const { data } = await c
+    .from("activity_events")
+    .select("id, event_type, payload, occurred_at")
+    .eq("session_id", sessionId)
+    .in("id", ids.slice(0, 200));
+  const start = new Date(startedAt).getTime();
+  return (data ?? []).map((row: any) => ({
+    id: Number(row.id),
+    offsetSeconds: Math.max(0, (new Date(row.occurred_at).getTime() - start) / 1000),
+    what: describeEvent(row.event_type, (row.payload ?? {}) as Record<string, unknown>),
+  }));
+}
+
+/**
+ * The report behind one of this company's applications. Every write to a
+ * report goes through here: the application is looked up under the company
+ * first, so a report can only be reached by the company whose candidate it
+ * is about.
+ */
+async function reportIdForApplication(companyId: string, applicationId: string): Promise<string> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const application = await getApplicationForCompany(companyId, applicationId);
+  if (!application?.assessmentId) throw new Error("Candidate not found");
+  const { data: sessionRow } = await c
+    .from("sessions")
+    .select("id")
+    .eq("assessment_id", application.assessmentId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!sessionRow) throw new Error("This candidate has no session yet");
+  const { data: reportRow } = await c.from("assessment_reports").select("id").eq("session_id", sessionRow.id).maybeSingle();
+  if (!reportRow) throw new Error("This candidate has no report yet");
+  return reportRow.id;
+}
+
+const NEEDS_0016 = "Reviewing reports isn't available yet — the database is missing migration 0016_report_review.";
+const missingSchema = (error: { code?: string } | null) =>
+  !!error && ["PGRST204", "PGRST205", "42703", "42P01"].includes(error.code ?? "");
+
+/** Adds a reviewer's note or correction to a report. */
+export async function addReportAnnotation(
+  companyId: string,
+  applicationId: string,
+  note: { category: string | null; kind: "note" | "correction"; body: string; authorName: string; authorEmail: string },
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const reportId = await reportIdForApplication(companyId, applicationId);
+  const { error } = await c.from("report_annotations").insert({
+    report_id: reportId,
+    category: note.category,
+    kind: note.kind,
+    body: note.body,
+    author_name: note.authorName,
+    author_email: note.authorEmail,
+  });
+  if (missingSchema(error)) throw new Error(NEEDS_0016);
+  if (error) throw error;
+}
+
+/** Records (or, with nothing chosen and no note, clears) the reviewer's own decision on a report. */
+export async function setReviewerDecision(
+  companyId: string,
+  applicationId: string,
+  decision: { recommendation: string | null; note: string | null; by: string },
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const reportId = await reportIdForApplication(companyId, applicationId);
+  const cleared = !decision.recommendation && !decision.note;
+  const { error } = await c
+    .from("assessment_reports")
+    .update({
+      reviewer_recommendation: decision.recommendation,
+      reviewer_note: decision.note,
+      reviewed_by: cleared ? null : decision.by,
+      reviewed_at: cleared ? null : new Date().toISOString(),
+    })
+    .eq("id", reportId);
+  if (missingSchema(error)) throw new Error(NEEDS_0016);
+  if (error) throw error;
 }
 
 const RECORDINGS_BUCKET = "interview-recordings";

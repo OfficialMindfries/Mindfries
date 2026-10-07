@@ -1,4 +1,5 @@
 import type { AssistantConfig } from "@/lib/assistant";
+import type { Moment } from "@/lib/moments";
 import type { InterviewConfig } from "@/lib/interview";
 
 // Domain model for the Company Portal (IMPLEMENTATION.md §7).
@@ -109,6 +110,31 @@ export interface AssessmentReport {
   summary: string | null;
   error: string | null;
   evidence: EvidenceItem[];
+  /** The session moments the evidence cites ("[E<id>]" in an observation). */
+  moments: Moment[];
+  /** Notes and corrections a reviewer has added, oldest first. */
+  annotations: ReportAnnotation[];
+  /** The reviewer's own decision, when one has been recorded. */
+  review: ReportReview | null;
+}
+
+/** A reviewer's note against the report, or one section of it. Never shown to the candidate. */
+export interface ReportAnnotation {
+  id: string;
+  /** The evidence category it is about; null for the report as a whole. */
+  category: string | null;
+  kind: "note" | "correction";
+  body: string;
+  authorName: string;
+  createdAt: string;
+}
+
+/** A person's decision, recorded beside the AI's recommendation rather than over it. */
+export interface ReportReview {
+  recommendation: string | null;
+  note: string | null;
+  by: string | null;
+  at: string | null;
 }
 
 /** One question of the AI follow-up interview, with what came back. */
