@@ -1,7 +1,9 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/session";
+import { currentCandidate } from "@/lib/auth/users";
 import type { AssessmentStatus } from "@/lib/dashboard/data";
+import { listAssessmentsFromDatabase } from "@/lib/dashboard/direct";
 
 /**
  * Server-only client for the Go candidate backend
@@ -139,21 +141,26 @@ export async function listAssessments(): Promise<AssessmentView[]> {
 }
 
 /**
- * Assessments if the backend is configured and actually answers, else
- * `undefined` — never `[]` for "couldn't reach it". An empty array reads as
- * "you have no assessments" on the dashboard; a transient backend outage
- * isn't that, so it degrades to the same honest sample fallback as
- * "unconfigured" rather than showing a false empty state.
+ * The candidate's real assessments, or `undefined` when nothing could be
+ * asked — never `[]` for "couldn't reach it", and never invented rows. The
+ * Go backend answers when it's configured and reachable; otherwise the same
+ * list is read straight from the shared Supabase
+ * (lib/dashboard/direct.ts), so a deployment without the backend still
+ * shows what's really there. `undefined` means neither source exists, and
+ * callers render an honest "unavailable" state for it.
  */
 export async function listAssessmentsOrUndefined(): Promise<AssessmentView[] | undefined> {
-  if (!backendReady()) return undefined;
-  try {
-    return await listAssessments();
-  } catch (err) {
-    if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this; fail closed to sample rather than crash the page
-    console.error("backend: listAssessments failed, falling back to sample data:", err);
-    return undefined;
+  if (backendReady()) {
+    try {
+      return await listAssessments();
+    } catch (err) {
+      if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this
+      console.error("backend: listAssessments failed, reading the database directly instead:", err);
+    }
   }
+  const candidate = await currentCandidate();
+  if (!candidate) return undefined;
+  return listAssessmentsFromDatabase(candidate.email);
 }
 
 export async function startSession(templateId: string): Promise<SessionView> {

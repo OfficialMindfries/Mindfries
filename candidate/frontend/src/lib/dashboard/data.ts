@@ -1,14 +1,10 @@
 /**
- * Sample data for the candidate dashboard.
+ * Shapes and derivations for the candidate dashboard.
  *
- * There is no backend yet (PRD §2.3), so every number and row below is
- * hand-written. It lives in its own module rather than inline in the JSX so
- * that wiring a real API later is a change to one file, and so nobody
- * mistakes a component for a data source.
- *
- * The shapes are the honest ones the product needs, not whatever made the
- * mockup look full: an assessment a candidate has been invited to, the state
- * it's in, and the evidence trail that comes out of it.
+ * No assessment, counter or activity row is written here any more — those
+ * come from the candidate's real records (lib/backend/client.ts's
+ * listAssessmentsOrUndefined). What's left is the types, the labels, and the
+ * pure functions that turn a real list into what the dashboard shows.
  */
 
 export type AssessmentStatus = "invited" | "in-progress" | "submitted" | "closed";
@@ -27,33 +23,6 @@ export interface Assessment {
   match?: number;
 }
 
-export interface ActivityEntry {
-  id: string;
-  title: string;
-  detail: string;
-  when: string;
-  kind: "session" | "report" | "invite" | "practice";
-}
-
-export interface SetupStep {
-  label: string;
-  done: boolean;
-}
-
-// role and location are kept discrete — not just parsed out of headline —
-// because the profile page lays them out separately; headline is still the
-// single combined string the nav and dashboard greeting use.
-const ROLE = "Full-stack engineer";
-const LOCATION = "Bengaluru, IN";
-
-export const candidate = {
-  name: "Rishi",
-  initials: "R",
-  role: ROLE,
-  location: LOCATION,
-  headline: `${ROLE} · ${LOCATION}`,
-};
-
 export interface Stat {
   kind: AssessmentStatus | "practice";
   label: string;
@@ -62,26 +31,13 @@ export interface Stat {
 }
 
 /**
- * `kind` ties each counter to the same state an assessment can be in, so the
- * dashboard colours a counter and the assessments it counts the same way.
- */
-export const stats: Stat[] = [
-  { kind: "invited", label: "Open invitations", value: 1, hint: "1 closes in 3 days" },
-  { kind: "in-progress", label: "In progress", value: 1, hint: "Can't be re-entered once started" },
-  { kind: "submitted", label: "Submitted", value: 2, hint: "Both under review" },
-  { kind: "practice", label: "Practice runs", value: 4, hint: "Unlimited, never scored" },
-];
-
-/**
- * The real counters, derived from the same list `AssessmentNotes` renders —
- * so the dashboard can never again show a real "no assessments" list next to
- * a hardcoded "1 open invitation" note above it (the contradiction
- * `CANDIDATE_BACKEND_PLAN.md` §3 flagged). `items` is only ever the real
- * backend list here, never the sample one — see StatNotes for the branch.
+ * The counters, derived from the same list `AssessmentNotes` renders, so the
+ * two can never disagree. `kind` ties each counter to the same state an
+ * assessment can be in, so a counter and the assessments it counts share a
+ * colour.
  *
- * "Practice runs" has no real analog yet — nothing in this product tracks a
- * practice session anywhere — so it reports 0 and says so, rather than
- * carrying over the sample's invented "4."
+ * "Practice runs" has no real source yet — nothing in this product tracks a
+ * practice session anywhere — so it reports 0 and says so.
  */
 export function deriveStats(items: Assessment[]): Stat[] {
   const count = (status: AssessmentStatus) => items.filter((a) => a.status === status).length;
@@ -111,104 +67,6 @@ export function deriveStats(items: Assessment[]): Stat[] {
     { kind: "practice", label: "Practice runs", value: 0, hint: "Not tracked yet" },
   ];
 }
-
-/**
- * Mercor's three-step header, adapted. The steps are the things that must be
- * true before a real session can start, so the bar doubles as a checklist
- * rather than decoration.
- */
-export const setupSteps: SetupStep[] = [
-  { label: "Profile", done: true },
-  { label: "Environment check", done: false },
-  { label: "Practice run", done: false },
-];
-
-export const assessments: Assessment[] = [
-  {
-    id: "a1",
-    role: "Senior Engineer, Agentic AI",
-    company: "Northwind Labs",
-    location: "Bengaluru, KA, IN",
-    tags: ["Take-home", "90 min", "Remote"],
-    status: "invited",
-    due: "Closes in 3 days",
-    match: 92,
-  },
-  {
-    id: "a2",
-    role: "Full-stack Engineer",
-    company: "Kestrel",
-    location: "Remote, IN",
-    tags: ["Live session", "2 hours", "Proctored"],
-    status: "in-progress",
-    due: "Started 2 days ago",
-  },
-  {
-    id: "a3",
-    role: "Platform Engineer",
-    company: "Halden & Co.",
-    location: "Pune, MH, IN",
-    tags: ["Take-home", "75 min", "Remote"],
-    status: "submitted",
-    due: "Submitted 04 Sep",
-  },
-  {
-    id: "a4",
-    role: "Backend Engineer, Payments",
-    company: "Trellis",
-    location: "Hyderabad, TG, IN",
-    tags: ["Live session", "90 min", "Proctored"],
-    status: "submitted",
-    due: "Submitted 28 Aug",
-  },
-  {
-    id: "a5",
-    role: "Machine Learning Engineer",
-    company: "Sundial",
-    location: "Bengaluru, KA, IN",
-    tags: ["Take-home", "2 hours", "Remote"],
-    status: "closed",
-    due: "Closed 21 Aug",
-  },
-];
-
-export const activity: ActivityEntry[] = [
-  {
-    id: "e1",
-    kind: "report",
-    title: "Evidence report shared with Halden & Co.",
-    detail: "Navigation, commits, tests and reasoning from your session",
-    when: "Today, 09:14",
-  },
-  {
-    id: "e2",
-    kind: "session",
-    title: "Submitted Platform Engineer assessment",
-    detail: "1 h 12 m · 34 commits · 18 tests run",
-    when: "Yesterday, 18:40",
-  },
-  {
-    id: "e3",
-    kind: "session",
-    title: "Paused Full-stack Engineer session",
-    detail: "48 m in · your workspace is exactly where you left it",
-    when: "2 Sep, 20:05",
-  },
-  {
-    id: "e4",
-    kind: "invite",
-    title: "Invited to Senior Engineer, Agentic AI",
-    detail: "Northwind Labs · take-home, 90 minutes",
-    when: "1 Sep, 11:22",
-  },
-  {
-    id: "e5",
-    kind: "practice",
-    title: "Completed a practice run",
-    detail: "Nothing from a practice run is ever shared",
-    when: "30 Aug, 16:03",
-  },
-];
 
 export const resources = [
   {

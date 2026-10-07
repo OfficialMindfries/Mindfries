@@ -33,44 +33,9 @@ export interface NotificationItem {
 }
 
 /**
- * Sample notifications, drawn from the same sample data the rest of the
- * dashboard already renders (lib/dashboard/data.ts's `activity` and
- * `assessments`) — a fourth, independent invented version of "what's
- * happening" would drift from what the Dashboard and Assessments pages
- * already say about the same events.
- *
- * No `error`-tone notification is seeded: nothing in the sample data
- * represents a real failure (a session didn't start, an upload failed), and
- * one would have to be invented to fill the slot. The tone is fully built
- * and ready — see TONES — for the day something real triggers it.
+ * Nothing produces a notification yet — no invite, deadline or report event
+ * is delivered to this panel — so the list is empty rather than seeded with
+ * invented ones. The panel, tones and dismiss/read state are all built; the
+ * day a real source exists, it fills this.
  */
-export const notifications: NotificationItem[] = [
-  {
-    id: "n-invite",
-    tone: "info",
-    title: "Invited to Senior Engineer, Agentic AI",
-    body: "Northwind Labs · take-home, 90 minutes",
-    at: "2026-09-01T11:22:00Z",
-  },
-  {
-    id: "n-due-soon",
-    tone: "warning",
-    title: "Senior Engineer, Agentic AI closes in 3 days",
-    body: "Start it from Assessments whenever you're ready.",
-    at: "2026-09-10T09:00:00Z",
-  },
-  {
-    id: "n-report",
-    tone: "success",
-    title: "Evidence report shared with Halden & Co.",
-    body: "Navigation, commits, tests and reasoning from your session.",
-    at: "2026-09-12T09:14:00Z",
-  },
-  {
-    id: "n-info",
-    tone: "neutral",
-    title: "You're in control of these",
-    body: "Dismiss any notification — nothing here affects your evidence report.",
-    at: "2026-08-30T08:00:00Z",
-  },
-];
+export const notifications: NotificationItem[] = [];

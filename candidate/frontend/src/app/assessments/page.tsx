@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { AssessmentWall } from "@/components/assessments/AssessmentWall";
+import { UNAVAILABLE } from "@/components/dashboard/AssessmentNotes";
 import { StatusTabs } from "@/components/assessments/StatusTabs";
 import {
   ASSESSMENT_STATUSES,
-  assessments as sample,
   sortByAttention,
   statusLabels,
   type AssessmentStatus,
@@ -34,7 +34,7 @@ export default async function AssessmentsPage({
 }) {
   const { status } = await searchParams;
   const [items, session] = await Promise.all([listAssessmentsOrUndefined(), currentCandidate()]);
-  const all = sortByAttention(items ?? sample);
+  const all = sortByAttention(items ?? []);
 
   const counts = Object.fromEntries(
     ASSESSMENT_STATUSES.map((s) => [s, all.filter((a) => a.status === s).length])
@@ -64,8 +64,8 @@ export default async function AssessmentsPage({
         <div className="mt-8">
           <AssessmentWall
             items={filtered}
-            emptyTitle={active ? `No ${statusLabels[active].toLowerCase()} assessments` : undefined}
-            emptyBody={active ? "Nothing here right now — check back later." : undefined}
+            emptyTitle={!items ? UNAVAILABLE.title : active ? `No ${statusLabels[active].toLowerCase()} assessments` : undefined}
+            emptyBody={!items ? UNAVAILABLE.body : active ? "Nothing here right now — check back later." : undefined}
           />
         </div>
       </main>

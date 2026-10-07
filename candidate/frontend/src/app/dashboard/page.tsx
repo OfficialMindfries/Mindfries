@@ -23,15 +23,9 @@ export const dynamic = "force-dynamic";
  *
  * The counters and the assessments are sticky notes, after brainwhite; see
  * `StickyNote` for why colour carries meaning and the notes never overlap.
- * Assessments (and the counters derived from them) come from the real
- * candidate/backend (Go — PRD §2.3) when it's configured and reachable, and
- * fall back to the sample data in `lib/dashboard/data.ts` otherwise — the
- * two are never allowed to disagree about which mode they're in, since both
- * branch on the exact same `items` value. The greeting uses the real
- * signed-in candidate's name over the sample one; role/location stay
- * sample until a real profile-fields table exists (see
- * CANDIDATE_BACKEND_PLAN.md §6.3). The activity feed and setup checklist
- * are still sample data.
+ * Assessments, the counters and the activity feed all derive from the same
+ * real list (listAssessmentsOrUndefined) — nothing here is sample data. The
+ * greeting and role/location come from the candidate's saved profile.
  */
 export default async function DashboardPage() {
   const [items, session, profile] = await Promise.all([

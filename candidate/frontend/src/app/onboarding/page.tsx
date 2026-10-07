@@ -1,12 +1,10 @@
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
-import { assessments as sampleAssessments } from "@/lib/dashboard/data";
 import type { LobbyAssessment } from "@/components/onboarding/LobbyStep";
 
 /**
- * Assessments are looked up per request (real backend, or sample data when
- * it's unconfigured — same honesty as the dashboard), so this can't be
- * prerendered once at build time.
+ * Assessments are looked up per request from the candidate's real records,
+ * so this can't be prerendered once at build time.
  */
 export const dynamic = "force-dynamic";
 
@@ -30,7 +28,7 @@ export default async function OnboardingPage({
 
   let assessment: LobbyAssessment | null = null;
   if (templateId) {
-    const items = (await listAssessmentsOrUndefined()) ?? sampleAssessments;
+    const items = (await listAssessmentsOrUndefined()) ?? [];
     const match = items.find((a) => a.id === templateId);
     if (match) assessment = { role: match.role, company: match.company, tags: match.tags };
   }
