@@ -146,3 +146,11 @@ func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	sw.status = http.StatusSwitchingProtocols
 	return h.Hijack()
 }
+
+// Flush lets a handler stream through the logging wrapper (the assistant's
+// replies are server-sent events).
+func (sw *statusWriter) Flush() {
+	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

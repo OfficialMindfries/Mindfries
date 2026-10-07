@@ -6,6 +6,7 @@ import { getJobRole, listApplicationsForRole, listPublishedTemplates, stageCount
 import { Button, EmptyState, Field, Input, PageHeader, Pill } from "@/components/ui";
 import { roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { ApplicationStage, CandidateApplication } from "@/lib/types";
+import { AssistantSettingsForm } from "./AssistantSettingsForm";
 import { AttachTemplateForm } from "./AttachTemplateForm";
 import { InterviewSettingsForm } from "./InterviewSettingsForm";
 import { InviteCandidateForm } from "./InviteCandidateForm";
@@ -100,6 +101,7 @@ export default async function RoleDetailPage({
         <AttachTemplateForm roleId={role.id} templates={templates} currentTemplateId={role.templateId} />
       )}
 
+      {canWriteRole && <AssistantSettingsForm roleId={role.id} config={role.assistantConfig} />}
       {canWriteRole && <InterviewSettingsForm roleId={role.id} config={role.interviewConfig} />}
 
       {can("candidate:invite", user.role) && <InviteCandidateForm roleId={role.id} />}

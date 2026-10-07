@@ -109,6 +109,13 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 		return fail("no agent produced usable evidence for this session (see server logs for each agent's error)")
 	}
 
+	// How the assistant was used, and whether its code is in the submission —
+	// checked against the record rather than judged by a model.
+	if uptake := assistantUptake(events); uptake != "" {
+		evidence = append(evidence, db.EvidenceItem{Category: "ai_usage", Observation: uptake})
+		forReport = append(forReport, "AI assistant usage:\n"+uptake)
+	}
+
 	// The agents are asked to flag steering themselves, but whether they do
 	// depends on the model. This check reads the candidate's own words
 	// directly and doesn't — see llm.DetectSteering.

@@ -34,7 +34,7 @@ func TestAssistSendsBriefFileHistoryAndTheNoSolutionRule(t *testing.T) {
 	a := fakeAgents(t, "Look at how expiry is compared.", func(r chatRequest) { got = r })
 
 	history := []ChatMessage{{Role: "user", Content: "earlier question"}, {Role: "assistant", Content: "earlier answer"}}
-	reply, err := a.Assist(context.Background(), "Fix the auth bug", "src/auth.js", "const x = 1", history, "where do I start?")
+	reply, err := a.Assist(context.Background(), AssistContext{Brief: "Fix the auth bug", FilePath: "src/auth.js", FileContent: "const x = 1"}, history, "where do I start?", nil)
 	if err != nil || reply == "" {
 		t.Fatalf("Assist: %q, %v", reply, err)
 	}
@@ -42,7 +42,7 @@ func TestAssistSendsBriefFileHistoryAndTheNoSolutionRule(t *testing.T) {
 		t.Errorf("model = %q, want %q", got.Model, conversationModel)
 	}
 	all, _ := json.Marshal(got.Messages)
-	for _, want := range []string{"Never say or imply WHERE the defect is", "must NOT inspect that file for defects", "Fix the auth bug", "src/auth.js", "earlier answer"} {
+	for _, want := range []string{"Never say or imply WHERE the defect is", "must NOT inspect any of it for defects", "Fix the auth bug", "src/auth.js", "earlier answer"} {
 		if !strings.Contains(string(all), want) {
 			t.Errorf("request is missing %q", want)
 		}
@@ -50,7 +50,7 @@ func TestAssistSendsBriefFileHistoryAndTheNoSolutionRule(t *testing.T) {
 	if last := got.Messages[len(got.Messages)-1]; last.Role != "user" || last.Content != "where do I start?" {
 		t.Errorf("the candidate's message should be last, got %+v", last)
 	}
-	if _, err := a.Assist(context.Background(), "", "", "", nil, "  "); err == nil {
+	if _, err := a.Assist(context.Background(), AssistContext{}, nil, "  ", nil); err == nil {
 		t.Error("a blank message should be refused")
 	}
 }
@@ -130,7 +130,7 @@ func TestATruncatedReplyIsKeptForProseAndRefusedForATask(t *testing.T) {
 		return NewAgents(NewOpenRouterClient("k", srv.URL), DefaultAgentModels())
 	}
 
-	if reply, err := cut("Start by reading the").Assist(context.Background(), "", "", "", nil, "where do I start?"); err != nil || reply == "" {
+	if reply, err := cut("Start by reading the").Assist(context.Background(), AssistContext{}, nil, "where do I start?", nil); err != nil || reply == "" {
 		t.Errorf("a cut-off answer should still be returned, got %q, %v", reply, err)
 	}
 	if _, err := cut("=====BRIEF=====\n# T\n=====FILE: a.py=====\nx = ").GenerateTask(context.Background(), TaskSpec{Name: "x"}); err == nil {

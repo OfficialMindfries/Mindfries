@@ -695,6 +695,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
                 sessionId={sessionId}
                 activePath={activePath}
                 activeContent={activePath ? files[activePath] : undefined}
+                getFiles={currentSnapshot}
+                onCopy={(chars) => telemetryRef.current?.record("assistant_copy", { chars })}
                 onClose={() => setChatOpen(false)}
               />
             </div>

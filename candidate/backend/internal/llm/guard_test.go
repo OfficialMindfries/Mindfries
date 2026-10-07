@@ -144,7 +144,7 @@ func TestEveryCallReportsItsCostWithAgentAndSession(t *testing.T) {
 	var seen []Usage
 	a.OnUsage(func(_ context.Context, u Usage) { seen = append(seen, u) })
 
-	if _, err := a.Assist(WithSession(context.Background(), "sess-1"), "brief", "", "", nil, "what does this error mean?"); err != nil {
+	if _, err := a.Assist(WithSession(context.Background(), "sess-1"), AssistContext{Brief: "brief"}, nil, "what does this error mean?", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.EvaluateCode(context.Background(), "brief", "diff"); err != nil {

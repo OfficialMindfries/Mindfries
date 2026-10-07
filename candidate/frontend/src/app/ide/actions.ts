@@ -2,7 +2,6 @@
 
 import { redirect } from "next/navigation";
 import {
-  askAssistant,
   backendReady,
   BackendAuthError,
   getAssistantHistory,
@@ -56,8 +55,6 @@ export async function checkpointWorkspace(sessionId: string, files: Record<strin
   }
 }
 
-const AI_OFFLINE ="The assessment service isn't connected, so the AI can't be reached right now.";
-
 function aiFailure(err: unknown): { error: string } {
   if (err instanceof BackendAuthError) return { error: "Your sign-in has expired — sign in again to continue." };
   return { error: err instanceof Error ? err.message : "The AI service didn't answer — try again." };
@@ -65,28 +62,9 @@ function aiFailure(err: unknown): { error: string } {
 
 /** The assistant conversation so far, so a reloaded workspace shows what was already said. */
 export async function loadAssistant(sessionId: string): Promise<AssistantHistory | { error: string }> {
-  if (!backendReady()) return { messages: [], configured: false };
+  if (!backendReady()) return { messages: [], configured: false, enabled: true, limit: 0, used: 0 };
   try {
     return await getAssistantHistory(sessionId);
-  } catch (err) {
-    return aiFailure(err);
-  }
-}
-
-/**
- * One question to the workspace assistant. The open file travels with it so
- * the answer can be about the code actually on screen; the backend records
- * both sides of the exchange as evidence.
- */
-export async function askWorkspaceAssistant(
-  sessionId: string,
-  message: string,
-  filePath?: string,
-  fileContent?: string,
-): Promise<{ reply: string } | { error: string }> {
-  if (!backendReady()) return { error: AI_OFFLINE };
-  try {
-    return await askAssistant(sessionId, message, filePath, fileContent);
   } catch (err) {
     return aiFailure(err);
   }

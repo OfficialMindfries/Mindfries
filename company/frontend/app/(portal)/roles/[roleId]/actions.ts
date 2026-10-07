@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleAssistant, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
@@ -127,6 +127,32 @@ export async function saveInterviewSettings(roleId: string, _prev: InterviewSett
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't save the interview settings — try again.", success: false };
+  }
+  revalidatePath(`/roles/${roleId}`);
+  return { error: null, success: true };
+}
+
+export type AssistantSettingsState = { error: string | null; success: boolean };
+
+/**
+ * Saves the role's AI assistant settings. setJobRoleAssistant normalizes the
+ * values against the allowed range, so a tampered form can't raise the
+ * message limit past the platform's own.
+ */
+export async function saveAssistantSettings(roleId: string, _prev: AssistantSettingsState, form: FormData): Promise<AssistantSettingsState> {
+  let companyId: string;
+  try {
+    companyId = (await requireCompanyPermission("role:write")).companyId;
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+  try {
+    await setJobRoleAssistant(companyId, roleId, {
+      enabled: form.get("enabled") !== "off",
+      maxMessages: Number(form.get("maxMessages")),
+    });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't save the assistant settings — try again.", success: false };
   }
   revalidatePath(`/roles/${roleId}`);
   return { error: null, success: true };
