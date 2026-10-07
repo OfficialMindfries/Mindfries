@@ -13,6 +13,11 @@ export const RECORDED_SIGNALS = [
   { icon: "🧪", label: "Test execution", detail: "Which tests you run and when" },
   { icon: "💬", label: "AI assistant usage", detail: "How you interact with the AI — what you ask and why" },
   { icon: "⏱️", label: "Time patterns", detail: "Where you spend time — reading, coding, debugging" },
+  {
+    icon: "🎙️",
+    label: "Follow-up interview",
+    detail: "Your answers to the AI interviewer — as text, and as a recording of your voice and camera",
+  },
 ];
 
 export const WHAT_IS_RECORDED = {

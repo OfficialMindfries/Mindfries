@@ -39,9 +39,78 @@ Mostly real and working.
 | 4 | Read the task | ✅ Real, as long as someone has written a real task description for that assessment. If not, it says so honestly instead of showing a fake one |
 | 5 | Work in a real codebase | ✅ Real, same condition as above — starts empty if nobody's added starter files yet |
 | 6 | Use a terminal, run tests | 🟡 The terminal is fully real. There's no automatic test runner yet |
-| 7 | Talk to an AI coding assistant | 🟡 The chat window is real; nothing answers yet |
-| 8 | Do a follow-up AI interview | ❌ Needs a live voice connection that isn't built |
+| 7 | Talk to an AI coding assistant | 🟡 Built and answering — it sees the task and the open file, and won't write the solution. Needs the hosted backend and OpenRouter credit to run for real candidates |
+| 8 | Do a follow-up AI interview | 🟡 Built — four questions about the candidate's own changes before submit, typed or by turn-based voice. Not a live call. Same hosting and credit condition |
 | 9 | Submit | ✅ Real, and can only be done successfully once per session — a candidate can't replay or reset their own submission |
+
+### Candidate side — everything still to build
+
+Checked against the code on 2026-10-07. Two decisions are already made:
+the AI interviewer and assistant use a **Gemini model through OpenRouter**,
+and social accounts are connected through **Composio**.
+
+**AI**
+
+| # | What | State today |
+|---|---|---|
+| 1 | AI chat assistant in the workspace | Built and run live. Refuses to write the fix, to say where the defect is, or to confirm a guess; still answers genuine concept questions. Closed once the interview starts |
+| 2 | AI interviewer (follow-up questions about the candidate's work) | Built and run live through the backend. A company sets the number of questions, tone, language and time per answer on the role (needs migration 0014 applied). Each answer is timed by the server; at zero it is sent as it stands or recorded as unanswered. When the session clock runs out the interview opens by itself and the work is submitted after it. The dialog has not been clicked through on screen (needs a camera and microphone) |
+| 3 | Voice for the interviewer | Built as a hands-free spoken conversation: the question is read aloud, the microphone opens, and a pause after speaking sends the answer. Turn-based over the browser's speech features (Chrome and Edge), not one open audio line — that would need Gemini's Live API directly. Answers are recorded (voice, plus camera when on) and playable from the company's report page. Untested on a real microphone |
+| 4 | Recording AI usage as evidence (prompts, what was accepted) | Partly. Every assistant and interview turn is recorded and reaches the report, and every model call's tokens and billed cost are stored per session (shown on the admin Costs page). Whether a suggestion was then used in the code is not tracked. Cost recording is unit-tested but not yet run against the live database |
+| 5 | Task generation per company / role | Built and run live from the backend: produced a 7-file Python project whose tests fail on the planted bug and pass once fixed. Admin button not yet clicked; a company can't trigger it from its own portal; only Python tasks have runnable tests in the workspace |
+| 6 | Evaluation report | Built and run live at the model level. Code evaluation now reads the task brief; the template's rubric is scored per criterion with reasons and a weighted overall; attempts to instruct the AI are reported as an integrity finding and did not change the outcome in testing; the activity log sent to models is bounded. Only tested on Gemini models — the default (Claude Sonnet 4.5) has never been run |
+
+**Profile and accounts**
+
+| # | What | State today |
+|---|---|---|
+| 7 | Connect GitHub / GitLab / LinkedIn through Composio | Not built — "Connect" stores a typed username only |
+| 8 | Candidate knowledge base (projects, languages, activity pulled from connected accounts) | Not built — no table, nothing pulled |
+| 9 | Resume parsing into the profile / knowledge base | A parser file exists but nothing calls it; the resume is only stored |
+| 10 | The profile a hiring team actually sees | Preview toggle exists on the candidate's side; the company portal doesn't show any of it |
+| 11 | Forgot / reset password | Not built |
+| 12 | Email verification on sign-up | Not built |
+| 13 | Sign-in with Google / GitHub / GitLab / LinkedIn | Built; each provider is off until its keys are added |
+
+**Invitations and dashboard**
+
+| # | What | State today |
+|---|---|---|
+| 14 | Invitation email with a link | Not sent — a candidate only sees an invite if they sign up with the same email |
+| 15 | Accept / decline an invitation | Not built |
+| 16 | Notifications (invite, deadline, report ready) | Bell and panel built; nothing feeds them |
+| 17 | Activity feed "See all" | Button does nothing |
+| 18 | Environment check (camera, mic, browser) | Placeholder page; never marked done on the dashboard |
+| 19 | Practice run | Placeholder page; not tracked |
+| 20 | Login check on `/practice` and `/environment-check` | Missing — both open without signing in |
+| 21 | Per-candidate limit on self-started sessions | Missing |
+
+**Workspace**
+
+| # | What | State today |
+|---|---|---|
+| 22 | Hosted backend so an assessment can be started at all | Not deployed — the live site can list assessments but not start one |
+| 23 | Real sandbox (Daytona) instead of in-browser execution | Client built, switched off, and never asked to run a command |
+| 24 | Test runner and test results panel | Partly. `python -m unittest` now runs a multi-file Python project's tests in the terminal. No results panel, and JavaScript projects still can't run tests (`npm test`, multi-file `node`) |
+| 25 | Raw terminal command capture | Not built — only file saves and git / npm / pip output are recorded |
+| 26 | Navigation, edit-by-edit, paste and tab-switch capture | Not built |
+| 27 | Camera recording / snapshots | Camera is required and shown, nothing is stored |
+| 28 | Screen recording | Not built, though the dashboard says the screen is recorded |
+| 29 | Auto-submit when the timer reaches zero | Missing — the clock stops and nothing happens; the server doesn't enforce the limit either |
+| 30 | Workspace saved to the server | Browser only; lost on another device |
+| 31 | Separate saved workspace per assessment | Missing — one browser storage key is shared by every session |
+| 32 | Resume an in-progress session from the dashboard | Not built |
+| 33 | Git changes view and diff viewer | Not built |
+| 34 | `git clone` / `push` / `pull` | Refuses honestly; needs a proxy or the sandbox |
+| 35 | Live status over WebSocket | Server broadcasts; the browser polls instead |
+
+**After submitting**
+
+| # | What | State today |
+|---|---|---|
+| 36 | Report page | Built; shows "failed" without an OpenRouter key |
+| 37 | The company's pipeline updating when a candidate starts or submits | Built: in progress on start, completed with time taken on submit, score and per-criterion scores after evaluation; a stage set by hand is left alone. Not yet run against the live database |
+| 38 | Candidate-facing outcome (shortlisted, rejected) | Not built |
 
 ## What the platform should do behind the scenes
 

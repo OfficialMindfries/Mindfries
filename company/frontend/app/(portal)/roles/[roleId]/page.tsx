@@ -7,6 +7,7 @@ import { Button, EmptyState, Field, Input, PageHeader, Pill } from "@/components
 import { roleStatusTone, stageLabel, stageTone } from "@/lib/format";
 import type { ApplicationStage, CandidateApplication } from "@/lib/types";
 import { AttachTemplateForm } from "./AttachTemplateForm";
+import { InterviewSettingsForm } from "./InterviewSettingsForm";
 import { InviteCandidateForm } from "./InviteCandidateForm";
 import { PipelineList } from "./PipelineList";
 import { RoleStatusToggle } from "./RoleStatusToggle";
@@ -98,6 +99,8 @@ export default async function RoleDetailPage({
       {canWriteRole && (
         <AttachTemplateForm roleId={role.id} templates={templates} currentTemplateId={role.templateId} />
       )}
+
+      {canWriteRole && <InterviewSettingsForm roleId={role.id} config={role.interviewConfig} />}
 
       {can("candidate:invite", user.role) && <InviteCandidateForm roleId={role.id} />}
 

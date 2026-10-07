@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import { inviteSecret, signInviteToken } from "./auth/invite-token";
+import { normalizeInterviewConfig } from "./interview";
 import type {
   ApplicationStage,
   AssessmentReport,
@@ -10,6 +11,7 @@ import type {
   CompanyRole,
   CompanyUser,
   DueCandidate,
+  InterviewExchange,
   GameTemplate,
   JobRole,
   RoleStatus,
@@ -65,6 +67,8 @@ function toJobRole(r: any): JobRole {
     visibility: r.visibility,
     status: r.status,
     createdAt: r.created_at,
+    // Absent before migration 0014 has run; normalizing fills the defaults either way.
+    interviewConfig: normalizeInterviewConfig(r.interview_config),
   };
 }
 
@@ -143,6 +147,29 @@ export async function setJobRoleStatus(companyId: string, roleId: string, status
     .eq("company_id", companyId)
     .eq("id", roleId);
   if (error) throw error;
+}
+
+/**
+ * Saves how the AI interview runs for a role. The value is normalized first,
+ * so what's stored is always a complete, in-range config — the backend
+ * normalizes again on read, but there's no reason to store junk.
+ */
+export async function setJobRoleInterview(companyId: string, roleId: string, config: unknown): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("job_roles")
+    .update({ interview_config: normalizeInterviewConfig(config) })
+    .eq("company_id", companyId)
+    .eq("id", roleId)
+    .select("id");
+  // PGRST204 / 42703: the column isn't there yet — say what's actually wrong
+  // instead of a raw Postgres message about a schema cache.
+  if (error && (error.code === "PGRST204" || error.code === "42703")) {
+    throw new Error("Interview settings aren't available yet — the database is missing migration 0014_interview_config.");
+  }
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Role not found");
 }
 
 const EMPTY_STAGE_COUNTS: StageCounts = {
@@ -335,7 +362,7 @@ export async function getApplicationForCompany(companyId: string, applicationId:
  * an honest empty state, not an error.
  */
 export async function getCandidateReport(assessmentId: string | null): Promise<CandidateReport> {
-  const empty: CandidateReport = { session: null, report: null };
+  const empty: CandidateReport = { session: null, report: null, interview: [] };
   if (!assessmentId) return empty;
   const c = db();
   if (!c) return empty;
@@ -360,7 +387,8 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
   };
 
   const { data: reportRow } = await c.from("assessment_reports").select("*").eq("session_id", session.id).maybeSingle();
-  if (!reportRow) return { session, report: null };
+  const interview = await getInterviewExchanges(session.id);
+  if (!reportRow) return { session, report: null, interview };
 
   const { data: evidenceRows } = await c
     .from("evidence_items")
@@ -377,7 +405,66 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
     evidence: (evidenceRows ?? []).map((e: any) => ({ id: e.id, category: e.category, observation: e.observation })),
   };
 
-  return { session, report };
+  return { session, report, interview };
+}
+
+const RECORDINGS_BUCKET = "interview-recordings";
+const RECORDING_LINK_SECONDS = 3600;
+const NO_ANSWER_TEXT = "(no answer given in the time allowed)";
+
+/**
+ * Rebuilds the interview from the session's evidence trail: "interview"
+ * events are the questions and answers, in order (written by
+ * candidate/backend's orchestrator), and "interview_recording" events point
+ * at the clip uploaded for each answer (written by candidate/frontend once
+ * an upload succeeds). Recordings sit in a private bucket; each gets a
+ * signed link valid for an hour.
+ *
+ * Returns [] on any failure — a missing transcript must not take the whole
+ * report page down with it.
+ */
+async function getInterviewExchanges(sessionId: string): Promise<InterviewExchange[]> {
+  const c = db();
+  if (!c) return [];
+  const { data, error } = await c
+    .from("activity_events")
+    .select("event_type, payload, occurred_at")
+    .eq("session_id", sessionId)
+    .in("event_type", ["interview", "interview_recording"])
+    .order("occurred_at", { ascending: true });
+  if (error || !data) return [];
+
+  const exchanges: InterviewExchange[] = [];
+  const clips = new Map<number, { path: string; kind: "audio" | "video"; seconds: number }>();
+  for (const row of data) {
+    const p = (row.payload ?? {}) as Record<string, unknown>;
+    if (row.event_type === "interview_recording") {
+      if (typeof p.path === "string" && typeof p.question === "number" && p.path.startsWith(`${sessionId}/`)) {
+        clips.set(p.question, { path: p.path, kind: p.kind === "video" ? "video" : "audio", seconds: Number(p.seconds) || 0 });
+      }
+      continue;
+    }
+    if (typeof p.text !== "string") continue;
+    if (p.role === "interviewer") {
+      exchanges.push({ number: exchanges.length + 1, question: p.text, answer: null, seconds: null, timedOut: false, unanswered: false, recording: null });
+    } else if (p.role === "candidate" && exchanges.length > 0) {
+      const last = exchanges[exchanges.length - 1];
+      last.answer = p.text;
+      last.seconds = typeof p.seconds === "number" ? p.seconds : null;
+      last.timedOut = p.timedOut === true;
+      last.unanswered = p.text === NO_ANSWER_TEXT;
+    }
+  }
+
+  await Promise.all(
+    exchanges.map(async (x) => {
+      const clip = clips.get(x.number);
+      if (!clip) return;
+      const { data: signed } = await c.storage.from(RECORDINGS_BUCKET).createSignedUrl(clip.path, RECORDING_LINK_SECONDS);
+      if (signed?.signedUrl) x.recording = { url: signed.signedUrl, kind: clip.kind, seconds: clip.seconds };
+    }),
+  );
+  return exchanges;
 }
 
 /**

@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/llm"
@@ -32,7 +34,11 @@ type Orchestrator struct {
 }
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {
-	return &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
+	o := &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
+	if agents != nil {
+		agents.OnUsage(o.recordUsage)
+	}
+	return o
 }
 
 // wsEvent is the shape broadcast over a session's WebSocket room — small and
@@ -98,6 +104,10 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 		// The session is real either way; log rather than fail a candidate's
 		// entry over the invitation's own status bookkeeping.
 		slog.Error("orchestrator: marking invitation in_progress failed", "invitation", inv.ID, "error", err)
+	}
+	// The hiring team's pipeline follows the session too (db/applications.go).
+	if err := o.DB.MarkApplicationStarted(ctx, inv.ID); err != nil {
+		slog.Error("orchestrator: moving the application to in_progress failed", "invitation", inv.ID, "error", err)
 	}
 
 	sess = o.provisionAndAnnounce(ctx, sess)
@@ -228,6 +238,10 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 		if err := o.DB.SetInvitationStatus(ctx, *sess.AssessmentID, "submitted"); err != nil {
 			slog.Error("orchestrator: marking invitation submitted failed", "invitation", *sess.AssessmentID, "error", err)
 		}
+		took := int(math.Ceil(time.Since(sess.StartedAt).Minutes()))
+		if err := o.DB.MarkApplicationCompleted(ctx, *sess.AssessmentID, took); err != nil {
+			slog.Error("orchestrator: marking the application completed failed", "invitation", *sess.AssessmentID, "error", err)
+		}
 	}
 	// The candidate is done editing the moment they submit — the sandbox
 	// (if one was ever provisioned) has no further reason to exist, and
@@ -236,103 +250,4 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 
 	o.broadcast(sessionID, "session_submitted", map[string]string{"sessionId": sessionID})
 	return o.Evaluate(ctx, sessionID)
-}
-
-// Evaluate runs the Code Evaluation, Reasoning and Workflow agents over a
-// session's recorded evidence, then the Report agent over their combined
-// output, and stores the result. If the agent layer isn't configured
-// (no OPENROUTER_API_KEY), the report is saved as "failed" with that exact
-// reason — never a fabricated recommendation.
-func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
-	report, err := o.DB.CreatePendingReport(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("orchestrator: creating report row: %w", err)
-	}
-	if err := o.DB.SetReportGenerating(ctx, report.ID); err != nil {
-		return err
-	}
-	o.broadcast(sessionID, "report_generating", map[string]string{"sessionId": sessionID, "reportId": report.ID})
-
-	if o.Agents == nil || !o.Agents.Configured() {
-		reason := "OpenRouter is not configured (OPENROUTER_API_KEY unset) — no model was called"
-		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": reason})
-		return fmt.Errorf("orchestrator: %s", reason)
-	}
-
-	events, err := o.DB.GetSessionEvents(ctx, sessionID)
-	if err != nil {
-		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
-		return err
-	}
-	diff, digest := digestEvents(events)
-
-	var evidence []db.EvidenceItem
-	var forReport []string
-
-	if out, err := o.Agents.EvaluateCode(ctx, diff); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "code_evaluation", Observation: out})
-		forReport = append(forReport, "Code Evaluation:\n"+out)
-	} else {
-		slog.Warn("orchestrator: code evaluation skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeReasoning(ctx, digest); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "reasoning", Observation: out})
-		forReport = append(forReport, "Reasoning:\n"+out)
-	} else {
-		slog.Warn("orchestrator: reasoning analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeWorkflow(ctx, digest); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "workflow", Observation: out})
-		forReport = append(forReport, "Workflow:\n"+out)
-	} else {
-		slog.Warn("orchestrator: workflow analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if len(forReport) == 0 {
-		reason := "no agent produced usable evidence for this session (see server logs for each agent's error)"
-		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": reason})
-		return fmt.Errorf("orchestrator: %s", reason)
-	}
-
-	result, err := o.Agents.GenerateReport(ctx, forReport)
-	if err != nil {
-		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": err.Error()})
-		return err
-	}
-
-	if err := o.DB.SaveReportResult(ctx, report.ID, result.Recommendation, result.Summary, evidence); err != nil {
-		return err
-	}
-	o.broadcast(sessionID, "report_ready", map[string]string{"sessionId": sessionID, "reportId": report.ID})
-	return nil
-}
-
-// digestEvents turns a session's raw activity_events into (a) a best-effort
-// unified diff built from "git" events, for the Code Evaluation agent, and
-// (b) a plain chronological text trail for the Reasoning and Workflow
-// agents. Today's IDE (candidate/frontend/src/app/ide) does not yet post
-// events to this backend at all (see CANDIDATE_BACKEND_PLAN.md's telemetry
-// gap) — until that's wired up, this will usually see an empty slice, and
-// both agents will honestly report "no evidence" rather than a fabricated
-// read on a session they were never shown.
-func digestEvents(events []db.ActivityEvent) (diff string, digest string) {
-	var diffLines []string
-	var trail []string
-	for _, e := range events {
-		trail = append(trail, fmt.Sprintf("[%s] %s: %s", e.OccurredAt.Format("15:04:05"), e.EventType, string(e.Payload)))
-		if e.EventType == "git" {
-			var p struct {
-				Diff string `json:"diff"`
-			}
-			if json.Unmarshal(e.Payload, &p) == nil && p.Diff != "" {
-				diffLines = append(diffLines, p.Diff)
-			}
-		}
-	}
-	return strings.Join(diffLines, "\n\n"), strings.Join(trail, "\n")
 }

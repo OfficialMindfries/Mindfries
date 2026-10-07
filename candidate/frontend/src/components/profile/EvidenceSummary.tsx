@@ -1,5 +1,5 @@
 import { BarChart3 } from "lucide-react";
-import { activity, assessments, stats } from "@/lib/dashboard/data";
+import type { Assessment } from "@/lib/dashboard/data";
 
 /**
  * What this candidate's evidence adds up to so far — the profile page's
@@ -7,20 +7,17 @@ import { activity, assessments, stats } from "@/lib/dashboard/data";
  * differentiator is evidence over a bare score (PRD's framing, and the same
  * one SideRail's "What gets recorded" card leads with on the dashboard).
  *
- * Every number here is derived from the same sample arrays the dashboard
- * already renders — assessments, activity, stats — rather than invented
- * separately, so this card can't drift out of sync with what the dashboard
- * says elsewhere on the site.
+ * Every number is counted from the candidate's own real assessments — the
+ * same list the dashboard renders — so a brand-new account reads 0 across
+ * the board instead of someone else's history.
  */
-export function EvidenceSummary() {
-  const completed = assessments.filter((a) => a.status === "submitted" || a.status === "closed").length;
-  const practiceRuns = stats.find((s) => s.kind === "practice")?.value ?? 0;
-  const reportsShared = activity.filter((entry) => entry.kind === "report").length;
+export function EvidenceSummary({ items = [] }: { items?: Assessment[] }) {
+  const count = (...statuses: Assessment["status"][]) => items.filter((a) => statuses.includes(a.status)).length;
 
   const rows = [
-    { label: "Assessments completed", value: completed },
-    { label: "Practice runs", value: practiceRuns },
-    { label: "Evidence reports shared", value: reportsShared },
+    { label: "Assessments completed", value: count("submitted", "closed") },
+    { label: "In progress", value: count("in-progress") },
+    { label: "Open to start", value: count("invited") },
   ];
 
   return (

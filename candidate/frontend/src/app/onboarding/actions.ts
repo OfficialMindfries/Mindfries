@@ -29,10 +29,10 @@ export async function enterWorkspace(templateId: string): Promise<{ error: strin
   }
 
   if (!backendReady()) {
-    // Same honest degrade as the dashboard/assessments pages: without a
-    // configured backend there's nothing to record a session into, but that
-    // isn't a reason to block the workspace itself from opening.
-    redirect("/ide");
+    // Nothing can record a session, so nothing is started. Opening the
+    // workspace anyway would look like a real assessment while capturing
+    // none of it.
+    return { error: "Assessments can't be started right now — the assessment service isn't connected. Please try again later." };
   }
 
   try {

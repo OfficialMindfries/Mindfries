@@ -50,14 +50,19 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/submit", s.requireCandidate(s.handleSubmit))
 	mux.HandleFunc("GET /api/v1/sessions/{id}/report", s.requireCandidate(s.handleGetReport))
 	mux.HandleFunc("GET /api/v1/sessions/{id}/ws", s.requireCandidate(s.handleCandidateWS))
+	// The workspace assistant and the follow-up interview (conversation.go).
+	mux.HandleFunc("GET /api/v1/sessions/{id}/assistant", s.requireCandidate(s.handleAssistantHistory))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/assistant", s.requireCandidate(s.handleAssistantAsk))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/interview", s.requireCandidate(s.handleInterview))
 
 	// Admin Portal API — every route requires the "mf_admin" cookie
-	// internal-admin/frontend issues. The two mutating routes additionally
+	// internal-admin/frontend issues. The mutating routes additionally
 	// require the "admin" role, not just "viewer" — see requireFullAdmin.
 	mux.HandleFunc("GET /api/v1/admin/sessions", s.requireAdmin(s.handleAdminListSessions))
 	mux.HandleFunc("GET /api/v1/admin/sessions/{id}/ws", s.requireAdmin(s.handleAdminWS))
 	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/reset", s.requireFullAdmin(s.handleAdminReset))
 	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/retrigger-evaluation", s.requireFullAdmin(s.handleAdminRetrigger))
+	mux.HandleFunc("POST /api/v1/admin/templates/generate", s.requireFullAdmin(s.handleAdminGenerateTask))
 
 	return s.recoverPanic(s.logging(s.cors(mux)))
 }

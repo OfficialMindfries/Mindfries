@@ -1,9 +1,7 @@
 // Package llm is the AI Intelligence Layer's model access (PRD §1.9, §2.3).
-// OpenRouter is the single key/billing surface for every non-realtime model
-// call (Code Evaluation, Reasoning, Workflow, Report, vision RAG) — confirmed
-// 2026-09-12. The AI Interview agent is the deliberate exception: Gemini's
-// Live API is a direct bidirectional-audio WebSocket OpenRouter doesn't
-// proxy, so it gets its own client (gemini_live.go), not this one.
+// OpenRouter is the single key/billing surface for every model call — the
+// four analysis agents (agents.go) and the candidate-facing assistant,
+// interviewer and task generation (conversation.go).
 package llm
 
 import (
@@ -21,6 +19,10 @@ import (
 // the honest failure, never a fabricated completion.
 var ErrNotConfigured = errors.New("llm: OpenRouter is not configured (OPENROUTER_API_KEY unset)")
 
+// ErrTruncated is returned alongside the partial content when a reply was
+// cut off at its token ceiling.
+var ErrTruncated = errors.New("llm: the model's reply was cut off at its token limit")
+
 // OpenRouterClient is an OpenAI-compatible chat-completions client pointed
 // at OpenRouter (https://openrouter.ai/docs — /chat/completions accepts the
 // same request/response shape as OpenAI's API, with "provider/model" as the
@@ -29,6 +31,11 @@ type OpenRouterClient struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+
+	// OnUsage, when set, is called once after every completed call with
+	// what it cost. It runs on the calling goroutine, after the reply has
+	// been read; keep it quick and never let it fail the call.
+	OnUsage func(ctx context.Context, usage Usage)
 }
 
 // NewOpenRouterClient builds a client. An empty apiKey is allowed —
@@ -58,12 +65,32 @@ type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Reasoning   *reasoning    `json:"reasoning,omitempty"`
+	// Usage asks OpenRouter to put the call's real cost in the response.
+	Usage usageOption `json:"usage"`
+}
+
+type usageOption struct {
+	Include bool `json:"include"`
+}
+
+type reasoning struct {
+	Effort string `json:"effort"`
+}
+
+type chatChoice struct {
+	Message      ChatMessage `json:"message"`
+	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
 type chatResponse struct {
-	Choices []struct {
-		Message ChatMessage `json:"message"`
-	} `json:"choices"`
+	Choices []chatChoice `json:"choices"`
+	Usage   *struct {
+		PromptTokens     int     `json:"prompt_tokens"`
+		CompletionTokens int     `json:"completion_tokens"`
+		Cost             float64 `json:"cost"`
+	} `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -73,12 +100,30 @@ type chatResponse struct {
 // message content. model is an OpenRouter model slug, e.g.
 // "anthropic/claude-sonnet-4.5" — see agents.go for how each agent's model is
 // chosen and overridden.
-func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages []ChatMessage) (string, error) {
+//
+// maxTokens caps the reply. It is always set by callers: left out,
+// OpenRouter reserves the model's full output window against the key's
+// credit before running anything, and refuses the request outright on a key
+// that can't cover it — however short the real answer would have been.
+func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return c.complete(ctx, model, messages, maxTokens, nil)
+}
+
+// CompleteQuick is Complete with the model's reasoning turned down to its
+// lowest effort. Thinking tokens are billed and counted against maxTokens
+// like any other output: left at the default, a reasoning model can spend
+// most of its ceiling before writing a word of the reply, which is slow for
+// someone waiting on an answer and truncates anything long.
+func (c *OpenRouterClient) CompleteQuick(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return c.complete(ctx, model, messages, maxTokens, &reasoning{Effort: "low"})
+}
+
+func (c *OpenRouterClient) complete(ctx context.Context, model string, messages []ChatMessage, maxTokens int, think *reasoning) (string, error) {
 	if !c.Configured() {
 		return "", ErrNotConfigured
 	}
 
-	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2})
+	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens, Reasoning: think, Usage: usageOption{Include: true}})
 	if err != nil {
 		return "", err
 	}
@@ -118,5 +163,18 @@ func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages 
 	if len(out.Choices) == 0 {
 		return "", errors.New("llm: openrouter returned no choices")
 	}
-	return out.Choices[0].Message.Content, nil
+	if c.OnUsage != nil && out.Usage != nil {
+		agent, sessionID := tagsFrom(ctx)
+		c.OnUsage(ctx, Usage{
+			Agent: agent, SessionID: sessionID, Model: model,
+			PromptTokens: out.Usage.PromptTokens, CompletionTokens: out.Usage.CompletionTokens, CostUSD: out.Usage.Cost,
+		})
+	}
+	content := out.Choices[0].Message.Content
+	if out.Choices[0].FinishReason == "length" {
+		// The reply hit maxTokens. Prose cut short is still worth having;
+		// callers that need the whole thing (JSON) check for ErrTruncated.
+		return content, ErrTruncated
+	}
+	return content, nil
 }

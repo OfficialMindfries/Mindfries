@@ -1,7 +1,9 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/session";
+import { currentCandidate } from "@/lib/auth/users";
 import type { AssessmentStatus } from "@/lib/dashboard/data";
+import { listAssessmentsFromDatabase } from "@/lib/dashboard/direct";
 
 /**
  * Server-only client for the Go candidate backend
@@ -139,21 +141,26 @@ export async function listAssessments(): Promise<AssessmentView[]> {
 }
 
 /**
- * Assessments if the backend is configured and actually answers, else
- * `undefined` — never `[]` for "couldn't reach it". An empty array reads as
- * "you have no assessments" on the dashboard; a transient backend outage
- * isn't that, so it degrades to the same honest sample fallback as
- * "unconfigured" rather than showing a false empty state.
+ * The candidate's real assessments, or `undefined` when nothing could be
+ * asked — never `[]` for "couldn't reach it", and never invented rows. The
+ * Go backend answers when it's configured and reachable; otherwise the same
+ * list is read straight from the shared Supabase
+ * (lib/dashboard/direct.ts), so a deployment without the backend still
+ * shows what's really there. `undefined` means neither source exists, and
+ * callers render an honest "unavailable" state for it.
  */
 export async function listAssessmentsOrUndefined(): Promise<AssessmentView[] | undefined> {
-  if (!backendReady()) return undefined;
-  try {
-    return await listAssessments();
-  } catch (err) {
-    if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this; fail closed to sample rather than crash the page
-    console.error("backend: listAssessments failed, falling back to sample data:", err);
-    return undefined;
+  if (backendReady()) {
+    try {
+      return await listAssessments();
+    } catch (err) {
+      if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this
+      console.error("backend: listAssessments failed, reading the database directly instead:", err);
+    }
   }
+  const candidate = await currentCandidate();
+  if (!candidate) return undefined;
+  return listAssessmentsFromDatabase(candidate.email);
 }
 
 export async function startSession(templateId: string): Promise<SessionView> {
@@ -172,8 +179,82 @@ export async function postSessionEvents(sessionId: string, events: NewActivityEv
   });
 }
 
-export async function submitSession(sessionId: string): Promise<{ sessionId: string; status: string }> {
-  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`, { method: "POST" });
+/**
+ * Ends the session. `files` is the workspace as the candidate left it — the
+ * backend records it as the final snapshot evaluation reads.
+ */
+export async function submitSession(
+  sessionId: string,
+  files?: Record<string, string>,
+): Promise<{ sessionId: string; status: string }> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files: files ?? {} }),
+  });
+}
+
+// ── The workspace assistant and the follow-up interview
+// (candidate/backend/internal/httpapi/conversation.go) ─────────────────────
+
+export interface ConversationTurn {
+  role: "candidate" | "assistant";
+  text: string;
+}
+
+export interface AssistantHistory {
+  messages: ConversationTurn[];
+  /** False when the backend has no model key — the panel says so instead of accepting questions it can't answer. */
+  configured: boolean;
+}
+
+export async function getAssistantHistory(sessionId: string): Promise<AssistantHistory> {
+  return request<AssistantHistory>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`);
+}
+
+export async function askAssistant(
+  sessionId: string,
+  message: string,
+  filePath?: string,
+  fileContent?: string,
+): Promise<{ reply: string }> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, filePath: filePath ?? "", fileContent: fileContent ?? "" }),
+  });
+}
+
+export interface InterviewState {
+  /** The question waiting for an answer. Absent once `done`. */
+  question?: string;
+  done: boolean;
+  asked: number;
+  total: number;
+  /** BCP-47 tag the interview is held in — set by the hiring company on the role. */
+  language: string;
+  /** The limit per answer, and what's left of it for the waiting question (measured by the backend). */
+  answerSeconds: number;
+  secondsLeft?: number;
+  /** With `done`: the session ran out of time before every question was asked. */
+  cutShort?: boolean;
+}
+
+export interface InterviewInput {
+  answer?: string;
+  /** Records the waiting question as unanswered — the answer timer ran out with nothing to send. */
+  skip?: boolean;
+  /** The workspace files, sent when the interview opens so the questions are about the real code. */
+  files?: Record<string, string>;
+}
+
+/** One step of the interview: records the answer (or skip) if given, returns the next question or `done`. */
+export async function interviewStep(sessionId: string, input: InterviewInput = {}): Promise<InterviewState> {
+  return request<InterviewState>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/interview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer: input.answer ?? "", skip: input.skip ?? false, files: input.files ?? {} }),
+  });
 }
 
 export async function getSessionReport(sessionId: string): Promise<ReportView> {
@@ -181,14 +262,15 @@ export async function getSessionReport(sessionId: string): Promise<ReportView> {
 }
 
 export interface SessionAssessmentView {
+  /** The template's real name — what the workspace header shows. */
+  name?: string;
   taskBrief?: string;
   starterFiles?: Record<string, string>;
 }
 
 /**
  * The real task brief + starting files behind a session — what makes the
- * IDE's task panel and workspace real instead of MOCK_TASK_MARKDOWN and an
- * empty VFS (see IdeShell.tsx). Fetched once, server-side, when the IDE
+ * IDE's task panel, header and workspace real (see IdeShell.tsx). Fetched once, server-side, when the IDE
  * page renders — not polled the way session status is, since starterFiles
  * can be real file content.
  */
@@ -201,4 +283,25 @@ export async function getSessionAssessmentOrUndefined(sessionId: string): Promis
     console.error("backend: getSessionAssessment failed, falling back to the IDE's own honest defaults:", err);
     return undefined;
   }
+}
+
+/**
+ * The session's own clock — how long it runs and when it started — so the
+ * workspace timer counts down from what's really left rather than restarting
+ * a fixed duration on every page load. Same honest degrade as above.
+ */
+export async function getSessionOrUndefined(sessionId: string): Promise<SessionView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return await getSession(sessionId);
+  } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSession failed:", err);
+    return undefined;
+  }
+}
+
+/** Seconds left on a session, measured from when it actually started. Never negative. */
+export function secondsRemaining(session: SessionView): number {
+  const elapsed = (Date.now() - Date.parse(session.startedAt)) / 1000;
+  return Math.max(0, Math.round(session.durationMin * 60 - elapsed));
 }

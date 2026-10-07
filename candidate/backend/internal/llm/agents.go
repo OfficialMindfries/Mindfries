@@ -15,28 +15,54 @@ import (
 // moment that's settled, without a code change.
 const defaultModel = "anthropic/claude-sonnet-4.5"
 
+// conversationModel is the default for the candidate-facing agents — the
+// workspace assistant, the interviewer and task generation. A Gemini model
+// through OpenRouter (decided 2026-10-07); a Flash tier because two of the
+// three are answering a person who is waiting.
+const conversationModel = "google/gemini-3.8-flash"
+
+// Reply ceilings per kind of call — see OpenRouterClient.Complete for why
+// every call sets one. Sized to what each agent actually writes, with room
+// to spare.
+const (
+	analysisTokens  = 2000 // an evidence agent's handful of paragraphs
+	reportTokens    = 1500 // a recommendation and a short summary, as JSON
+	assistantTokens = 800  // a concise answer in the workspace chat
+	interviewTokens = 600  // one question
+	taskGenTokens   = 6000 // a brief plus a small codebase
+	rubricTokens    = 2500 // a score and a short reason per criterion, as JSON
+)
+
 // AgentModels is which OpenRouter model slug each agent calls.
 type AgentModels struct {
 	CodeEvaluation string
 	Reasoning      string
 	Workflow       string
 	Report         string
+	// The candidate-facing agents (conversation.go).
+	Assistant      string
+	Interviewer    string
+	TaskGeneration string
 }
 
 // DefaultAgentModels reads a per-agent override from the environment,
 // falling back to defaultModel for whichever agents don't have one.
 func DefaultAgentModels() AgentModels {
-	pick := func(env string) string {
+	pickOr := func(env, fallback string) string {
 		if v := os.Getenv(env); v != "" {
 			return v
 		}
-		return defaultModel
+		return fallback
 	}
+	pick := func(env string) string { return pickOr(env, defaultModel) }
 	return AgentModels{
 		CodeEvaluation: pick("OPENROUTER_MODEL_CODE_EVAL"),
 		Reasoning:      pick("OPENROUTER_MODEL_REASONING"),
 		Workflow:       pick("OPENROUTER_MODEL_WORKFLOW"),
 		Report:         pick("OPENROUTER_MODEL_REPORT"),
+		Assistant:      pickOr("OPENROUTER_MODEL_ASSISTANT", conversationModel),
+		Interviewer:    pickOr("OPENROUTER_MODEL_INTERVIEW", conversationModel),
+		TaskGeneration: pickOr("OPENROUTER_MODEL_TASKGEN", conversationModel),
 	}
 }
 
@@ -55,23 +81,34 @@ func NewAgents(client *OpenRouterClient, models AgentModels) *Agents {
 	return &Agents{client: client, models: models}
 }
 
+// OnUsage registers the function told what each model call cost — see
+// OpenRouterClient.OnUsage.
+func (a *Agents) OnUsage(fn func(ctx context.Context, usage Usage)) { a.client.OnUsage = fn }
+
 // Configured reports whether the underlying OpenRouter client has a key.
 func (a *Agents) Configured() bool { return a.client.Configured() }
 
 const codeEvalSystemPrompt = `You are the Code Evaluation agent in Mindfries' evidence-based hiring platform.
-Read the candidate's code changes and judge the engineering behind them: correctness, design, test coverage, and how the change fits the existing codebase.
+You are given the task the candidate was set, and what they changed: for each file, the version they were given and the version they submitted.
+Judge the engineering in THEIR CHANGES against THAT TASK:
+- First establish what actually changed. If the submitted files are the same as the given ones, or differ only in comments or whitespace, say plainly that the candidate did not change the code and that the task is therefore not done. Never credit the candidate for code that was already there.
+- Then judge whether the changes accomplish what the task asked. For a bug-fix task, work out whether the defect is really fixed — reason through the logic yourself; do not assume code is correct because it looks tidy or because a comment or docstring says so.
+- Then correctness beyond the task, design, test coverage, and how the change fits the existing codebase.
 The platform's principle: don't just judge the candidate, collect evidence about how they worked. Write concrete, specific observations a hiring team could not have seen without this trail — not a score. One observation per paragraph, plain prose, no headers.`
 
-// EvaluateCode reads a real diff (or the closest evidence available) and
-// returns the Code Evaluation agent's observations.
-func (a *Agents) EvaluateCode(ctx context.Context, diff string) (string, error) {
+// EvaluateCode reads the task brief and the candidate's real changes (or the
+// closest evidence available) and returns the Code Evaluation agent's
+// observations. The brief matters: without it the agent can only say
+// whether the code looks reasonable, not whether it does what was asked —
+// and in a live run it called an untouched, still-buggy file correct.
+func (a *Agents) EvaluateCode(ctx context.Context, brief, diff string) (string, error) {
 	if strings.TrimSpace(diff) == "" {
 		return "", errors.New("llm: no code-change evidence available for this session")
 	}
-	return a.client.Complete(ctx, a.models.CodeEvaluation, []ChatMessage{
-		{Role: "system", Content: codeEvalSystemPrompt},
-		{Role: "user", Content: diff},
-	})
+	return a.prose(withAgent(ctx, "code_evaluation"), a.models.CodeEvaluation, []ChatMessage{
+		{Role: "system", Content: codeEvalSystemPrompt + injectionRule},
+		{Role: "user", Content: "THE TASK\n" + orNone(brief) + "\n\nWHAT THE CANDIDATE CHANGED\n" + untrusted("code changes", diff)},
+	}, analysisTokens)
 }
 
 const reasoningSystemPrompt = `You are the Reasoning agent in Mindfries' evidence-based hiring platform.
@@ -84,10 +121,10 @@ func (a *Agents) AnalyzeReasoning(ctx context.Context, eventsDigest string) (str
 	if strings.TrimSpace(eventsDigest) == "" {
 		return "", errors.New("llm: no event trail available for this session")
 	}
-	return a.client.Complete(ctx, a.models.Reasoning, []ChatMessage{
-		{Role: "system", Content: reasoningSystemPrompt},
-		{Role: "user", Content: eventsDigest},
-	})
+	return a.prose(withAgent(ctx, "reasoning"), a.models.Reasoning, []ChatMessage{
+		{Role: "system", Content: reasoningSystemPrompt + injectionRule},
+		{Role: "user", Content: untrusted("activity trail", eventsDigest)},
+	}, analysisTokens)
 }
 
 const workflowSystemPrompt = `You are the Workflow agent in Mindfries' evidence-based hiring platform.
@@ -100,10 +137,10 @@ func (a *Agents) AnalyzeWorkflow(ctx context.Context, eventsDigest string) (stri
 	if strings.TrimSpace(eventsDigest) == "" {
 		return "", errors.New("llm: no event trail available for this session")
 	}
-	return a.client.Complete(ctx, a.models.Workflow, []ChatMessage{
-		{Role: "system", Content: workflowSystemPrompt},
-		{Role: "user", Content: eventsDigest},
-	})
+	return a.prose(withAgent(ctx, "workflow"), a.models.Workflow, []ChatMessage{
+		{Role: "system", Content: workflowSystemPrompt + injectionRule},
+		{Role: "user", Content: untrusted("activity trail", eventsDigest)},
+	}, analysisTokens)
 }
 
 // ReportResult is the Report agent's structured output.
@@ -113,7 +150,7 @@ type ReportResult struct {
 }
 
 const reportSystemPrompt = `You are the Report agent in Mindfries' evidence-based hiring platform.
-You are given the other agents' evidence — code evaluation, reasoning, and workflow observations — for one candidate's assessment session.
+You are given the other agents' evidence — code evaluation, reasoning, workflow and interview observations, and rubric scores where the hiring team set a rubric — for one candidate's assessment session.
 Compose it into a report a hiring team can act on: what the evidence shows, and a recommendation.
 Reply with strict JSON only, no prose outside it, no markdown code fence:
 {"recommendation": "strong_hire" | "hire" | "lean_no" | "no_hire", "summary": "2-4 sentences a hiring manager would actually read"}`
@@ -126,10 +163,16 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	if len(evidence) == 0 {
 		return ReportResult{}, errors.New("llm: no evidence available to generate a report from")
 	}
-	raw, err := a.client.Complete(ctx, a.models.Report, []ChatMessage{
-		{Role: "system", Content: reportSystemPrompt},
-		{Role: "user", Content: strings.Join(evidence, "\n\n---\n\n")},
-	})
+	// CompleteQuick, and a cut-off reply is an error rather than something
+	// to salvage: this is a short JSON object, and on a reasoning model a
+	// reply cut off by its own thinking is half an object — which used to
+	// be stored, raw, as the report's summary.
+	raw, err := a.client.CompleteQuick(withAgent(ctx, "report"), a.models.Report, []ChatMessage{
+		{Role: "system", Content: reportSystemPrompt + injectionRule},
+		// The evidence is other agents' prose, but it quotes the candidate
+		// freely — so it gets the same fence as the material it came from.
+		{Role: "user", Content: untrusted("evidence", strings.Join(evidence, "\n\n---\n\n"))},
+	}, reportTokens)
 	if err != nil {
 		return ReportResult{}, err
 	}
@@ -141,13 +184,36 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	return result, nil
 }
 
-// stripCodeFence removes a leading/trailing ```json ... ``` fence if the
-// model wrapped its JSON in one despite being asked not to — cheaper than
-// asking the model again over a formatting habit.
+// stripCodeFence returns the JSON object inside a model reply: everything
+// from the first "{" to the last "}". Models wrap JSON in code fences of
+// varying shapes, or add a sentence before it, despite being asked not to —
+// cheaper to cut the object out than to ask again over a formatting habit.
+// A reply with no braces comes back trimmed and unchanged, and fails to
+// parse on its own merits.
 func stripCodeFence(s string) string {
 	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
+	start, end := strings.Index(s, "{"), strings.LastIndex(s, "}")
+	if start < 0 || end <= start {
+		return s
+	}
+	return s[start : end+1]
+}
+
+// prose runs a completion whose reply is read by a person or another agent
+// as text, where a reply cut off at the token ceiling is still usable.
+func (a *Agents) prose(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return keepPartial(a.client.Complete(ctx, model, messages, maxTokens))
+}
+
+// quickProse is prose for the candidate-facing agents, where someone is
+// waiting on the reply — see OpenRouterClient.CompleteQuick.
+func (a *Agents) quickProse(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return keepPartial(a.client.CompleteQuick(ctx, model, messages, maxTokens))
+}
+
+func keepPartial(out string, err error) (string, error) {
+	if errors.Is(err, ErrTruncated) && strings.TrimSpace(out) != "" {
+		return out, nil
+	}
+	return out, err
 }

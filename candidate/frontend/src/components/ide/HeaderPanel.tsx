@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Clock, Send, AlertTriangle } from "lucide-react";
 import { idePalette, STATUS_BAR_BG } from "@/lib/ide/palette";
@@ -9,25 +9,26 @@ import type { IdeTheme } from "@/lib/ide/theme";
 interface HeaderPanelProps {
   theme: IdeTheme;
   assessmentName: string;
-  /** Total assessment duration in seconds. */
-  durationSeconds: number;
+  /** Seconds left on the session's clock. Undefined when nothing is being timed — the timer is hidden rather than counting down an invented duration. */
+  durationSeconds?: number;
   onSubmit: () => void;
+  /** Called once, when a timed session reaches zero. */
+  onExpire?: () => void;
 }
 
 /**
  * Top-level header bar for the assessment workspace (PRD §1.6).
  *
  * Shows the assessment name on the left, a live countdown timer in the
- * center, and a Submit button on the right. The timer is client-side only
- * for now — a real assessment timer will be server-authoritative once the
- * backend exists (PRD §2.3).
+ * center, and a Submit button on the right. The timer starts from what the
+ * backend says is left on the session and ticks locally from there.
  */
-export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }: HeaderPanelProps) {
+export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit, onExpire }: HeaderPanelProps) {
   const palette = idePalette(theme);
-  const [remaining, setRemaining] = useState(durationSeconds);
+  const [remaining, setRemaining] = useState(durationSeconds ?? 0);
 
   useEffect(() => {
-    if (remaining <= 0) return;
+    if (durationSeconds === undefined || remaining <= 0) return;
     const id = setInterval(() => {
       setRemaining((prev) => {
         if (prev <= 1) {
@@ -38,7 +39,18 @@ export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [remaining]);
+  }, [remaining, durationSeconds]);
+
+  // Fires once when the clock runs out — including straight away, for a
+  // workspace opened after its session's time had already gone.
+  const expired = durationSeconds !== undefined && remaining <= 0;
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  });
+  useEffect(() => {
+    if (expired) onExpireRef.current?.();
+  }, [expired]);
 
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
@@ -65,6 +77,7 @@ export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }
       </div>
 
       {/* Center: Timer */}
+      {durationSeconds !== undefined && (
       <div
         className={clsx("flex items-center gap-1.5 rounded-lg px-3 py-1 font-mono text-sm", {
           "bg-[#4A7FA7]/20 text-[#B3CFE5]": !isLow && theme === "dark",
@@ -76,6 +89,7 @@ export function HeaderPanel({ theme, assessmentName, durationSeconds, onSubmit }
         {isLow ? <AlertTriangle size={14} /> : <Clock size={14} />}
         <span>{formatted}</span>
       </div>
+      )}
 
       {/* Right: Submit button */}
       <button
@@ -101,10 +115,16 @@ export function SubmitConfirmDialog({
   onConfirm,
   pending,
   error,
+  timeUp,
+  beforeInterview,
 }: {
   theme: IdeTheme;
   onCancel: () => void;
   onConfirm: () => void;
+  /** The work is being submitted as it stands, with no going back to it — the session ran out of time, or the interview is over. */
+  timeUp?: boolean;
+  /** Confirming leads to the interview rather than straight to submission. */
+  beforeInterview?: boolean;
   /** True while a real submit call to the backend is in flight — disables both buttons so a slow request can't be fired twice. */
   pending?: boolean;
   /** Set when a real submit attempt failed — shown instead of silently reopening the workspace as if nothing happened. */
@@ -128,19 +148,34 @@ export function SubmitConfirmDialog({
         <div className={clsx("flex items-center gap-2 border-b px-4 py-3", palette.border)}>
           <Send size={16} className={palette.accent} />
           <h2 id="submit-dialog-title" className="text-sm font-semibold">
-            Submit your work?
+            {timeUp ? "Submitting your work" : "Finished with your work?"}
           </h2>
         </div>
 
         <div className="px-4 py-3 text-sm">
-          <p className={palette.textMuted}>
-            Once you submit, you will not be able to make any further changes. Your code, terminal
-            history, and all activity will be sent for evaluation.
-          </p>
-          <p className={clsx("mt-2", palette.textMuted)}>
-            Make sure you have saved all your files and are happy with your solution before
-            proceeding.
-          </p>
+          {timeUp ? (
+            <p className={palette.textMuted}>
+              Your work is being submitted exactly as it stands — code, activity and interview
+              answers.
+            </p>
+          ) : (
+            <>
+              <p className={palette.textMuted}>
+                Once you submit, you will not be able to make any further changes. Your code, terminal
+                history, and all activity will be sent for evaluation.
+              </p>
+              <p className={clsx("mt-2", palette.textMuted)}>
+                Make sure you have saved all your files and are happy with your solution before
+                proceeding.
+              </p>
+              {beforeInterview && (
+                <p className={clsx("mt-2 font-medium", palette.text)}>
+                  A short AI interview about your work comes next. Your code is locked as soon as it
+                  starts — you can&apos;t return to the editor afterwards.
+                </p>
+              )}
+            </>
+          )}
           {error && (
             <p className="mt-3 rounded-md border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400">
               {error}
@@ -149,14 +184,16 @@ export function SubmitConfirmDialog({
         </div>
 
         <div className={clsx("flex justify-end gap-2 border-t px-4 py-3", palette.border)}>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={pending}
-            className={clsx("rounded-md px-3 py-1.5 text-xs disabled:opacity-50", palette.hover, palette.textMuted)}
-          >
-            Go back
-          </button>
+          {!timeUp && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={pending}
+              className={clsx("rounded-md px-3 py-1.5 text-xs disabled:opacity-50", palette.hover, palette.textMuted)}
+            >
+              Go back
+            </button>
+          )}
           <button
             type="button"
             onClick={onConfirm}
@@ -165,7 +202,7 @@ export function SubmitConfirmDialog({
             style={{ backgroundColor: STATUS_BAR_BG }}
           >
             <Send size={13} />
-            {pending ? "Submitting…" : "Confirm & submit"}
+            {pending ? "Submitting…" : timeUp ? "Try again" : beforeInterview ? "I'm finished — start the interview" : "Confirm & submit"}
           </button>
         </div>
       </div>

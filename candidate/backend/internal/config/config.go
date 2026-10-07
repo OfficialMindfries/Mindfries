@@ -13,7 +13,7 @@ import (
 )
 
 // Config is every environment-derived setting the server needs. Fields for
-// optional integrations (OpenRouter, Daytona, Gemini) are deliberately not
+// optional integrations (OpenRouter, Daytona) are deliberately not
 // validated here — an empty string just means that integration answers
 // "not configured" wherever it's called, rather than the whole process
 // refusing to start over a feature nobody has keys for yet.
@@ -43,16 +43,11 @@ type Config struct {
 
 	// OpenRouterAPIKey — unified access to every non-realtime LLM call
 	// (System_Archetect_And_PRD.md §2.3, confirmed 2026-09-12). Empty means
-	// the four analysis agents (Code Evaluation, Reasoning, Workflow, Report)
-	// answer "not configured" instead of silently returning fabricated output.
+	// every agent — the four analysis agents, the workspace assistant, the
+	// interviewer, task generation — answers "not configured" instead of
+	// returning fabricated output.
 	OpenRouterAPIKey  string
 	OpenRouterBaseURL string
-
-	// GeminiAPIKey — the AI Interview agent's direct connection to Gemini's
-	// Live API. Kept separate from OpenRouter on purpose: Live API is a
-	// bidirectional real-time-audio WebSocket, a protocol OpenRouter doesn't
-	// proxy (see the PRD's LLM Providers table).
-	GeminiAPIKey string
 
 	// DaytonaAPIKey / DaytonaBaseURL — sandbox orchestration. Empty means
 	// session start still records a real row, but sandbox provisioning
@@ -96,7 +91,6 @@ func Load() (Config, error) {
 		AllowedOrigins:         splitCSV(getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001")),
 		OpenRouterAPIKey:       os.Getenv("OPENROUTER_API_KEY"),
 		OpenRouterBaseURL:      getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-		GeminiAPIKey:           os.Getenv("GEMINI_API_KEY"),
 		DaytonaAPIKey:          os.Getenv("DAYTONA_API_KEY"),
 		DaytonaBaseURL:         getenv("DAYTONA_BASE_URL", "https://app.daytona.io/api"),
 	}
@@ -124,10 +118,7 @@ func (c Config) Warnings() []string {
 		w = append(w, "ADMIN_SESSION_SECRET is not set — every admin-authenticated request will be refused")
 	}
 	if c.OpenRouterAPIKey == "" {
-		w = append(w, "OPENROUTER_API_KEY is not set — Code Evaluation, Reasoning, Workflow and Report agents will answer 'not configured'")
-	}
-	if c.GeminiAPIKey == "" {
-		w = append(w, "GEMINI_API_KEY is not set — the AI Interview agent will answer 'not configured'")
+		w = append(w, "OPENROUTER_API_KEY is not set — the evaluation agents, the workspace assistant, the interviewer and task generation will answer 'not configured'")
 	}
 	if c.DaytonaAPIKey == "" {
 		w = append(w, "DAYTONA_API_KEY is not set — sandbox provisioning will answer 'not configured'; sessions still record")

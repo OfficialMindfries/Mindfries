@@ -1,7 +1,6 @@
 "use client";
 
 import { ListChecks } from "lucide-react";
-import { stats } from "@/lib/dashboard/data";
 import { usePreviewMode } from "./PreviewMode";
 
 /**
@@ -17,7 +16,6 @@ import { usePreviewMode } from "./PreviewMode";
  */
 export function NextSteps({ hasResume, links }: { hasResume: boolean; links: any }) {
   const preview = usePreviewMode();
-  const practiceRuns = stats.find((s) => s.kind === "practice")?.value ?? 0;
 
   // This is guidance for the candidate, not something a hiring team's view
   // needs to carry — the same reasoning ResumeUpload and LinkedAccounts use
@@ -27,7 +25,6 @@ export function NextSteps({ hasResume, links }: { hasResume: boolean; links: any
   const remaining = [
     !hasResume && { title: "Upload your resume", body: "Help teams understand your background." },
     !links.github && !links.gitlab && { title: "Connect at least one code account", body: "GitHub or GitLab." },
-    practiceRuns === 0 && { title: "Run a practice session", body: "Get comfortable with the environment." },
   ].filter((x): x is { title: string; body: string } => !!x);
 
   if (remaining.length === 0) return null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import clsx from "clsx";
 import { GripVertical, GripHorizontal } from "lucide-react";
 import { FileExplorer } from "./FileExplorer";
@@ -13,8 +13,9 @@ import { ChatPanel } from "./ChatPanel";
 import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
 import { EndSessionDialog, SessionEnded } from "./EndSession";
+import { InterviewDialog } from "./InterviewDialog";
 import { HeaderPanel, SubmitConfirmDialog } from "./HeaderPanel";
-import { TaskDescriptionPanel, MOCK_TASK_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
+import { TaskDescriptionPanel, SCRATCH_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
 import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -33,14 +34,14 @@ import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
 import { submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
+import { snapshotFiles } from "@/lib/ide/snapshot";
 
 interface IdeShellProps {
   /**
    * The real session id this workspace was opened for (onboarding's
    * enterWorkspace passes it as `?session=<id>` on success). Undefined for
-   * a workspace opened without a tracked session — directly at /ide, or
-   * onboarding's own honest fallback when the backend isn't configured —
-   * in which case Submit stays local-only, same as before this was wired.
+   * a workspace opened without a tracked session — directly at /ide — in
+   * which case it's a scratch workspace and Submit stays local-only.
    */
   sessionId?: string;
   /** The signed-in candidate's real name from the active session. */
@@ -52,14 +53,18 @@ interface IdeShellProps {
    * server-side before the IDE ever renders). Undefined whenever `sessionId`
    * is, when the backend isn't configured, or when the fetch itself failed
    * — every one of those degrades to the same honest fallback content
-   * (MOCK_TASK_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
+   * (SCRATCH_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
    * than a special case for each.
    */
   taskBrief?: string;
   starterFiles?: FileContents;
+  /** The real assessment's name for the header. Undefined without a session. */
+  assessmentName?: string;
+  /** Seconds left on the real session's clock. Undefined when there's no session to time. */
+  remainingSeconds?: number;
 }
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -199,11 +204,46 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
   // candidate now. Without one (no tracked session for this workspace),
   // it falls back to the original local-only confirmation screen.
   const [submitting, setSubmitting] = useState(false);
+  // The follow-up interview (PRD §1.6: workspace → interview → submit) comes
+  // after the candidate confirms they're finished, and only for a real
+  // session — there's nothing to ask about a scratch workspace. Confirming
+  // is the point of no return: the interviewer talks about their code in
+  // specifics, so there is no going back to the editor once it starts.
+  const [interviewing, setInterviewing] = useState(false);
+  // The interview has been held (or couldn't be) — all that remains is the submit itself.
+  const [interviewed, setInterviewed] = useState(false);
+  // The session's clock has run out. Working time is over: the interview
+  // opens by itself with no way back to the editor, and once it's done the
+  // work is submitted without asking — there is nothing left to confirm.
+  const [timeUp, setTimeUp] = useState(false);
+  // Read through a ref so the interview and submit always send the files as
+  // they are at that moment, without re-creating callbacks on every keystroke.
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+  const currentSnapshot = useCallback(() => snapshotFiles(filesRef.current), []);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
-
-
+  // Time ran out while the candidate was still working (or on the confirm
+  // step): go to the interview. If it's already open it simply loses its
+  // "Back to my work" button. A scratch workspace has no clock to run out.
+  const expire = () => {
+    if (!sessionId || interviewed) return;
+    setTimeUp(true);
+    setSubmitting(false);
+    setInterviewing(true);
+  };
+  const submitNow = () => {
+    if (!sessionId) return;
+    setSubmitError(undefined);
+    startSubmitTransition(async () => {
+      const result = await submitAssessment(sessionId, currentSnapshot());
+      // A successful call redirects and never returns here.
+      if (result?.error) setSubmitError(result.error);
+    });
+  };
   const openFile = (path: string) => {
     setOpenPaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActivePath(path);
@@ -503,9 +543,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
     <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.canvas, palette.text)}>
       <HeaderPanel
         theme={theme}
-        assessmentName="Frontend Engineering — Auth Bug Fix"
-        durationSeconds={5400}
+        assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Scratch workspace")}
+        durationSeconds={remainingSeconds}
         onSubmit={() => setSubmitting(true)}
+        onExpire={expire}
       />
       <div className="flex min-h-0 flex-1 gap-1">
         <div
@@ -514,7 +555,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
         >
           <TaskDescriptionPanel
             theme={theme}
-            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : MOCK_TASK_MARKDOWN}
+            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : SCRATCH_MARKDOWN}
             collapsed={taskCollapsed}
             onToggle={() => setTaskCollapsed((prev) => !prev)}
           />
@@ -627,7 +668,13 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
               style={{ width: chatPane.size }}
               className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
             >
-              <ChatPanel theme={theme} onClose={() => setChatOpen(false)} />
+              <ChatPanel
+                theme={theme}
+                sessionId={sessionId}
+                activePath={activePath}
+                activeContent={activePath ? files[activePath] : undefined}
+                onClose={() => setChatOpen(false)}
+              />
             </div>
           </>
         )}
@@ -656,6 +703,23 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
           onEnd={endSession}
         />
       )}
+      {interviewing && sessionId && (
+        <InterviewDialog
+          theme={theme}
+          sessionId={sessionId}
+          getFiles={currentSnapshot}
+          camera={camera.stream}
+          onDone={() => {
+            // The interview is the last step: the candidate confirmed before
+            // it began, so the work goes in as soon as it ends. The dialog
+            // below shows that happening, and the error if it fails.
+            setInterviewing(false);
+            setInterviewed(true);
+            setSubmitting(true);
+            submitNow();
+          }}
+        />
+      )}
       {submitting && (
         <SubmitConfirmDialog
           theme={theme}
@@ -677,12 +741,18 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
               setSubmitted(true);
               return;
             }
-            startSubmitTransition(async () => {
-              const result = await submitAssessment(sessionId);
-              // A successful call redirects and never returns here.
-              if (result?.error) setSubmitError(result.error);
-            });
+            if (interviewed) {
+              // Already interviewed — this is a retry of a submit that failed.
+              submitNow();
+              return;
+            }
+            // Confirmed: the interview comes next, and there's no way back
+            // from it to the editor.
+            setSubmitting(false);
+            setInterviewing(true);
           }}
+          timeUp={timeUp || interviewed}
+          beforeInterview={!interviewed}
         />
       )}
       <ProctorGate theme={theme} camera={camera} />

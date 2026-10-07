@@ -20,20 +20,17 @@ directly for the assessments/sessions it already handles (`src/lib/db.ts`);
 (`lib/db.ts`). Pointing either app at this API instead is a separate,
 follow-up integration step.
 
-Two integrations are genuinely unfinished, and say so rather than fake it:
+One integration is genuinely unfinished, and says so rather than fake it:
 
-- **The AI Interview agent** (`internal/llm/gemini_live.go`) — Gemini's Live
-  API needs a real-time bidirectional-audio WebSocket bridge between a
-  candidate's browser and Gemini. That bridge doesn't exist yet; every call
-  returns `ErrInterviewNotImplemented`, configured or not.
 - **Sandbox provisioning** (`internal/sandbox/daytona.go`) — `CreateSandbox`
   and `ExecuteCommand` are real HTTP calls against Daytona's documented REST
   routes; `DeleteSandbox` assumes the general `DELETE /sandbox/{id}`
   convention but wasn't directly confirmed against Daytona's docs while
   writing this — verify it (or use Daytona's SDK) before relying on cleanup.
 
-Everything else — session lifecycle, telemetry ingestion, the four
-OpenRouter-backed evaluation agents, the report pipeline, the admin support
+Everything else — session lifecycle, telemetry ingestion, the workspace
+assistant, the follow-up interviewer and task generation (`internal/llm/conversation.go`,
+a Gemini model through OpenRouter), the OpenRouter-backed evaluation agents, the report pipeline, the admin support
 overrides, the real-time hub — runs for real. It was smoke-tested end to end
 against the live Supabase project while building it (start a session, post
 events, submit, watch a report come back — as an honest `failed` status with

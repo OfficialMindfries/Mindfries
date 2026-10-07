@@ -9,6 +9,7 @@ import { ResumeUpload } from "@/components/profile/ResumeUpload";
 import { NextSteps } from "@/components/profile/NextSteps";
 import { currentCandidate } from "@/lib/auth/users";
 import { getProfile, getResumeUrl } from "@/lib/profile/actions";
+import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 
 export const metadata: Metadata = {
   title: "Profile · Mindfries",
@@ -37,8 +38,11 @@ export const metadata: Metadata = {
  * reads as reference material, so these sit flat.
  */
 export default async function ProfilePage() {
-  const session = await currentCandidate();
-  const profile = await getProfile();
+  const [session, profile, assessments] = await Promise.all([
+    currentCandidate(),
+    getProfile(),
+    listAssessmentsOrUndefined(),
+  ]);
   const resumeUrl = await getResumeUrl(profile?.resume_path || null);
 
   return (
@@ -59,7 +63,7 @@ export default async function ProfilePage() {
 
             <aside className="space-y-4">
               <ResumeUpload resumePath={profile?.resume_path} resumeUrl={resumeUrl} />
-              <EvidenceSummary />
+              <EvidenceSummary items={assessments} />
               <NextSteps hasResume={!!profile?.resume_path} links={profile?.links || {}} />
             </aside>
           </div>

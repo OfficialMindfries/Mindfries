@@ -84,3 +84,14 @@ func (d *DB) GetSessionEvents(ctx context.Context, sessionID string) ([]Activity
 	}
 	return out, rows.Err()
 }
+
+// HasEvent reports whether a session has at least one event of the given
+// type — a cheap existence check for callers that would otherwise load a
+// whole trail to answer a yes/no question.
+func (d *DB) HasEvent(ctx context.Context, sessionID, eventType string) (bool, error) {
+	var exists bool
+	err := d.pool.QueryRow(ctx, `
+		select exists (select 1 from activity_events where session_id = $1 and event_type = $2)
+	`, sessionID, eventType).Scan(&exists)
+	return exists, err
+}

@@ -19,9 +19,8 @@ function formatWhen(iso: string): string {
  * to the reference design: a pastel card per tone, the icon in its own
  * lighter badge, a bold title over a muted subtitle, a dismiss X.
  *
- * Content is drawn from the same sample activity/assessments the rest of
- * the dashboard already shows (lib/notifications/data.ts) rather than
- * invented separately. Dismissing a notification and the unread count are
+ * Nothing feeds it yet, so it opens on its empty state
+ * (lib/notifications/data.ts). Dismissing a notification and the unread count are
  * both real, kept in this browser (lib/notifications/storage.ts) — opening
  * the panel marks everything read, and a dismissed item stays gone across a
  * reload.

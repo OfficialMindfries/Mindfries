@@ -1,13 +1,20 @@
 import Link from "next/link";
 import { AssessmentWall } from "@/components/assessments/AssessmentWall";
-import { assessments as sample, sortByAttention, type Assessment } from "@/lib/dashboard/data";
+import { sortByAttention, type Assessment } from "@/lib/dashboard/data";
 
 const PREVIEW_COUNT = 3;
 
+/** Shown when the list couldn't be read — distinct from a real, empty list. */
+export const UNAVAILABLE = {
+  title: "Assessments unavailable",
+  body: "We couldn't load your assessments just now. Nothing is lost — try again in a moment.",
+};
+
 /**
  * Assessments, pinned to the wall as notes — the dashboard's preview of the
- * full list at /assessments. `items` are the candidate's real assessments
- * when Supabase is configured, and the sample set otherwise.
+ * full list at /assessments. `items` are the candidate's real assessments;
+ * `undefined` means they couldn't be read at all, which is said plainly
+ * rather than filled in.
  *
  * Shows the three most worth acting on (an open invitation before a session
  * already submitted) rather than the whole wall, so this section doesn't
@@ -17,7 +24,8 @@ const PREVIEW_COUNT = 3;
  * The note rendering itself — including what each button does — lives in
  * AssessmentWall, shared with the full Assessments page.
  */
-export function AssessmentNotes({ items = sample }: { items?: Assessment[] }) {
+export function AssessmentNotes({ items: loaded }: { items?: Assessment[] }) {
+  const items = loaded ?? [];
   const ordered = sortByAttention(items);
   const preview = ordered.slice(0, PREVIEW_COUNT);
 
@@ -36,7 +44,11 @@ export function AssessmentNotes({ items = sample }: { items?: Assessment[] }) {
         )}
       </div>
 
-      <AssessmentWall items={preview} />
+      <AssessmentWall
+        items={preview}
+        emptyTitle={loaded ? undefined : UNAVAILABLE.title}
+        emptyBody={loaded ? undefined : UNAVAILABLE.body}
+      />
     </section>
   );
 }

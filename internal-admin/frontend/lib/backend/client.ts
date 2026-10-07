@@ -105,3 +105,23 @@ export async function resetSessionViaBackend(sessionId: string, patch?: AdminRes
 export async function retriggerEvaluationViaBackend(sessionId: string): Promise<void> {
   await request(`/api/v1/admin/sessions/${encodeURIComponent(sessionId)}/retrigger-evaluation`, { method: "POST" });
 }
+
+export interface GeneratedTask {
+  taskBrief: string;
+  starterFiles: Record<string, string>;
+}
+
+/** POST /api/v1/admin/templates/generate — asks the Task Generation agent for a draft brief and starter codebase. Nothing is saved. */
+export async function generateTaskViaBackend(spec: {
+  name: string;
+  taskVariant: string;
+  techStack: string[];
+  durationMin: number;
+  notes: string;
+}): Promise<GeneratedTask> {
+  return request<GeneratedTask>("/api/v1/admin/templates/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+}
