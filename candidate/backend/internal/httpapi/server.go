@@ -13,6 +13,7 @@ import (
 	"github.com/mindfries/candidate-backend/internal/config"
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/orchestrator"
+	"github.com/mindfries/candidate-backend/internal/verify"
 	"github.com/mindfries/candidate-backend/internal/ws"
 )
 
@@ -24,10 +25,17 @@ type Server struct {
 	db  *db.DB
 	orc *orchestrator.Orchestrator
 	hub *ws.Hub
+	// verifier runs a generated task before its author saves it. Nil when
+	// there is nowhere to run one — see verify.FromEnv.
+	verifier verify.Runner
 }
 
 func New(cfg config.Config, database *db.DB, orc *orchestrator.Orchestrator, hub *ws.Hub) *Server {
-	return &Server{cfg: cfg, db: database, orc: orc, hub: hub}
+	s := &Server{cfg: cfg, db: database, orc: orc, hub: hub}
+	if orc != nil {
+		s.verifier = verify.FromEnv(orc.Sandbox)
+	}
+	return s
 }
 
 // Routes builds the full handler: middleware chain wraps a route table keyed
@@ -68,6 +76,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/reset", s.requireFullAdmin(s.handleAdminReset))
 	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/retrigger-evaluation", s.requireFullAdmin(s.handleAdminRetrigger))
 	mux.HandleFunc("POST /api/v1/admin/templates/generate", s.requireFullAdmin(s.handleAdminGenerateTask))
+
+	// Company Portal — the "mf_company" cookie company/frontend issues.
+	mux.HandleFunc("POST /api/v1/company/templates/generate", s.requireCompanyWriter(s.handleCompanyGenerateTask))
 
 	return s.recoverPanic(s.logging(s.cors(mux)))
 }

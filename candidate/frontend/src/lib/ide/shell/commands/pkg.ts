@@ -6,6 +6,7 @@ import { nodeAt, readFile } from "../fs-util";
 import { fail, ok, type CommandContext, type CommandResult } from "../types";
 import { startPreview } from "./dev";
 import { parseFlags } from "./fs";
+import { nodeTest } from "./run";
 
 /**
  * `pip` — real installs through micropip, the package manager Pyodide ships.
@@ -228,9 +229,19 @@ async function npmRun(ctx: CommandContext, args: string[]): Promise<CommandResul
     return startPreview(ctx, root);
   }
 
+  // A test script that is Node's own runner is something this workspace
+  // really can run (js-workspace.ts). Anything after `--test` that isn't a
+  // flag is a file or directory to run.
+  const nodeTestScript = command.trim().match(/^node\s+(.*\s)?--test(\s.*)?$/);
+  if (nodeTestScript) {
+    if (ctx.isTerminalSink) ctx.io.write(`> ${scriptName}\r\n> ${command}\r\n\r\n`);
+    const targets = `${nodeTestScript[1] ?? ""} ${nodeTestScript[2] ?? ""}`.split(/\s+/).filter((a) => a && !a.startsWith("-"));
+    return nodeTest(ctx, targets);
+  }
+
   return fail(
     `npm run ${scriptName}: "${command}" needs a Node process, which the browser doesn't have.\n` +
-      `Dev-server scripts work (they open the live preview); build/lint/test don't.`,
+      `Dev-server scripts work (they open the live preview), and so does a test script that is "node --test"; build, lint and other test runners don't.`,
     127
   );
 }
@@ -344,7 +355,12 @@ export async function npm(ctx: CommandContext): Promise<CommandResult> {
   // The rest run a package's Node CLI, and there's no Node process here to
   // run one — say exactly that rather than a bare "unknown command" that
   // reads like a typo.
-  if (["exec", "start", "test", "publish"].includes(subcommand)) {
+  // `npm test` is `npm run test`, as it is everywhere.
+  if (subcommand === "test" || subcommand === "t") {
+    return npmRun(ctx, ["test", ...packages]);
+  }
+
+  if (["exec", "start", "publish"].includes(subcommand)) {
     return fail(
       `npm ${subcommand}: not supported — it runs a package's Node CLI, and there's no Node process in the browser.`,
       127

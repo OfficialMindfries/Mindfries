@@ -1,3 +1,4 @@
+import { runNodeFile, runNodeTests, type ProjectRun, type Transpile } from "./js-workspace";
 import { moduleUrlFor } from "./packages";
 import { getPyodide } from "./pyodide-runtime";
 import { moduleScript, mountScript } from "./python-workspace";
@@ -173,4 +174,29 @@ export async function runPythonModule(module: string, args: string[]): Promise<R
     output.push(err instanceof Error ? err.message : String(err));
     return { output, errored: true };
   }
+}
+
+/**
+ * A JavaScript/TypeScript *project* — files that import each other, and
+ * tests on Node's own runner. See js-workspace.ts for what that is and
+ * isn't. Every file goes through the real TypeScript compiler, emitted as
+ * CommonJS so both `import` and `require` load through the same loader.
+ */
+async function projectTranspiler(): Promise<Transpile> {
+  const ts = await import("typescript");
+  return (code, fileName) =>
+    ts.transpileModule(code, {
+      fileName,
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, jsx: ts.JsxEmit.React },
+    }).outputText;
+}
+
+/** `node --test [targets…]` in `cwd`. */
+export async function runNodeProjectTests(files: Record<string, string>, cwd: string[], targets: string[]): Promise<ProjectRun> {
+  return runNodeTests(files, `/${cwd.join("/")}`, targets, await projectTranspiler());
+}
+
+/** `node <file>` for a file that imports others in the project. */
+export async function runNodeProjectFile(files: Record<string, string>, path: string[]): Promise<ProjectRun> {
+  return runNodeFile(files, `/${path.join("/")}`, await projectTranspiler());
 }

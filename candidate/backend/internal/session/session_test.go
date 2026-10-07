@@ -106,3 +106,24 @@ func TestCrossShapeConfusion(t *testing.T) {
 		t.Fatalf("a candidate token must not verify as an admin session (would carry a zero-value Role), got %v", err)
 	}
 }
+
+func TestVerifyCompanyAcceptsItsOwnCookieAndNothingElse(t *testing.T) {
+	const secret = "company-secret-company-secret-company"
+	exp := time.Now().Add(time.Hour).Unix()
+	token, err := SignCompany(CompanyClaims{Email: "a@acme.test", Name: "A", Role: "recruiter", CompanyID: "c1", CompanyName: "Acme", Exp: exp}, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := VerifyCompany(token, secret)
+	if err != nil || claims.CompanyID != "c1" || claims.Role != "recruiter" {
+		t.Fatalf("got %+v, %v", claims, err)
+	}
+	if _, err := VerifyCompany(token, "another-secret-another-secret-another"); err == nil {
+		t.Error("a cookie signed with a different secret verified")
+	}
+	// A candidate's cookie, even under the same secret, is not a company's.
+	candidate, _ := SignCandidate(CandidateClaims{ID: "u1", Email: "c@x.test", Name: "C", Exp: exp}, secret)
+	if _, err := VerifyCompany(candidate, secret); err == nil {
+		t.Error("a candidate cookie was accepted as a company one")
+	}
+}

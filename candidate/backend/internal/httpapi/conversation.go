@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/mindfries/candidate-backend/internal/db"
-	"github.com/mindfries/candidate-backend/internal/llm"
 	"github.com/mindfries/candidate-backend/internal/orchestrator"
 )
 
@@ -17,13 +16,12 @@ import (
 // is the expensive part, so these bound what reaches it as well as what
 // reaches the database.
 const (
-	maxAssistantBodyBytes  = 1024 * 1024 // the message, plus the project it's asked about
-	maxAssistantTerminal   = 16 * 1024
-	maxAssistantMessage    = 4000
-	maxAssistantFileBytes  = 20 * 1024
-	maxWorkspaceBodyBytes  = 1024 * 1024
-	maxInterviewAnswer     = 6000
-	maxTaskGenerationBytes = 32 * 1024
+	maxAssistantBodyBytes = 1024 * 1024 // the message, plus the project it's asked about
+	maxAssistantTerminal  = 16 * 1024
+	maxAssistantMessage   = 4000
+	maxAssistantFileBytes = 20 * 1024
+	maxWorkspaceBodyBytes = 1024 * 1024
+	maxInterviewAnswer    = 6000
 )
 
 // aiError maps an orchestrator/LLM failure onto a response the workspace can
@@ -288,40 +286,4 @@ func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// handleAdminGenerateTask drafts a task brief and starter codebase for the
-// Game Library's authoring form. It returns the draft and stores nothing:
-// the author reads it, edits it, and saves it the same way as a hand-written
-// one.
-func (s *Server) handleAdminGenerateTask(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name        string   `json:"name"`
-		TaskVariant string   `json:"taskVariant"`
-		TechStack   []string `json:"techStack"`
-		DurationMin int      `json:"durationMin"`
-		Notes       string   `json:"notes"`
-	}
-	if !decodeBody(w, r, maxTaskGenerationBytes, &body) {
-		return
-	}
-	if strings.TrimSpace(body.Name) == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if s.orc.Agents == nil || !s.orc.Agents.Configured() {
-		notConfigured(w, "the AI service")
-		return
-	}
-
-	task, err := s.orc.Agents.GenerateTask(r.Context(), llm.TaskSpec{
-		Name: body.Name, TaskVariant: body.TaskVariant, TechStack: body.TechStack,
-		DurationMin: body.DurationMin, Notes: body.Notes,
-	})
-	if err != nil {
-		slog.Error("handleAdminGenerateTask", "error", err)
-		writeError(w, http.StatusBadGateway, "the model didn't return a usable task — try again")
-		return
-	}
-	writeJSON(w, http.StatusOK, task)
 }

@@ -25,6 +25,7 @@ import (
 const (
 	CandidateCookie = "mf_candidate"
 	AdminCookie     = "mf_admin"
+	CompanyCookie   = "mf_company"
 )
 
 // ErrInvalid covers every way a token can fail to verify: missing, malformed,
@@ -188,3 +189,32 @@ func VerifyLiveTicket(token, secret string) (*LiveTicket, error) {
 	}
 	return &t, nil
 }
+
+// CompanyClaims mirrors company/frontend/lib/auth/session.ts's Session.
+type CompanyClaims struct {
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Role        string `json:"role"` // "admin" | "recruiter" | "viewer"
+	CompanyID   string `json:"companyId"`
+	CompanyName string `json:"companyName"`
+	Exp         int64  `json:"exp"`
+}
+
+// VerifyCompany validates an "mf_company" cookie value against
+// COMPANY_SESSION_SECRET (the same value company/frontend's SESSION_SECRET
+// holds).
+func VerifyCompany(token, secret string) (*CompanyClaims, error) {
+	raw, err := verify(token, secret)
+	if err != nil {
+		return nil, err
+	}
+	var c CompanyClaims
+	if err := json.Unmarshal(raw, &c); err != nil || c.Email == "" || c.CompanyID == "" ||
+		(c.Role != "admin" && c.Role != "recruiter" && c.Role != "viewer") {
+		return nil, ErrInvalid
+	}
+	return &c, nil
+}
+
+// SignCompany is the company equivalent of SignCandidate — for tests.
+func SignCompany(c CompanyClaims, secret string) (string, error) { return sign(c, secret) }

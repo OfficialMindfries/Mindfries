@@ -3,6 +3,7 @@ package llm
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,4 +60,17 @@ func TestMaterializeRawReply(t *testing.T) {
 		t.Logf("%s (%d bytes)", p, len(c))
 	}
 	os.WriteFile(filepath.Join(out, "_BRIEF.md"), []byte(task.TaskBrief), 0o644)
+}
+
+func TestParseGeneratedTaskReadsTheReferenceSolution(t *testing.T) {
+	raw := "=====BRIEF=====\n# Fix it\n=====FILE: pricing/discount.py=====\ndef apply(t, p):\n    return t - t * p\n" +
+		"=====FILE: tests/test_discount.py=====\nimport unittest\n" +
+		"=====SOLUTION: pricing/discount.py\ndef apply(t, p):\n    return t - t * p / 100\n"
+	task := parseGeneratedTask(raw)
+	if len(task.StarterFiles) != 2 || len(task.SolutionFiles) != 1 {
+		t.Fatalf("starter %d, solution %d", len(task.StarterFiles), len(task.SolutionFiles))
+	}
+	if !strings.Contains(task.SolutionFiles["pricing/discount.py"], "/ 100") || strings.Contains(task.StarterFiles["pricing/discount.py"], "/ 100") {
+		t.Errorf("the solution must stay out of the starter files: %+v", task)
+	}
 }

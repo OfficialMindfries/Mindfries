@@ -1,9 +1,12 @@
 import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
+import { can } from "@/lib/auth/permissions";
 import { getApplicationForCompany, getCandidateReport } from "@/lib/db";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone, titleCase } from "@/lib/format";
+import { EvidenceList } from "./EvidenceList";
 import { InterviewTranscript } from "./InterviewTranscript";
+import { ReviewerDecisionForm } from "./ReviewerDecisionForm";
 import { ReportAutoRefresh } from "./ReportAutoRefresh";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +21,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
 
   const { session, report, interview } = await getCandidateReport(application.assessmentId);
   const pending = report?.status === "pending" || report?.status === "generating";
+  const canReview = can("candidate:stage", user.role);
 
   return (
     <div className="space-y-6">
@@ -69,23 +73,37 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           ) : (
             <div className="space-y-4">
               <div className="hair-card p-5">
-                <div className="eyebrow">Recommendation</div>
+                <div className="eyebrow">AI recommendation</div>
                 <div className="mt-2 text-xl font-extrabold tracking-tight">
                   {report.recommendation ? (recommendationLabel[report.recommendation] ?? report.recommendation) : "—"}
                 </div>
                 {report.summary && <p className="mt-3 text-sm text-dim">{report.summary}</p>}
+
+                {report.review && (
+                  <div className="mt-4 border-t border-hair pt-4">
+                    <div className="eyebrow">Reviewer&apos;s decision</div>
+                    <div className="mt-2 text-lg font-extrabold tracking-tight">
+                      {report.review.recommendation ? (recommendationLabel[report.review.recommendation] ?? report.review.recommendation) : "Not decided"}
+                    </div>
+                    {report.review.note && <p className="mt-2 text-sm whitespace-pre-line">{report.review.note}</p>}
+                    {report.review.by && (
+                      <p className="mt-2 text-xs text-faint">
+                        {report.review.by}
+                        {report.review.at ? ` · ${fmtDate(report.review.at)}` : ""}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {canReview && <ReviewerDecisionForm applicationId={application.id} review={report.review} />}
               </div>
 
-              {report.evidence.length > 0 && (
-                <div className="hair-card divide-y divide-hair">
-                  {report.evidence.map((e) => (
-                    <div key={e.id} className="px-6 py-3.5">
-                      <div className="text-xs font-semibold tracking-wide text-faint uppercase">{e.category.replace(/_/g, " ")}</div>
-                      <p className="mt-1 text-sm">{e.observation}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <EvidenceList
+                applicationId={application.id}
+                evidence={report.evidence}
+                moments={report.moments}
+                annotations={report.annotations}
+                canAnnotate={canReview}
+              />
             </div>
           )}
 

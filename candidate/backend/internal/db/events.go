@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -121,4 +122,20 @@ func (d *DB) HasEvent(ctx context.Context, sessionID, eventType string) (bool, e
 		select exists (select 1 from activity_events where session_id = $1 and event_type = $2)
 	`, sessionID, eventType).Scan(&exists)
 	return exists, err
+}
+
+// LatestEventPayload returns the payload of a session's most recent event of
+// the given type, or nil when it has none.
+func (d *DB) LatestEventPayload(ctx context.Context, sessionID, eventType string) (json.RawMessage, error) {
+	var payload json.RawMessage
+	err := d.pool.QueryRow(ctx, `
+		select payload from activity_events
+		where session_id = $1 and event_type = $2
+		order by occurred_at desc, id desc
+		limit 1
+	`, sessionID, eventType).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return payload, err
 }

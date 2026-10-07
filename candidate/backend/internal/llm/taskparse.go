@@ -12,6 +12,7 @@ import (
 var (
 	briefMarkerRe = regexp.MustCompile(`^\W*=+\s*BRIEF\s*=*\W*$`)
 	fileMarkerRe  = regexp.MustCompile(`^\W*=+\s*FILE:\s*(.+?)\s*=*\W*$`)
+	solutionRe    = regexp.MustCompile(`^\W*=+\s*SOLUTION:\s*(.+?)\s*=*\W*$`)
 )
 
 // parseGeneratedTask reads the marker layout into a brief and a set of
@@ -19,9 +20,9 @@ var (
 // sentence or code fence doesn't spoil the reply. File content is kept
 // verbatim apart from surrounding blank lines.
 func parseGeneratedTask(raw string) GeneratedTask {
-	task := GeneratedTask{StarterFiles: map[string]string{}}
+	task := GeneratedTask{StarterFiles: map[string]string{}, SolutionFiles: map[string]string{}}
 
-	const none, brief, file = 0, 1, 2
+	const none, brief, file, solution = 0, 1, 2, 3
 	section := none
 	path := ""
 	var lines []string
@@ -34,6 +35,10 @@ func parseGeneratedTask(raw string) GeneratedTask {
 		case file:
 			if path != "" {
 				task.StarterFiles[path] = body + "\n"
+			}
+		case solution:
+			if path != "" {
+				task.SolutionFiles[path] = body + "\n"
 			}
 		}
 		lines = nil
@@ -48,6 +53,12 @@ func parseGeneratedTask(raw string) GeneratedTask {
 		if m := fileMarkerRe.FindStringSubmatch(line); m != nil {
 			flush()
 			section = file
+			path = strings.TrimPrefix(strings.Trim(m[1], "`*\" "), "/")
+			continue
+		}
+		if m := solutionRe.FindStringSubmatch(line); m != nil {
+			flush()
+			section = solution
 			path = strings.TrimPrefix(strings.Trim(m[1], "`*\" "), "/")
 			continue
 		}
