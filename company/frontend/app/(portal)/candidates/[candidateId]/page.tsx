@@ -2,9 +2,11 @@ import { notFound } from "next/navigation";
 import { currentCompanyUser } from "@/lib/auth/company-users";
 import { can } from "@/lib/auth/permissions";
 import { getApplicationForCompany, getCandidateReport } from "@/lib/db";
+import { getCandidateProfile } from "@/lib/candidate-profile";
 import { EmptyState, PageHeader, Pill } from "@/components/ui";
 import { fmtDate, recommendationLabel, sessionStatusTone, stageLabel, stageTone, titleCase } from "@/lib/format";
 import { CameraTimeline } from "./CameraTimeline";
+import { CandidateProfileCard } from "./CandidateProfileCard";
 import { EvidenceList } from "./EvidenceList";
 import { InterviewTranscript } from "./InterviewTranscript";
 import { ReviewerDecisionForm } from "./ReviewerDecisionForm";
@@ -20,7 +22,10 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   const application = await getApplicationForCompany(user.companyId, candidateId);
   if (!application) notFound();
 
-  const { session, report, interview, camera } = await getCandidateReport(application.assessmentId);
+  const [{ session, report, interview, camera }, profile] = await Promise.all([
+    getCandidateReport(application.assessmentId),
+    getCandidateProfile(application.candidateEmail),
+  ]);
   const pending = report?.status === "pending" || report?.status === "generating";
   const canReview = can("candidate:stage", user.role);
 
@@ -46,6 +51,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           ))}
         </div>
       )}
+
+      <CandidateProfileCard profile={profile} />
 
       {!session ? (
         <EmptyState title="Hasn't started yet" hint="A session and report show up here once the candidate begins their assessment." />

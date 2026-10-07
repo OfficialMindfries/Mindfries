@@ -64,12 +64,12 @@ and social accounts are connected through **Composio**.
 
 | # | What | State today |
 |---|---|---|
-| 7 | Connect GitHub / GitLab / LinkedIn through Composio | Not built — "Connect" stores a typed username only |
-| 8 | Candidate knowledge base (projects, languages, activity pulled from connected accounts) | Not built — no table, nothing pulled |
-| 9 | Resume parsing into the profile / knowledge base | A parser file exists but nothing calls it; the resume is only stored |
-| 10 | The profile a hiring team actually sees | Preview toggle exists on the candidate's side; the company portal doesn't show any of it |
-| 11 | Forgot / reset password | Not built |
-| 12 | Email verification on sign-up | Not built |
+| 7 | Connect GitHub / GitLab / LinkedIn through Composio | Not built — needs a Composio key. Until then a GitHub or GitLab username is looked up on the platform and refused if no such account exists, but nothing shows the account is the candidate's; both the candidate and the hiring team are told "ownership not confirmed" |
+| 8 | Candidate knowledge base (projects, languages, activity pulled from connected accounts) | Built from public data (migration 0018). Linking a GitHub or GitLab username reads the account's own projects (forks left out), the languages across them and recent public activity; the candidate can refresh it. Read against real GitHub and GitLab accounts on 2026-10-07. Stored as unverified until item 7 exists. LinkedIn has no public API, so nothing is read from it |
+| 9 | Resume parsing into the profile / knowledge base | Built. A PDF or DOCX is read in the browser on upload; the server keeps the text and what it finds in it — technologies named (from a fixed list), a headline, location, summary, links, the span of years. The candidate can fill empty profile fields from it with one click; nothing is written without that. Pattern matching, not a model: it finds words, it does not judge skill, and the hiring team's view says so. A .doc or a scanned PDF is stored but not read. Checked in the browser with a real PDF on 2026-10-07. Also fixed: uploads over 1 MB used to fail |
+| 10 | The profile a hiring team actually sees | Built. The company portal's candidate page shows what the candidate wrote, their resume (a link that works for an hour) and what was read from it, and their linked code accounts — each labelled with where it came from, plus whether the email is confirmed. Checked in the browser on 2026-10-07 |
+| 11 | Forgot / reset password | Built, off until `RESEND_API_KEY` and `RESEND_FROM` are set on the candidate app (the form says so when they aren't). A link that works once, for an hour; only a hash of it is stored; three an hour per account. Run end to end on 2026-10-07 against a stand-in mail server — no real email has been sent. A reset does not sign out sessions already open elsewhere |
+| 12 | Email verification on sign-up | Built, off until the same two mail settings are set. Sign-up mails a confirmation link (48 hours); the account works meanwhile, the dashboard asks for confirmation, and hiring teams see "email not confirmed". Accounts made before this stay unconfirmed until they confirm. Social sign-in counts as confirmed — and when it links to an existing account whose email nobody confirmed, that account's password is cleared, since whoever set it never showed the mailbox was theirs. Run end to end against a stand-in mail server |
 | 13 | Sign-in with Google / GitHub / GitLab / LinkedIn | Built; each provider is off until its keys are added |
 
 **Invitations and dashboard**

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { BadgeCheck, ExternalLink, Loader2, Trash2, X } from "lucide-react";
-import { NotFoundError, PLATFORM_ORDER, PLATFORMS, type LinkPlatform } from "@/lib/profile/links";
+import { PLATFORM_ORDER, PLATFORMS, type LinkPlatform } from "@/lib/profile/links";
 import type { StoredLink } from "@/lib/profile/storage";
 import { saveLink, removeLink } from "@/lib/profile/actions";
 import { usePreviewMode } from "./PreviewMode";
@@ -11,13 +11,14 @@ import { usePreviewMode } from "./PreviewMode";
  * GitHub, GitLab, LinkedIn and a portfolio link — the platforms that say
  * something about a candidate beyond what's typed into a form.
  *
- * A GitHub or GitLab username is checked against the real, public API for
- * that platform right in the browser (see lib/profile/links.ts) — a wrong
- * username is refused before it's saved, and what's shown afterwards (avatar,
- * name, public repo count) came from the platform itself. LinkedIn and a
- * portfolio have no such API to check against, so those two are stored
- * exactly as entered, marked "Linked" rather than "Verified" — a real
- * difference, not a cosmetic one, and the UI doesn't blur it.
+ * A GitHub or GitLab username is read from that platform's public API by
+ * the server when it is saved (lib/profile/actions.ts → knowledge.ts) — a
+ * username with no account behind it is refused, and what's shown afterwards
+ * (avatar, name, public repo count) came from the platform itself. That
+ * shows the account exists, so the tile says "Account found"; it does not
+ * show the account is the candidate's, so it does not say "Verified".
+ * LinkedIn and a portfolio have no such API to read, so those two are
+ * stored exactly as entered and marked "Linked".
  *
  * A grid of tiles, not a list of rows: each platform is its own square, so
  * "Connect" reads as an action on that specific card rather than a row item
@@ -35,8 +36,8 @@ export function LinkedAccounts({ links }: { links: Partial<Record<LinkPlatform, 
       <h2 className="text-sm font-semibold text-[#0A1931]">Linked accounts</h2>
       {!preview && (
         <p className="mt-1 text-[12px] leading-relaxed text-[#4A7FA7]">
-          GitHub and GitLab are checked against the real account when you add them. LinkedIn and a
-          portfolio are stored as you enter them — there&apos;s no public way to check those two from here.
+          A GitHub or GitLab username is looked up when you add it, and the account&apos;s public projects are
+          read. LinkedIn and a portfolio are stored as you enter them — there&apos;s no public way to check those two.
         </p>
       )}
 
@@ -53,13 +54,13 @@ export function LinkedAccounts({ links }: { links: Partial<Record<LinkPlatform, 
               preview={preview}
               onOpen={() => setOpen(id)}
               onClose={() => setOpen((cur) => (cur === id ? null : cur))}
-              onSave={async (link) => {
-                const res = await saveLink(id, link.value);
+              onSave={async (value) => {
+                const res = await saveLink(id, value);
                 if (res.ok) {
                   setOpen(null);
-                  return true;
+                  return null;
                 }
-                return false;
+                return res.error || "Couldn't save that.";
               }}
               onRemove={async () => {
                 await removeLink(id);
@@ -88,8 +89,8 @@ function PlatformTile({
   preview: boolean;
   onOpen: () => void;
   onClose: () => void;
-  /** Returns whether the link was actually saved — false means storage refused it. */
-  onSave: (link: StoredLink) => Promise<boolean>;
+  /** Returns null once saved, or the reason it wasn't. */
+  onSave: (value: string) => Promise<string | null>;
   onRemove: () => Promise<void>;
 }) {
   const platform = PLATFORMS[id];
@@ -105,31 +106,12 @@ function PlatformTile({
       return;
     }
 
-    const STORAGE_FULL = "Couldn't save — this browser's storage is full.";
-
-    if (!platform.fetchStats) {
-      const ok = await onSave({ value: result.value, savedAt: new Date().toISOString() });
-      if (!ok) setError(STORAGE_FULL);
-      return;
-    }
-
     setPending(true);
     setError(null);
     try {
-      const stats = await platform.fetchStats(result.value);
-      const ok = await onSave({ value: result.value, savedAt: new Date().toISOString(), stats });
-      if (!ok) setError(STORAGE_FULL);
-    } catch (e) {
-      if (e instanceof NotFoundError) {
-        setError(e.message);
-      } else {
-        // A real account, most likely — GitHub/GitLab just didn't answer
-        // this time (rate limit, network). Save the link anyway rather than
-        // punishing a legitimate username for a transient failure; the tile
-        // will show "couldn't verify" instead of a confirmed profile.
-        const ok = await onSave({ value: result.value, savedAt: new Date().toISOString() });
-        if (!ok) setError(STORAGE_FULL);
-      }
+      setError(await onSave(result.value));
+    } catch {
+      setError("Couldn't save that — try again.");
     } finally {
       setPending(false);
     }
@@ -161,10 +143,10 @@ function PlatformTile({
               {platform.live ? (
                 link.stats ? (
                   <span className="inline-flex shrink-0 items-center gap-0.5 text-[10.5px] font-semibold text-[#1A9E6B]">
-                    <BadgeCheck size={11} /> Verified
+                    <BadgeCheck size={11} /> Account found
                   </span>
                 ) : (
-                  <span className="shrink-0 text-[10.5px] text-[#4A7FA7]">couldn&apos;t verify</span>
+                  <span className="shrink-0 text-[10.5px] text-[#4A7FA7]">not looked up yet</span>
                 )
               ) : (
                 <span className="shrink-0 text-[10.5px] text-[#4A7FA7]">Linked</span>
@@ -240,7 +222,7 @@ function PlatformTile({
           className="btn-wipe mt-2 w-full px-3 py-1.5 text-[12.5px] font-semibold disabled:opacity-50"
           style={{ "--btn-bg": "#1A3D63", "--btn-fg": "#F6FAFD", "--btn-fill": "#4A7FA7", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
         >
-          {pending ? <Loader2 size={13} className="mx-auto animate-spin" /> : platform.live ? "Verify" : "Save"}
+          {pending ? <Loader2 size={13} className="mx-auto animate-spin" /> : platform.live ? "Look up and save" : "Save"}
         </button>
         {error && <p className="mt-1.5 text-[12px] text-[#c0304c]">{error}</p>}
       </div>

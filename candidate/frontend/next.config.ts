@@ -17,6 +17,10 @@ import type { NextConfig } from "next";
  */
 const nextConfig: NextConfig = {
   ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
+  // The resume upload is a server action (lib/profile/actions.ts), and an
+  // action's request is capped at 1MB unless told otherwise — a resume is
+  // allowed to be 3MB, plus its extracted text.
+  experimental: { serverActions: { bodySizeLimit: "5mb" } },
 };
 
 export default nextConfig;

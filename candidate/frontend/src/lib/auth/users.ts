@@ -102,9 +102,9 @@ export type SignUpResult = { ok: true; session: Omit<Session, "exp"> } | { ok: f
 
 /**
  * Creates a real row — a scrypt hash with its own salt, never the password
- * itself — and signs the new candidate in immediately. No email is sent to
- * confirm the address, because nothing here sends email; that's a real gap,
- * not a hidden one.
+ * itself — and signs the new candidate in immediately. The address starts
+ * unconfirmed (email_verified_at null); the sign-up action mails the link
+ * that confirms it (lib/auth/email-links.ts).
  */
 export async function createAccount(nameRaw: string, emailRaw: string, password: string): Promise<SignUpResult> {
   const name = nameRaw.trim().slice(0, 200);

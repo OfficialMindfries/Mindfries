@@ -2,25 +2,40 @@
 
 import { FileText, Paperclip, Trash2 } from "lucide-react";
 import { ACCEPTED_EXT, ACCEPTED_MIME, formatBytes, MAX_RESUME_BYTES } from "@/lib/profile/useResumeUploader";
-import { uploadResume, removeResume } from "@/lib/profile/actions";
+import { fillProfileFromResume, uploadResume, removeResume } from "@/lib/profile/actions";
+import type { ResumeFields } from "@/lib/profile/resume-fields";
 import { usePreviewMode } from "./PreviewMode";
 import { useState, useRef } from "react";
 
 /**
- * A real file picker, honestly scoped: the file is read and held in this
- * browser's localStorage, not sent anywhere — there's no server to send it
- * to yet. Saying "uploaded" would claim more than that, so the copy says
- * "saved in this browser" throughout, the same distinction useActor.ts and
- * the admin's file-store backend already draw elsewhere in this codebase.
+ * A real file picker: the file goes to the private `resumes` bucket, and
+ * its text is read in this browser first (lib/profile/resumeParse.ts) and
+ * sent along, so the server can keep what the resume says — the skills it
+ * names, a headline, a summary — beside the file. A resume that can't be
+ * read (a .doc, a scan with no text in it) is still uploaded; the card says
+ * that nothing could be read from it rather than showing nothing.
  *
  * Flat, not tilted: this card and its two neighbours borrow StickyNote's
  * colours, not the tilt-and-tape treatment — that motif is reserved for the
  * dashboard's wall of things happening to you (see StickyNote's own doc
  * comment), and a profile's sidebar reads as reference material, not mail.
  */
-export function ResumeUpload({ resumePath, resumeUrl }: { resumePath?: string | null; resumeUrl?: string | null }) {
+export function ResumeUpload({
+  resumePath,
+  resumeUrl,
+  parsed,
+  emptyFields = [],
+}: {
+  resumePath?: string | null;
+  resumeUrl?: string | null;
+  /** What was read from the stored resume, or null when nothing could be. */
+  parsed?: ResumeFields | null;
+  /** Profile fields the candidate hasn't filled in that the resume has something for. */
+  emptyFields?: string[];
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const preview = usePreviewMode();
 
@@ -39,9 +54,19 @@ export function ResumeUpload({ resumePath, resumeUrl }: { resumePath?: string | 
     }
 
     setBusy(true);
+    setNotice(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
+      // Reading the text is best-effort: a resume that can't be read is
+      // still a resume worth keeping.
+      try {
+        const { extractResumeText } = await import("@/lib/profile/resumeParse");
+        const text = await extractResumeText(file);
+        if (text.trim()) formData.append("text", text);
+      } catch {
+        // Falls through with no text; the card says so below.
+      }
       const res = await uploadResume(formData);
       if (!res.ok) {
         setError(res.error || "Couldn't upload resume.");
@@ -55,8 +80,17 @@ export function ResumeUpload({ resumePath, resumeUrl }: { resumePath?: string | 
 
   async function handleRemove() {
     setBusy(true);
+    setNotice(null);
     await removeResume();
     setBusy(false);
+  }
+
+  async function handleFill() {
+    setBusy(true);
+    const res = await fillProfileFromResume();
+    setBusy(false);
+    if (!res.ok) setError(res.error || "Couldn't fill your profile.");
+    else setNotice(res.filled.length > 0 ? `Filled in your ${res.filled.join(", ")}. Check it reads right.` : "Nothing left to fill in.");
   }
 
   return (
@@ -101,6 +135,42 @@ export function ResumeUpload({ resumePath, resumeUrl }: { resumePath?: string | 
             <p className="mt-1 text-[13px] leading-relaxed text-[#0A1931]/70">
               PDF, DOC or DOCX, up to {formatBytes(MAX_RESUME_BYTES)}.
             </p>
+          )}
+
+          {resumePath && (
+            <div className="mt-3">
+              {parsed && parsed.skills.length > 0 ? (
+                <>
+                  <p className="text-[11px] font-semibold tracking-wide text-[#0A1931]/60 uppercase">Named in your resume</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {parsed.skills.map((skill) => (
+                      <span key={skill} className="rounded-full bg-white/70 px-2 py-0.5 text-[11.5px] font-medium text-[#0A1931]">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                !preview && (
+                  <p className="text-[11.5px] leading-relaxed text-[#0A1931]/70">
+                    {parsed
+                      ? "The file was read, but none of the technologies we look for are named in it."
+                      : "Nothing could be read from this file — a .doc, or a scan with no text in it. It is still saved; a PDF or DOCX with real text lets us show hiring teams what it says."}
+                  </p>
+                )
+              )}
+              {!preview && emptyFields.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleFill}
+                  disabled={busy}
+                  className="mt-2 text-[12px] font-semibold text-[#1A3D63] underline underline-offset-2 hover:text-[#0A1931] disabled:opacity-50"
+                >
+                  Fill in my {emptyFields.join(", ")} from it
+                </button>
+              )}
+              {notice && <p className="mt-1.5 text-[11.5px] text-[#0A1931]/80">{notice}</p>}
+            </div>
           )}
 
           {!preview && (
