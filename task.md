@@ -79,11 +79,11 @@ and social accounts are connected through **Composio**.
 | 14 | Invitation email with a link | Not sent — a candidate only sees an invite if they sign up with the same email |
 | 15 | Accept / decline an invitation | Not built |
 | 16 | Notifications (invite, deadline, report ready) | Bell and panel built; nothing feeds them |
-| 17 | Activity feed "See all" | Button does nothing |
+| 17 | Activity feed "See all" | Built. The feed shows the five most recent, each linking to its workspace or report; "See all" opens the full assessments list |
 | 18 | Environment check (camera, mic, browser) | Placeholder page; never marked done on the dashboard |
 | 19 | Practice run | Placeholder page; not tracked |
-| 20 | Login check on `/practice` and `/environment-check` | Missing — both open without signing in |
-| 21 | Per-candidate limit on self-started sessions | Missing |
+| 20 | Login check on `/practice` and `/environment-check` | Built. Both now require sign-in, like the rest of the portal |
+| 21 | Per-candidate limit on self-started sessions | Built. Three open-pool assessments in any 24 hours, and never two at once; invitations aren't counted. Not yet run against the live database |
 
 **Workspace**
 

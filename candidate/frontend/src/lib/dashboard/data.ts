@@ -58,7 +58,7 @@ export function deriveStats(items: Assessment[]): Stat[] {
       kind: "in-progress",
       label: "In progress",
       value: inProgress,
-      hint: inProgress === 0 ? "Nothing in progress" : "Can't be re-entered once started",
+      hint: inProgress === 0 ? "Nothing in progress" : "Resume from your assessments",
     },
     {
       kind: "submitted",

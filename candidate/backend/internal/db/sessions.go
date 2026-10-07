@@ -180,6 +180,28 @@ func (d *DB) CountEarlierSessions(ctx context.Context, templateID, sessionID str
 	return n, err
 }
 
+// SelfStarted summarises the sessions a candidate began on their own, from
+// the open pool rather than by invitation: how many since a given moment,
+// and whether one is still running.
+type SelfStarted struct {
+	Recent int
+	Live   bool
+}
+
+// CountSelfStarted is what the limit on self-started sessions is checked
+// against (orchestrator.startFromTemplate). A session with no assessment_id
+// is one nobody invited the candidate to.
+func (d *DB) CountSelfStarted(ctx context.Context, candidateID string, since time.Time) (SelfStarted, error) {
+	var out SelfStarted
+	err := d.pool.QueryRow(ctx, `
+		select count(*) filter (where started_at >= $2),
+		       coalesce(bool_or(status = 'live'), false)
+		from sessions
+		where candidate_id = $1 and assessment_id is null
+	`, candidateID, since).Scan(&out.Recent, &out.Live)
+	return out, err
+}
+
 // SessionRef is where one of a candidate's sessions stands: which invitation
 // or template it is for, and its status.
 type SessionRef struct {

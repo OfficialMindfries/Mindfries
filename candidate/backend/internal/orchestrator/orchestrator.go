@@ -47,6 +47,21 @@ func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *
 // wsEvent is the shape broadcast over a session's WebSocket room — small and
 // generic on purpose, since both the candidate's own workspace and the
 // admin's Global Session Monitor read the same feed for different reasons.
+// The limit on assessments a candidate starts for themselves from the open
+// pool: SelfStartLimit in any selfStartWindow, and never two at once.
+const (
+	SelfStartLimit  = 3
+	selfStartWindow = 24 * time.Hour
+)
+
+// ErrSelfStartLimit and ErrSelfStartLive are returned by StartAssessment
+// when a candidate has reached that limit. Their text is shown to the
+// candidate as it is.
+var (
+	ErrSelfStartLimit = fmt.Errorf("you've started %d practice assessments in the last day — that's the limit. Invitations from companies aren't affected", SelfStartLimit)
+	ErrSelfStartLive  = errors.New("you already have an assessment under way — finish or resume that one first")
+)
+
 type wsEvent struct {
 	Type    string `json:"type"`
 	Payload any    `json:"payload"`
@@ -126,6 +141,21 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 	if !errors.Is(err, db.ErrNotFound) {
 		return db.Session{}, fmt.Errorf("orchestrator: candidate already has a session for this template (session %s)", existing.ID)
 	}
+	// A candidate can start open-pool assessments for themselves, and each
+	// one costs real model calls to run and evaluate — so there is a ceiling
+	// on how many, and only one at a time. Invitations aren't counted: a
+	// company asked for those.
+	started, err := o.DB.CountSelfStarted(ctx, candidateID, time.Now().Add(-selfStartWindow))
+	if err != nil {
+		return db.Session{}, fmt.Errorf("orchestrator: checking the self-start limit: %w", err)
+	}
+	if started.Live {
+		return db.Session{}, ErrSelfStartLive
+	}
+	if started.Recent >= SelfStartLimit {
+		return db.Session{}, ErrSelfStartLimit
+	}
+
 	sess, err := o.DB.StartSession(ctx, candidateID, candidateName, tmpl)
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)

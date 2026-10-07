@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
+	"github.com/mindfries/candidate-backend/internal/orchestrator"
 )
 
 // handleMe returns the signed-in candidate's identity as the session cookie
@@ -162,6 +163,12 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	sess, err := s.orc.StartAssessment(r.Context(), c.ID, c.Email, c.Name, id)
+	if errors.Is(err, orchestrator.ErrSelfStartLimit) || errors.Is(err, orchestrator.ErrSelfStartLive) {
+		// Not a malformed request: the candidate has hit a limit, and the
+		// message is written for them.
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
 	if err != nil {
 		slog.Error("handleStartSession", "error", err)
 		writeError(w, http.StatusBadRequest, "could not start that assessment: "+err.Error())
