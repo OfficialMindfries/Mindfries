@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { IdeShell } from "@/components/ide/IdeShell";
 import { currentCandidate } from "@/lib/auth/users";
 import { getSessionAssessmentOrUndefined, getSessionOrUndefined, secondsRemaining } from "@/lib/backend/client";
@@ -23,6 +24,11 @@ export default async function IdePage({
     : [undefined, undefined];
   // What's really left on this session's clock, measured from when it
   // started — a reload doesn't hand the candidate their time back.
+  // A session that's been submitted has no workspace to return to — its
+  // evidence is fixed, and anything typed here would go nowhere.
+  if (session && live && live.status !== "live") {
+    redirect(`/assessments/${encodeURIComponent(session)}/report`);
+  }
   const remainingSeconds = live ? secondsRemaining(live) : undefined;
   return (
     <IdeShell

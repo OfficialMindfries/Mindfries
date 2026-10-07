@@ -6,10 +6,8 @@ import {
   backendReady,
   BackendAuthError,
   getAssistantHistory,
-  interviewStep as interviewStepOnBackend,
   submitSession,
   type AssistantHistory,
-  type InterviewState,
 } from "@/lib/backend/client";
 import { isRedirectError } from "@/lib/isRedirectError";
 
@@ -71,20 +69,6 @@ export async function askWorkspaceAssistant(
   if (!backendReady()) return { error: AI_OFFLINE };
   try {
     return await askAssistant(sessionId, message, filePath, fileContent);
-  } catch (err) {
-    return aiFailure(err);
-  }
-}
-
-/** One step of the follow-up interview — see InterviewDialog. */
-export async function interviewStep(
-  sessionId: string,
-  answer?: string,
-  files?: Record<string, string>,
-): Promise<InterviewState | { error: string }> {
-  if (!backendReady()) return { error: AI_OFFLINE };
-  try {
-    return await interviewStepOnBackend(sessionId, answer, files);
   } catch (err) {
     return aiFailure(err);
   }

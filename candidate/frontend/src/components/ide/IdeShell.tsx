@@ -208,6 +208,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // confirmation (PRD §1.6: workspace → interview → submit) — only for a
   // real session, since there's nothing to ask about a scratch workspace.
   const [interviewing, setInterviewing] = useState(false);
+  // The session's clock has run out. Working time is over: the interview
+  // opens by itself with no way back to the editor, and once it's done the
+  // work is submitted without asking — there is nothing left to confirm.
+  const [timeUp, setTimeUp] = useState(false);
   // Read through a ref so the interview and submit always send the files as
   // they are at that moment, without re-creating callbacks on every keystroke.
   const filesRef = useRef(files);
@@ -218,8 +222,24 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
-
-
+  // Time ran out while the candidate was still working (or on the confirm
+  // step): go to the interview. If it's already open it simply loses its
+  // "Back to my work" button. A scratch workspace has no clock to run out.
+  const expire = () => {
+    if (!sessionId) return;
+    setTimeUp(true);
+    setSubmitting(false);
+    setInterviewing(true);
+  };
+  const submitNow = () => {
+    if (!sessionId) return;
+    setSubmitError(undefined);
+    startSubmitTransition(async () => {
+      const result = await submitAssessment(sessionId, currentSnapshot());
+      // A successful call redirects and never returns here.
+      if (result?.error) setSubmitError(result.error);
+    });
+  };
   const openFile = (path: string) => {
     setOpenPaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActivePath(path);
@@ -522,6 +542,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Scratch workspace")}
         durationSeconds={remainingSeconds}
         onSubmit={() => (sessionId ? setInterviewing(true) : setSubmitting(true))}
+        onExpire={expire}
       />
       <div className="flex min-h-0 flex-1 gap-1">
         <div
@@ -683,10 +704,13 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
           theme={theme}
           sessionId={sessionId}
           getFiles={currentSnapshot}
+          camera={camera.stream}
+          canGoBack={!timeUp}
           onCancel={() => setInterviewing(false)}
           onDone={() => {
             setInterviewing(false);
             setSubmitting(true);
+            if (timeUp) submitNow();
           }}
         />
       )}
@@ -711,12 +735,9 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               setSubmitted(true);
               return;
             }
-            startSubmitTransition(async () => {
-              const result = await submitAssessment(sessionId, currentSnapshot());
-              // A successful call redirects and never returns here.
-              if (result?.error) setSubmitError(result.error);
-            });
+            submitNow();
           }}
+          timeUp={timeUp}
         />
       )}
       <ProctorGate theme={theme} camera={camera} />

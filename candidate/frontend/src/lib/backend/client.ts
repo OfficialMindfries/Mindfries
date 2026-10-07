@@ -231,18 +231,29 @@ export interface InterviewState {
   done: boolean;
   asked: number;
   total: number;
+  /** BCP-47 tag the interview is held in — set by the hiring company on the role. */
+  language: string;
+  /** The limit per answer, and what's left of it for the waiting question (measured by the backend). */
+  answerSeconds: number;
+  secondsLeft?: number;
+  /** With `done`: the session ran out of time before every question was asked. */
+  cutShort?: boolean;
 }
 
-/** One step of the interview: records `answer` if given, returns the next question or `done`. */
-export async function interviewStep(
-  sessionId: string,
-  answer?: string,
-  files?: Record<string, string>,
-): Promise<InterviewState> {
+export interface InterviewInput {
+  answer?: string;
+  /** Records the waiting question as unanswered — the answer timer ran out with nothing to send. */
+  skip?: boolean;
+  /** The workspace files, sent when the interview opens so the questions are about the real code. */
+  files?: Record<string, string>;
+}
+
+/** One step of the interview: records the answer (or skip) if given, returns the next question or `done`. */
+export async function interviewStep(sessionId: string, input: InterviewInput = {}): Promise<InterviewState> {
   return request<InterviewState>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/interview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answer: answer ?? "", files: files ?? {} }),
+    body: JSON.stringify({ answer: input.answer ?? "", skip: input.skip ?? false, files: input.files ?? {} }),
   });
 }
 
