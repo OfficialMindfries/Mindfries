@@ -3,7 +3,7 @@ import { db } from "./supabase";
 import { inviteSecret, signInviteToken } from "./auth/invite-token";
 import type {
   Assessment, Company, CompanyStatus, GameTemplate, Lead, LeadStage, MemberRole, OnboardedCompany, Plan, RubricCriterion,
-  Session, SessionStatus, SandboxHealth, TaskVariant, TeamMember, TemplateStatus, WaitlistEntry,
+  Session, SessionStatus, SandboxHealth, TaskVariant, TeamMember, TemplateStatus, WaitlistEntry, TemplateVariant,
 } from "./types";
 import type { RawLead } from "./icp";
 
@@ -266,6 +266,8 @@ function toTemplate(r: any): GameTemplate {
     createdAt: r.created_at,
     taskBrief: r.task_brief ?? null,
     starterFiles: (r.starter_files ?? {}) as Record<string, string>,
+    verification: r.verification ?? null,
+    variantCount: Array.isArray(r.variants) ? r.variants.length : 0,
   };
 }
 
@@ -280,14 +282,28 @@ export async function createTemplate(t: {
   name: string; taskVariant: TaskVariant; repoTemplate: string; techStack: string[];
   durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
   taskBrief?: string; starterFiles?: Record<string, string>;
+  solutionFiles?: Record<string, string>;
+  verification?: unknown;
+  variants?: TemplateVariant[];
 }): Promise<void> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");
+  // The generation columns (0017_task_generation.sql) are only written when
+  // there's something to put in them, so a hand-written game still saves on
+  // a database that migration hasn't reached.
+  const generated: Record<string, unknown> = {};
+  if (t.solutionFiles && Object.keys(t.solutionFiles).length > 0) generated.solution_files = t.solutionFiles;
+  if (t.verification) generated.verification = t.verification;
+  if (t.variants && t.variants.length > 0) generated.variants = t.variants;
   const { error } = await c.from("game_templates").insert({
     name: t.name, task_variant: t.taskVariant, repo_template: t.repoTemplate, tech_stack: t.techStack,
     duration_min: t.durationMin, interviewer_prompt: t.interviewerPrompt, rubric: t.rubric, status: t.status,
     task_brief: t.taskBrief || null, starter_files: t.starterFiles ?? {},
+    ...generated,
   });
+  if (error && (error.code === "PGRST204" || error.code === "42703") && Object.keys(generated).length > 0) {
+    throw new Error("This game has a reference solution or variants, which need migration 0017_task_generation applied to the database first.");
+  }
   if (error) throw error;
 }
 

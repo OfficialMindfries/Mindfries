@@ -10,7 +10,7 @@ import { targetsStore } from "@/lib/targets-store";
 import { requireAdminRole } from "@/lib/auth/admins";
 import { backendReady, generateTaskViaBackend, resetSessionViaBackend, retriggerEvaluationViaBackend, type GeneratedTask } from "@/lib/backend/client";
 import type { EmailTemplate } from "@/lib/email-templates";
-import type { CompanyStatus, LeadStage, MemberRole, Plan, RubricCriterion, TaskVariant, TemplateStatus } from "@/lib/types";
+import type { CompanyStatus, LeadStage, MemberRole, Plan, RubricCriterion, TaskVariant, TemplateStatus, TemplateVariant } from "@/lib/types";
 
 type Result = { ok: true } | { ok: false; error: string };
 const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -135,6 +135,7 @@ export async function createGameTemplate(input: {
   name: string; taskVariant: TaskVariant; repoTemplate: string; techStack: string[];
   durationMin: number; interviewerPrompt: string; rubric: RubricCriterion[]; status: TemplateStatus;
   taskBrief?: string; starterFiles?: Record<string, string>;
+  solutionFiles?: Record<string, string>; verification?: unknown; variants?: TemplateVariant[];
 }): Promise<Result> {
   try {
     await requireAdminRole();
@@ -157,6 +158,7 @@ export async function createGameTemplate(input: {
  */
 export async function generateTaskDraft(input: {
   name: string; taskVariant: TaskVariant; techStack: string[]; durationMin: number; notes: string;
+  jobDescription?: string; differentFrom?: string;
 }): Promise<{ ok: true; task: GeneratedTask } | { ok: false; error: string }> {
   try {
     await requireAdminRole();
