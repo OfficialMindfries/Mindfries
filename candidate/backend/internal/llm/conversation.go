@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,7 +42,7 @@ func (a *Agents) Assist(ctx context.Context, brief, filePath, fileContent string
 	}
 	messages = append(messages, history...)
 	messages = append(messages, ChatMessage{Role: "user", Content: message})
-	return a.client.Complete(ctx, a.models.Assistant, messages, assistantTokens)
+	return a.quickProse(ctx, a.models.Assistant, messages, assistantTokens)
 }
 
 const interviewSystemPrompt = `You are the AI Interviewer in Mindfries' evidence-based hiring platform.
@@ -84,7 +83,7 @@ func (a *Agents) InterviewTurn(ctx context.Context, brief, guidance, work, trail
 	}
 	fmt.Fprintf(&b, "\nAsk question %d of %d now.", n, total)
 
-	out, err := a.client.Complete(ctx, a.models.Interviewer, []ChatMessage{
+	out, err := a.quickProse(ctx, a.models.Interviewer, []ChatMessage{
 		{Role: "system", Content: interviewSystemPrompt},
 		{Role: "user", Content: b.String()},
 	}, interviewTokens)
@@ -103,7 +102,7 @@ func (a *Agents) AnalyzeInterview(ctx context.Context, work, transcript string) 
 	if strings.TrimSpace(transcript) == "" {
 		return "", errors.New("llm: no interview took place for this session")
 	}
-	return a.client.Complete(ctx, a.models.Report, []ChatMessage{
+	return a.prose(ctx, a.models.Report, []ChatMessage{
 		{Role: "system", Content: interviewAnalysisSystemPrompt},
 		{Role: "user", Content: "WHAT THE CANDIDATE CHANGED\n" + orNone(work) + "\n\nINTERVIEW TRANSCRIPT\n" + transcript},
 	}, analysisTokens)
@@ -138,16 +137,29 @@ You author a realistic take-home engineering task: a small but genuine codebase 
 The workspace runs in a browser: Python (Pyodide) and JavaScript/TypeScript run for real; there is no database, no network server, and no native binaries. Design a task that works inside that.
 Requirements:
 - The starter codebase must be complete and consistent: every file the brief mentions exists, imports resolve, and it runs.
-- 4 to 10 files, each under 150 lines. Include at least one test file and a short README.
+- 4 to 7 files, each under 80 lines — small enough to read in ten minutes. Include at least one test file and a short README.
+- Tests must run with the language's standard tooling and no third-party packages (Python: unittest, run with "python -m unittest"; JavaScript: node:test and node:assert, run with "node --test").
+- With the code as given, the tests for existing, correct behaviour pass. For a debugging or bug-fix task, at least one test fails because of the planted bug, and passes once it is fixed.
 - The task must fit the stated duration and match the stated task type and tech stack.
-- For a debugging task, plant a real, non-obvious bug and do NOT reveal its location or cause in the brief.
+- For a debugging or bug-fix task, plant a real, non-obvious bug. Do NOT reveal its location or cause anywhere: not in the brief, and not in the code — no comment, name, docstring or TODO may mark or hint at it. The buggy code must read like code someone believed was correct.
+- Test names and comments may describe the expected behaviour, never the defect.
 - The brief is Markdown with these sections: Context, Objective, Constraints, Getting Started, Evaluation. Never include the solution.
-Reply with strict JSON only, no prose outside it, no markdown code fence:
-{"taskBrief": "<markdown>", "starterFiles": {"<relative/path>": "<file content>"}}`
+Reply in exactly this layout and nothing else — no JSON, no code fences, no commentary. Each marker sits alone on its own line:
+=====BRIEF=====
+<the brief, as markdown>
+=====FILE: relative/path/to/file=====
+<that file's exact content>
+=====FILE: another/file=====
+<that file's exact content>`
 
 // GenerateTask authors a task brief and starter codebase from a spec. A
-// reply that isn't the requested JSON is an error, not a partial success —
-// a half-parsed codebase would be worse than none.
+// reply that can't be read as a brief plus files is an error, not a partial
+// success — a half-parsed codebase would be worse than none.
+//
+// The reply is a marker-delimited layout rather than JSON on purpose: a
+// codebase inside a JSON string means every quote, backslash and newline in
+// every file has to be escaped perfectly, and models don't manage it
+// reliably. Markers on their own lines need no escaping at all.
 func (a *Agents) GenerateTask(ctx context.Context, spec TaskSpec) (GeneratedTask, error) {
 	if strings.TrimSpace(spec.Name) == "" {
 		return GeneratedTask{}, errors.New("llm: a task needs a name to be generated from")
@@ -165,20 +177,20 @@ func (a *Agents) GenerateTask(ctx context.Context, spec TaskSpec) (GeneratedTask
 		b.WriteString("About the company, the role and what the task should reflect:\n" + spec.Notes + "\n")
 	}
 
-	raw, err := a.client.Complete(ctx, a.models.TaskGeneration, []ChatMessage{
+	raw, err := a.client.CompleteQuick(ctx, a.models.TaskGeneration, []ChatMessage{
 		{Role: "system", Content: taskGenSystemPrompt},
 		{Role: "user", Content: b.String()},
 	}, taskGenTokens)
+	if errors.Is(err, ErrTruncated) {
+		return GeneratedTask{}, errors.New("llm: the generated task was too long and got cut off — ask for a smaller task")
+	}
 	if err != nil {
 		return GeneratedTask{}, err
 	}
 
-	var task GeneratedTask
-	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &task); err != nil {
-		return GeneratedTask{}, fmt.Errorf("llm: the model's reply wasn't the requested JSON: %w", err)
-	}
+	task := parseGeneratedTask(raw)
 	if strings.TrimSpace(task.TaskBrief) == "" || len(task.StarterFiles) == 0 {
-		return GeneratedTask{}, errors.New("llm: the model returned an empty brief or no starter files")
+		return GeneratedTask{}, errors.New("llm: the model's reply didn't contain a brief and starter files in the requested layout")
 	}
 	return task, nil
 }

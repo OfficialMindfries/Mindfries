@@ -19,6 +19,10 @@ import (
 // the honest failure, never a fabricated completion.
 var ErrNotConfigured = errors.New("llm: OpenRouter is not configured (OPENROUTER_API_KEY unset)")
 
+// ErrTruncated is returned alongside the partial content when a reply was
+// cut off at its token ceiling.
+var ErrTruncated = errors.New("llm: the model's reply was cut off at its token limit")
+
 // OpenRouterClient is an OpenAI-compatible chat-completions client pointed
 // at OpenRouter (https://openrouter.ai/docs — /chat/completions accepts the
 // same request/response shape as OpenAI's API, with "provider/model" as the
@@ -57,13 +61,21 @@ type chatRequest struct {
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature,omitempty"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Reasoning   *reasoning    `json:"reasoning,omitempty"`
+}
+
+type reasoning struct {
+	Effort string `json:"effort"`
+}
+
+type chatChoice struct {
+	Message      ChatMessage `json:"message"`
+	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
 type chatResponse struct {
-	Choices []struct {
-		Message ChatMessage `json:"message"`
-	} `json:"choices"`
-	Error *struct {
+	Choices []chatChoice `json:"choices"`
+	Error   *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
@@ -78,11 +90,24 @@ type chatResponse struct {
 // credit before running anything, and refuses the request outright on a key
 // that can't cover it — however short the real answer would have been.
 func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return c.complete(ctx, model, messages, maxTokens, nil)
+}
+
+// CompleteQuick is Complete with the model's reasoning turned down to its
+// lowest effort. Thinking tokens are billed and counted against maxTokens
+// like any other output: left at the default, a reasoning model can spend
+// most of its ceiling before writing a word of the reply, which is slow for
+// someone waiting on an answer and truncates anything long.
+func (c *OpenRouterClient) CompleteQuick(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return c.complete(ctx, model, messages, maxTokens, &reasoning{Effort: "low"})
+}
+
+func (c *OpenRouterClient) complete(ctx context.Context, model string, messages []ChatMessage, maxTokens int, think *reasoning) (string, error) {
 	if !c.Configured() {
 		return "", ErrNotConfigured
 	}
 
-	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens})
+	body, err := json.Marshal(chatRequest{Model: model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens, Reasoning: think})
 	if err != nil {
 		return "", err
 	}
@@ -122,5 +147,11 @@ func (c *OpenRouterClient) Complete(ctx context.Context, model string, messages 
 	if len(out.Choices) == 0 {
 		return "", errors.New("llm: openrouter returned no choices")
 	}
-	return out.Choices[0].Message.Content, nil
+	content := out.Choices[0].Message.Content
+	if out.Choices[0].FinishReason == "length" {
+		// The reply hit maxTokens. Prose cut short is still worth having;
+		// callers that need the whole thing (JSON) check for ErrTruncated.
+		return content, ErrTruncated
+	}
+	return content, nil
 }

@@ -75,23 +75,65 @@ func TestInterviewTurnCarriesTheWorkAndTranscript(t *testing.T) {
 	}
 }
 
-func TestGenerateTaskParsesFencedJSONAndRejectsJunk(t *testing.T) {
-	good := "```json\n{\"taskBrief\": \"# Task\", \"starterFiles\": {\"README.md\": \"hi\"}}\n```"
-	task, err := fakeAgents(t, good, nil).GenerateTask(context.Background(), TaskSpec{Name: "Auth fix", TechStack: []string{"Node"}})
+func TestGenerateTaskReadsTheMarkerLayoutAndRejectsJunk(t *testing.T) {
+	good := "Here you go:\n=====BRIEF=====\n# Task\n\nFix it.\n=====FILE: src/limiter.py=====\ndef allow():\n    return {\"ok\": True}\n\n=====FILE: /README.md=====\nhi\n"
+	task, err := fakeAgents(t, good, nil).GenerateTask(context.Background(), TaskSpec{Name: "Auth fix", TechStack: []string{"Python"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.TaskBrief != "# Task" || task.StarterFiles["README.md"] != "hi" {
-		t.Fatalf("unexpected task: %+v", task)
+	if task.TaskBrief != "# Task\n\nFix it." {
+		t.Errorf("brief = %q", task.TaskBrief)
+	}
+	if got := task.StarterFiles["src/limiter.py"]; got != "def allow():\n    return {\"ok\": True}\n" {
+		t.Errorf("file content should be kept verbatim, indentation and quotes included, got %q", got)
+	}
+	if task.StarterFiles["README.md"] != "hi\n" {
+		t.Errorf("a leading slash on a path should be dropped: %+v", task.StarterFiles)
 	}
 
 	if _, err := fakeAgents(t, "Sure, here is a task", nil).GenerateTask(context.Background(), TaskSpec{Name: "x"}); err == nil {
-		t.Error("a non-JSON reply should be an error, not a task")
+		t.Error("a reply with no markers should be an error, not a task")
 	}
-	if _, err := fakeAgents(t, `{"taskBrief": "", "starterFiles": {}}`, nil).GenerateTask(context.Background(), TaskSpec{Name: "x"}); err == nil {
-		t.Error("an empty task should be an error")
+	if _, err := fakeAgents(t, "=====BRIEF=====\n# Only a brief\n", nil).GenerateTask(context.Background(), TaskSpec{Name: "x"}); err == nil {
+		t.Error("a brief with no files should be an error")
 	}
 	if _, err := fakeAgents(t, good, nil).GenerateTask(context.Background(), TaskSpec{}); err == nil {
 		t.Error("a spec with no name should be refused")
+	}
+}
+
+func TestStripCodeFenceCutsTheObjectOutOfWhateverSurroundsIt(t *testing.T) {
+	want := `{"a": {"b": 1}}`
+	for _, in := range []string{
+		want,
+		"```json\n" + want + "\n```",
+		"````json\n" + want + "\n````",
+		"Here is the task:\n```\n" + want + "\n```\nHope that helps.",
+	} {
+		if got := stripCodeFence(in); got != want {
+			t.Errorf("stripCodeFence(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := stripCodeFence("  no json here  "); got != "no json here" {
+		t.Errorf("a reply with no object should come back trimmed, got %q", got)
+	}
+}
+
+func TestATruncatedReplyIsKeptForProseAndRefusedForATask(t *testing.T) {
+	cut := func(reply string) *Agents {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{"finish_reason": "length", "message": map[string]string{"role": "assistant", "content": reply}}},
+			})
+		}))
+		t.Cleanup(srv.Close)
+		return NewAgents(NewOpenRouterClient("k", srv.URL), DefaultAgentModels())
+	}
+
+	if reply, err := cut("Start by reading the").Assist(context.Background(), "", "", "", nil, "where do I start?"); err != nil || reply == "" {
+		t.Errorf("a cut-off answer should still be returned, got %q, %v", reply, err)
+	}
+	if _, err := cut("=====BRIEF=====\n# T\n=====FILE: a.py=====\nx = ").GenerateTask(context.Background(), TaskSpec{Name: "x"}); err == nil {
+		t.Error("a cut-off task should be an error")
 	}
 }

@@ -37,9 +37,7 @@ func fakeOpenRouter(t *testing.T, reply string) *httptest.Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(chatResponse{
-			Choices: []struct {
-				Message ChatMessage `json:"message"`
-			}{{Message: ChatMessage{Role: "assistant", Content: reply}}},
+			Choices: []chatChoice{{Message: ChatMessage{Role: "assistant", Content: reply}}},
 		})
 	}))
 }

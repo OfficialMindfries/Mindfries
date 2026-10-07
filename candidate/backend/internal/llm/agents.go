@@ -25,11 +25,11 @@ const conversationModel = "google/gemini-3.8-flash"
 // every call sets one. Sized to what each agent actually writes, with room
 // to spare.
 const (
-	analysisTokens  = 2000  // an evidence agent's handful of paragraphs
-	reportTokens    = 1000  // a recommendation and a short summary, as JSON
-	assistantTokens = 800   // a concise answer in the workspace chat
-	interviewTokens = 600   // one question
-	taskGenTokens   = 12000 // a brief plus a small codebase, as JSON
+	analysisTokens  = 2000 // an evidence agent's handful of paragraphs
+	reportTokens    = 1000 // a recommendation and a short summary, as JSON
+	assistantTokens = 800  // a concise answer in the workspace chat
+	interviewTokens = 600  // one question
+	taskGenTokens   = 6000 // a brief plus a small codebase
 )
 
 // AgentModels is which OpenRouter model slug each agent calls.
@@ -93,7 +93,7 @@ func (a *Agents) EvaluateCode(ctx context.Context, diff string) (string, error) 
 	if strings.TrimSpace(diff) == "" {
 		return "", errors.New("llm: no code-change evidence available for this session")
 	}
-	return a.client.Complete(ctx, a.models.CodeEvaluation, []ChatMessage{
+	return a.prose(ctx, a.models.CodeEvaluation, []ChatMessage{
 		{Role: "system", Content: codeEvalSystemPrompt},
 		{Role: "user", Content: diff},
 	}, analysisTokens)
@@ -109,7 +109,7 @@ func (a *Agents) AnalyzeReasoning(ctx context.Context, eventsDigest string) (str
 	if strings.TrimSpace(eventsDigest) == "" {
 		return "", errors.New("llm: no event trail available for this session")
 	}
-	return a.client.Complete(ctx, a.models.Reasoning, []ChatMessage{
+	return a.prose(ctx, a.models.Reasoning, []ChatMessage{
 		{Role: "system", Content: reasoningSystemPrompt},
 		{Role: "user", Content: eventsDigest},
 	}, analysisTokens)
@@ -125,7 +125,7 @@ func (a *Agents) AnalyzeWorkflow(ctx context.Context, eventsDigest string) (stri
 	if strings.TrimSpace(eventsDigest) == "" {
 		return "", errors.New("llm: no event trail available for this session")
 	}
-	return a.client.Complete(ctx, a.models.Workflow, []ChatMessage{
+	return a.prose(ctx, a.models.Workflow, []ChatMessage{
 		{Role: "system", Content: workflowSystemPrompt},
 		{Role: "user", Content: eventsDigest},
 	}, analysisTokens)
@@ -151,7 +151,7 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	if len(evidence) == 0 {
 		return ReportResult{}, errors.New("llm: no evidence available to generate a report from")
 	}
-	raw, err := a.client.Complete(ctx, a.models.Report, []ChatMessage{
+	raw, err := a.prose(ctx, a.models.Report, []ChatMessage{
 		{Role: "system", Content: reportSystemPrompt},
 		{Role: "user", Content: strings.Join(evidence, "\n\n---\n\n")},
 	}, reportTokens)
@@ -166,13 +166,36 @@ func (a *Agents) GenerateReport(ctx context.Context, evidence []string) (ReportR
 	return result, nil
 }
 
-// stripCodeFence removes a leading/trailing ```json ... ``` fence if the
-// model wrapped its JSON in one despite being asked not to — cheaper than
-// asking the model again over a formatting habit.
+// stripCodeFence returns the JSON object inside a model reply: everything
+// from the first "{" to the last "}". Models wrap JSON in code fences of
+// varying shapes, or add a sentence before it, despite being asked not to —
+// cheaper to cut the object out than to ask again over a formatting habit.
+// A reply with no braces comes back trimmed and unchanged, and fails to
+// parse on its own merits.
 func stripCodeFence(s string) string {
 	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
+	start, end := strings.Index(s, "{"), strings.LastIndex(s, "}")
+	if start < 0 || end <= start {
+		return s
+	}
+	return s[start : end+1]
+}
+
+// prose runs a completion whose reply is read by a person or another agent
+// as text, where a reply cut off at the token ceiling is still usable.
+func (a *Agents) prose(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return keepPartial(a.client.Complete(ctx, model, messages, maxTokens))
+}
+
+// quickProse is prose for the candidate-facing agents, where someone is
+// waiting on the reply — see OpenRouterClient.CompleteQuick.
+func (a *Agents) quickProse(ctx context.Context, model string, messages []ChatMessage, maxTokens int) (string, error) {
+	return keepPartial(a.client.CompleteQuick(ctx, model, messages, maxTokens))
+}
+
+func keepPartial(out string, err error) (string, error) {
+	if errors.Is(err, ErrTruncated) && strings.TrimSpace(out) != "" {
+		return out, nil
+	}
+	return out, err
 }

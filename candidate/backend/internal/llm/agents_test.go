@@ -64,9 +64,7 @@ func TestAgentsRefuseEmptyEvidence(t *testing.T) {
 func TestGenerateReportParsesStrictJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(chatResponse{
-			Choices: []struct {
-				Message ChatMessage `json:"message"`
-			}{{Message: ChatMessage{Content: `{"recommendation":"hire","summary":"solid work"}`}}},
+			Choices: []chatChoice{{Message: ChatMessage{Content: `{"recommendation":"hire","summary":"solid work"}`}}},
 		})
 	}))
 	defer srv.Close()
@@ -84,9 +82,7 @@ func TestGenerateReportParsesStrictJSON(t *testing.T) {
 func TestGenerateReportDegradesGracefullyOnNonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(chatResponse{
-			Choices: []struct {
-				Message ChatMessage `json:"message"`
-			}{{Message: ChatMessage{Content: "I think this candidate did fine, no JSON here."}}},
+			Choices: []chatChoice{{Message: ChatMessage{Content: "I think this candidate did fine, no JSON here."}}},
 		})
 	}))
 	defer srv.Close()
