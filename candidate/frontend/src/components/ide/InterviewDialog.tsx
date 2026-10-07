@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { Circle, Clock, MessagesSquare, Mic, Square, Volume2, VolumeX } from "lucide-react";
+import { Circle, Clock, MessagesSquare, Mic, PhoneCall, Square, Volume2, VolumeX } from "lucide-react";
 import { idePalette, STATUS_BAR_BG } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 import { canListen, canSpeak, listen, speak, stopSpeaking, type Dictation } from "@/lib/ide/speech";
 import { InterviewRecorder, type ClipRecording } from "@/lib/ide/interview-recorder";
-import { confirmRecording, interviewStep, startRecordingUpload } from "@/app/ide/interview-actions";
+import { canHoldLiveCall, LiveCall } from "@/lib/ide/live-call";
+import { confirmRecording, interviewStep, openLiveInterview, startRecordingUpload } from "@/app/ide/interview-actions";
 
 /**
  * The follow-up interview (PRD §1.6: workspace → interview → submit).
@@ -30,6 +31,13 @@ import { confirmRecording, interviewStep, startRecordingUpload } from "@/app/ide
  * It is built from turns over the browser's own speech features — see
  * lib/ide/speech.ts for why it isn't one open audio line. Typing always
  * works alongside it.
+ *
+ * Where the backend has a live voice line, the interview is one spoken call
+ * instead: the interviewer talks and listens continuously, and the candidate
+ * just answers aloud — see lib/ide/live-call.ts. The questions, the limits
+ * and the record of it are the same; only how it's held differs. If the call
+ * can't be placed, or drops, the interview carries on in the turn-based form
+ * above from wherever it had got to.
  *
  * Each answer is recorded — microphone, plus the proctoring camera's picture
  * when it's on — and uploaded as its own clip. The candidate is told before
@@ -83,6 +91,17 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
   const [listening, setListening] = useState(false);
   const [micNote, setMicNote] = useState<string | undefined>();
   const [recording, setRecording] = useState<"audio" | "video" | "off" | null>(null);
+
+  // The live voice call, when the interview is being held as one. `saying`
+  // is the interviewer's current turn as it's spoken.
+  const [live, setLive] = useState<"connecting" | "on" | null>(null);
+  const [saying, setSaying] = useState("");
+  const call = useRef<LiveCall | null>(null);
+  const liveRef = useRef(false);
+  const sayingRef = useRef("");
+  // The interviewer's next caption starts a new turn rather than adding to the last.
+  const turnOver = useRef(true);
+  const clockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const dictation = useRef<Dictation | null>(null);
   const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -188,7 +207,8 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
   const sendAnswer = useCallback(
     (allowEmpty: boolean) => {
       const current = progressRef.current;
-      if (!current || pendingRef.current) return;
+      // In a live call the answer is whatever was said; the backend ends it.
+      if (!current || pendingRef.current || liveRef.current) return;
       const text = answerRef.current.trim();
       if (!text && !allowEmpty) return;
       stopListening();
@@ -240,9 +260,102 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
     setListening(true);
   }, [sendAnswer]);
 
-  // Open the interview once: ask for the microphone (for recording), then
-  // the first question. The ref guards React's development double-mount,
-  // which would otherwise ask for two first questions.
+  /** Leaves the live call (if any) and carries on turn by turn from wherever the interview stands. */
+  const continueInText = useCallback(
+    (note?: string) => {
+      call.current?.close();
+      call.current = null;
+      liveRef.current = false;
+      if (clockTimer.current) clearTimeout(clockTimer.current);
+      setLive(null);
+      setSaying("");
+      const current = progressRef.current;
+      if (current) finishClip(current.asked);
+      if (note) setMicNote(note);
+      setProgress(null);
+      setSecondsLeft(null);
+      void step({});
+    },
+    [finishClip, step],
+  );
+
+  /**
+   * Tries to hold the interview as a live voice call. Resolves false when
+   * there's no call to be had, so the caller can start the turn-based one.
+   */
+  const startLive = useCallback(
+    async (mic: MediaStream): Promise<boolean> => {
+      if (!canHoldLiveCall()) return false;
+      setLive("connecting");
+      const opened = await openLiveInterview(sessionId, getFiles());
+      if ("unavailable" in opened) {
+        setLive(null);
+        return false;
+      }
+      const language = opened.language;
+      const next = new LiveCall(
+        { url: opened.url, ticket: opened.ticket, mic, inputRate: opened.inputRate, outputRate: opened.outputRate },
+        {
+          onReady: () => {
+            setLive("on");
+            setPending(false);
+          },
+          onCaption: (role, text) => {
+            if (role === "candidate") {
+              setAnswer((prev) => prev + text);
+              return;
+            }
+            sayingRef.current = turnOver.current ? text : sayingRef.current + text;
+            turnOver.current = false;
+            setSaying(sayingRef.current);
+          },
+          onQuestion: (q) => {
+            const previous = progressRef.current;
+            if (previous) finishClip(previous.asked);
+            turnOver.current = true;
+            setAnswer("");
+            setProgress({ question: sayingRef.current.trim(), asked: q.asked, total: q.total, language, answerSeconds: q.answerSeconds });
+            clip.current = recorder.current?.start(cameraRef.current) ?? null;
+            // The clock starts once the question has been heard, not when it
+            // finished being generated.
+            setSecondsLeft(null);
+            if (clockTimer.current) clearTimeout(clockTimer.current);
+            clockTimer.current = setTimeout(() => setSecondsLeft(q.answerSeconds), q.startsInMs);
+          },
+          onTimeUp: () => setSecondsLeft(0),
+          onEnd: (outcome, reason) => {
+            call.current = null;
+            if (outcome === "done") {
+              liveRef.current = false;
+              const current = progressRef.current;
+              if (current) finishClip(current.asked);
+              void finish();
+              return;
+            }
+            continueInText(`${reason ?? "The voice call ended."} Continuing in text.`);
+          },
+        },
+      );
+      try {
+        liveRef.current = true;
+        call.current = next;
+        await next.start();
+        return true;
+      } catch {
+        next.close();
+        call.current = null;
+        liveRef.current = false;
+        setLive(null);
+        return false;
+      }
+    },
+    [sessionId, getFiles, finishClip, finish, continueInText],
+  );
+
+  // Open the interview once: ask for the microphone (for recording, and for
+  // the live call), then start — as a live voice call where there is one,
+  // otherwise with the first turn-based question. The ref guards React's
+  // development double-mount, which would otherwise start two interviews.
   useEffect(() => {
     if (started.current) return;
     started.current = true;
@@ -251,14 +364,18 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
       const opened = await next.open();
       recorder.current = opened ? next : null;
       setRecording(opened ? (cameraRef.current ? "video" : "audio") : "off");
+      if (next.stream && (await startLive(next.stream))) return;
+      // If the call was refused after its ticket was issued, the workspace
+      // has already been recorded; sending it again is harmless.
       await step({ files: getFiles() });
     })();
-  }, [step, getFiles]);
+  }, [step, getFiles, startLive]);
 
   // Each new question: read it aloud, and in conversation mode open the
   // microphone as soon as it has been read.
   useEffect(() => {
-    if (!progress?.question) return;
+    // A live call speaks its own questions.
+    if (!progress?.question || liveRef.current) return;
     if (voiceOn && canSpeak()) {
       speak(progress.question, progress.language, () => {
         if (conversationRef.current) startListening();
@@ -276,7 +393,8 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
   useEffect(() => {
     if (secondsLeft === null || pending || error || finishing) return;
     if (secondsLeft <= 0) {
-      sendAnswer(true);
+      // In a live call the backend's own clock moves the interviewer on.
+      if (!liveRef.current) sendAnswer(true);
       return;
     }
     const id = setTimeout(() => setSecondsLeft((s) => (s === null ? s : s - 1)), 1000);
@@ -288,6 +406,8 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
       if (silenceTimer.current) clearTimeout(silenceTimer.current);
       dictation.current?.stop();
       stopSpeaking();
+      if (clockTimer.current) clearTimeout(clockTimer.current);
+      call.current?.close();
       // Leaving mid-answer (back to the workspace): drop the partial clip
       // and release the microphone. Finished clips keep uploading.
       void clip.current?.stop();
@@ -322,6 +442,11 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
                 <Circle size={8} fill="currentColor" /> REC
               </span>
             )}
+            {live === "on" && (
+              <span className="flex items-center gap-1" title="Live voice call with the AI interviewer">
+                <PhoneCall size={12} /> Live
+              </span>
+            )}
             {progress && (
               <span className="tabular-nums">
                 Question {progress.asked} of {progress.total}
@@ -332,7 +457,7 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
                 <Clock size={12} /> {clock(Math.max(0, secondsLeft))}
               </span>
             )}
-            {canSpeak() && (
+            {canSpeak() && !live && (
               <button
                 type="button"
                 title={voiceOn ? "Stop reading questions aloud" : "Read questions aloud"}
@@ -362,11 +487,29 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
                   ? "Your answers are kept as text. They are not being recorded — the microphone isn't available."
                   : "Your answers are recorded — your voice, and your camera if it's on — and shared with the hiring team alongside the written transcript."}
               </p>
-              {pending && <p>Preparing the first question…</p>}
+              {pending && !live && <p>Preparing the first question…</p>}
+              {live === "connecting" && <p>Connecting you to the interviewer…</p>}
+              {live === "on" && (
+                <p className={palette.text}>
+                  {saying || "You're connected. The interviewer will speak first — just answer aloud when they've finished."}
+                </p>
+              )}
             </div>
           )}
 
-          {!finishing && progress && (
+          {!finishing && progress && live && (
+            <>
+              <p className="leading-relaxed font-medium">{saying || progress.question}</p>
+              <div className={clsx("mt-3 min-h-24 rounded-lg border px-3 py-2 text-sm leading-relaxed", palette.border)}>
+                {answer ? answer : <span className={palette.textMuted}>Answer aloud — what you say appears here.</span>}
+              </div>
+              <p className={clsx("mt-2 text-xs", palette.textMuted)}>
+                This is a live call: speak naturally, and the interviewer moves on when you&apos;ve finished or the time runs out.
+              </p>
+            </>
+          )}
+
+          {!finishing && progress && !live && (
             <>
               <p className="leading-relaxed font-medium">{progress.question}</p>
               <textarea
@@ -440,6 +583,16 @@ export function InterviewDialog({ theme, sessionId, getFiles, camera, onDone }: 
                     Continue to submit
                   </button>
                 </>
+              ) : live ? (
+                live === "on" && (
+                  <button
+                    type="button"
+                    onClick={() => continueInText("You left the voice call.")}
+                    className={clsx("rounded-md px-3 py-1.5 text-xs", palette.hover, palette.textMuted)}
+                  >
+                    Switch to typing
+                  </button>
+                )
               ) : (
                 progress && (
                   <>

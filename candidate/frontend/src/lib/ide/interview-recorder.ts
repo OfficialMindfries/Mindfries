@@ -44,6 +44,11 @@ export function canRecord(): boolean {
 export class InterviewRecorder {
   private mic: MediaStream | null = null;
 
+  /** The open microphone stream, for the live voice call to share. Null until `open` succeeds. */
+  get stream(): MediaStream | null {
+    return this.mic;
+  }
+
   /** Asks for the microphone. False if it was refused or isn't there. */
   async open(): Promise<boolean> {
     if (!canRecord()) return false;

@@ -5,6 +5,8 @@ import {
   BackendAuthError,
   getSession,
   interviewStep as interviewStepOnBackend,
+  liveInterviewUrl,
+  startLiveInterview,
   postSessionEvents,
   type InterviewInput,
   type InterviewState,
@@ -25,6 +27,37 @@ export async function interviewStep(sessionId: string, input: InterviewInput = {
     return await interviewStepOnBackend(sessionId, input);
   } catch (err) {
     return failure(err, "The AI service didn't answer — try again.");
+  }
+}
+
+export interface LiveInterviewCall {
+  /** The WebSocket the page opens — straight to the candidate backend. */
+  url: string;
+  ticket: string;
+  language: string;
+  inputRate: number;
+  outputRate: number;
+}
+
+/**
+ * Sets up the interview as a live voice call. `unavailable` covers every
+ * reason there isn't one to be had — no voice line configured, the backend
+ * out of reach — and means the interview is held turn by turn instead, which
+ * needs nothing this does.
+ *
+ * The workspace files go with it for the same reason they go with the first
+ * turn-based question: the interviewer asks about what was actually written.
+ */
+export async function openLiveInterview(
+  sessionId: string,
+  files: Record<string, string>,
+): Promise<LiveInterviewCall | { unavailable: true }> {
+  if (!backendReady()) return { unavailable: true };
+  try {
+    const start = await startLiveInterview(sessionId, files);
+    return { url: liveInterviewUrl(), ticket: start.ticket, language: start.language, inputRate: start.inputRate, outputRate: start.outputRate };
+  } catch {
+    return { unavailable: true };
   }
 }
 

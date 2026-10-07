@@ -163,6 +163,21 @@ type snapshotPayload struct {
 	// Skipped lists paths left out for size, so the record says what it
 	// doesn't contain rather than silently looking complete.
 	Skipped []string `json:"skipped,omitempty"`
+	// Checkpoint marks a snapshot the workspace saved by itself while the
+	// candidate was working, as opposed to one taken at a step they took
+	// (asking the interviewer in, submitting). Only the latest is kept.
+	Checkpoint bool `json:"checkpoint,omitempty"`
+}
+
+// checkpointFlag is the payload key db.ReplaceFlaggedEvent matches on.
+const checkpointFlag = "checkpoint"
+
+// RecordCheckpoint saves the workspace as it stands while the candidate is
+// still working. Nothing reads it unless the session is never submitted from
+// the browser — a closed tab, a dead battery — in which case it is the work
+// the server submits (see abandoned.go). Each one replaces the last.
+func (o *Orchestrator) RecordCheckpoint(ctx context.Context, sessionID string, files map[string]string) error {
+	return o.recordSnapshot(ctx, sessionID, files, true)
 }
 
 // RecordSnapshot stores the candidate's workspace files as evidence — what
@@ -177,6 +192,10 @@ type snapshotPayload struct {
 // what the interview just told them. Those are ignored: what gets evaluated
 // is the code as it stood when the interview began.
 func (o *Orchestrator) RecordSnapshot(ctx context.Context, sessionID string, files map[string]string) error {
+	return o.recordSnapshot(ctx, sessionID, files, false)
+}
+
+func (o *Orchestrator) recordSnapshot(ctx context.Context, sessionID string, files map[string]string, checkpoint bool) error {
 	if len(files) == 0 {
 		return nil
 	}
@@ -191,7 +210,7 @@ func (o *Orchestrator) RecordSnapshot(ctx context.Context, sessionID string, fil
 	}
 	sort.Strings(paths)
 
-	snap := snapshotPayload{Files: map[string]string{}}
+	snap := snapshotPayload{Files: map[string]string{}, Checkpoint: checkpoint}
 	total := 0
 	for _, p := range paths {
 		clean := strings.TrimPrefix(p, "/")
@@ -212,6 +231,9 @@ func (o *Orchestrator) RecordSnapshot(ctx context.Context, sessionID string, fil
 	}
 	// Straight to the database, not through RecordEvents: a whole codebase
 	// has no business being fanned out over the session's live WebSocket room.
+	if checkpoint {
+		return o.DB.ReplaceFlaggedEvent(ctx, sessionID, checkpointFlag, db.NewActivityEvent{EventType: eventSnapshot, Payload: payload})
+	}
 	return o.DB.InsertActivityEvents(ctx, sessionID, []db.NewActivityEvent{{EventType: eventSnapshot, Payload: payload}})
 }
 

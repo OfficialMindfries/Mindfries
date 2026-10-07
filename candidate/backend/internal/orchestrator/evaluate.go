@@ -28,6 +28,9 @@ const (
 
 	eventAICost             = "ai_cost"
 	eventInterviewRecording = "interview_recording"
+	// What an interview_recording event becomes once its file is deleted at
+	// the end of retention (internal-admin/frontend/lib/retention.ts).
+	eventRecordingExpired = "interview_recording_expired"
 )
 
 // Evaluate runs the Code Evaluation, Reasoning, Workflow and Interview
@@ -278,7 +281,7 @@ func digestEvents(events []db.ActivityEvent, starter map[string]string) (work st
 				latest = &snap
 			}
 			continue
-		case eventInterview, eventAICost, eventInterviewRecording:
+		case eventInterview, eventAICost, eventInterviewRecording, eventRecordingExpired:
 			continue
 		case "git":
 			var p struct {

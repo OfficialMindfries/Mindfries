@@ -39,6 +39,7 @@ export function InterviewTranscript({ exchanges }: { exchanges: InterviewExchang
             {x.seconds !== null && !x.unanswered && <span>Answered in {x.seconds}s</span>}
             {x.timedOut && !x.unanswered && <span className="font-semibold text-[#a6203c]">Over the time limit</span>}
             {x.unanswered && <span className="font-semibold text-[#a6203c]">Ran out of time</span>}
+            {x.recordingExpired && <span>Recording deleted after 90 days</span>}
           </div>
           {x.recording &&
             (x.recording.kind === "video" ? (

@@ -28,5 +28,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"database_reachable":    dbReachable,
 		"openrouter_configured": openrouterConfigured,
 		"daytona_configured":    daytonaConfigured,
+		"live_voice_configured": s.orc.Live.Configured(),
 	})
 }

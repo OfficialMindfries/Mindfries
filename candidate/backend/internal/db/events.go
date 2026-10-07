@@ -59,6 +59,33 @@ func (d *DB) InsertActivityEvents(ctx context.Context, sessionID string, events 
 	return tx.Commit(ctx)
 }
 
+// ReplaceFlaggedEvent stores one event in place of every earlier event of
+// the same type on this session whose payload carries `"<flag>": true`. It
+// is for state that is saved over and over and only ever read at its latest
+// — the workspace checkpoint — where appending would grow the trail by a
+// whole codebase every couple of minutes. Events of that type without the
+// flag are left alone.
+func (d *DB) ReplaceFlaggedEvent(ctx context.Context, sessionID, flag string, event NewActivityEvent) error {
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		delete from activity_events
+		where session_id = $1 and event_type = $2 and payload ->> $3 = 'true'
+	`, sessionID, event.EventType, flag); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		insert into activity_events (session_id, event_type, payload) values ($1, $2, $3)
+	`, sessionID, event.EventType, event.Payload); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // GetSessionEvents loads every event for a session, oldest first — this is
 // the evidence the orchestrator hands to the Code Evaluation, Reasoning and
 // Workflow agents.
