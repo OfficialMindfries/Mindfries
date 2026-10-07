@@ -30,6 +30,8 @@ export interface GameTemplate {
   taskVariant: TaskVariant;
   techStack: string[];
   durationMin: number;
+  /** True for a task this company generated for itself; false for one from Mindfries' shared library. */
+  own: boolean;
 }
 
 export interface JobRole {

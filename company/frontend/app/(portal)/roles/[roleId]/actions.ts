@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleAssistant, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, createCompanyTemplate, getJobRole, inviteCandidateToRole, setApplicationStage, setJobRoleAssistant, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
+import { generateTask, parseCodeSample, taskGenerationReady, type GeneratedTask } from "@/lib/task-generation";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -130,6 +131,79 @@ export async function saveInterviewSettings(roleId: string, _prev: InterviewSett
   }
   revalidatePath(`/roles/${roleId}`);
   return { error: null, success: true };
+}
+
+const TASK_TYPES = new Set(["bug_fix", "feature", "refactor", "debug"]);
+
+/**
+ * Drafts a task for this role from the company's own material. Returns the
+ * draft to the page, with what running it found — nothing is saved here.
+ */
+export async function generateRoleTask(roleId: string, form: FormData): Promise<{ ok: true; task: GeneratedTask } | { ok: false; error: string }> {
+  try {
+    const user = await requireCompanyPermission("role:write");
+    const role = await getJobRole(user.companyId, roleId);
+    if (!role) return { ok: false, error: "Role not found." };
+    if (!taskGenerationReady()) return { ok: false, error: "Task generation isn't connected for this portal yet. You can still attach a task from the library." };
+
+    const name = text(form.get("name"), 120);
+    const jobDescription = text(form.get("jobDescription"), 12000);
+    const notes = text(form.get("notes"), 4000);
+    if (!name) return { ok: false, error: "Give the task a name." };
+    if (!jobDescription && !notes) return { ok: false, error: "Paste the job description, or say what the task should reflect." };
+    const taskVariant = String(form.get("taskVariant") ?? "");
+    const stack = text(form.get("techStack"), 200);
+
+    const task = await generateTask({
+      name,
+      taskVariant: TASK_TYPES.has(taskVariant) ? taskVariant : "bug_fix",
+      techStack: stack ? stack.split(",").map((s) => s.trim()).filter(Boolean) : role.techStack,
+      durationMin: Number(form.get("durationMin")) || role.durationMin || 60,
+      notes: `Company: ${user.companyName}. Role: ${role.title}.${notes ? ` ${notes}` : ""}`,
+      jobDescription,
+      codebase: parseCodeSample(typeof form.get("codebase") === "string" ? (form.get("codebase") as string).slice(0, 60000) : ""),
+    });
+    return { ok: true, task };
+  } catch (e) {
+    return { ok: false, error: e instanceof ForbiddenError ? e.message : e instanceof Error ? e.message : "Couldn't generate a task — try again." };
+  }
+}
+
+/** Saves a draft from generateRoleTask as the company's own task and attaches it to the role. */
+export async function saveGeneratedTask(roleId: string, input: { name: string; taskVariant: string; task: GeneratedTask }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await requireCompanyPermission("role:write");
+    const role = await getJobRole(user.companyId, roleId);
+    if (!role) return { ok: false, error: "Role not found." };
+    const name = text(input.name, 120);
+    const task = input.task;
+    // The draft has been to the browser and back, so it is checked like any
+    // other input rather than trusted as what the model returned.
+    const files = (v: unknown): Record<string, string> =>
+      v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, c]) => typeof c === "string").slice(0, 40)) as Record<string, string> : {};
+    const starterFiles = files(task?.starterFiles);
+    if (!name || typeof task?.taskBrief !== "string" || !task.taskBrief.trim() || Object.keys(starterFiles).length === 0) {
+      return { ok: false, error: "That draft is incomplete — generate it again." };
+    }
+    const size = JSON.stringify(task).length;
+    if (size > 600_000) return { ok: false, error: "That task is too large to save." };
+
+    await createCompanyTemplate(user.companyId, roleId, {
+      name,
+      taskVariant: TASK_TYPES.has(input.taskVariant) ? input.taskVariant : "bug_fix",
+      techStack: role.techStack,
+      durationMin: role.durationMin ?? 60,
+      taskBrief: task.taskBrief.slice(0, 20000),
+      starterFiles,
+      solutionFiles: files(task.solutionFiles),
+      verification: task.verification ?? null,
+    });
+    revalidatePath(`/roles/${roleId}`);
+    revalidatePath("/roles");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof ForbiddenError ? e.message : e instanceof Error ? e.message : "Couldn't save the task — try again." };
+  }
 }
 
 export type AssistantSettingsState = { error: string | null; success: boolean };

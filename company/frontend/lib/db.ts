@@ -42,19 +42,64 @@ function toTemplate(r: any): GameTemplate {
     taskVariant: r.task_variant,
     techStack: r.tech_stack ?? [],
     durationMin: r.duration_min ?? 60,
+    own: !!r.company_id,
   };
 }
 
-/** Only published templates — this portal picks from the shared library, it doesn't author rubrics/repo config (that stays in internal-admin). */
-export async function listPublishedTemplates(): Promise<GameTemplate[]> {
+/**
+ * The tasks a company can attach to a role: Mindfries' published library,
+ * plus the ones it generated for itself (status 'private', owned by it —
+ * supabase/migrations/0017_task_generation.sql). Never another company's.
+ */
+export async function listPublishedTemplates(companyId?: string): Promise<GameTemplate[]> {
   const c = db();
   if (!c) return [];
-  const { data } = await c
+  const { data: library } = await c
     .from("game_templates")
     .select("*")
     .eq("status", "published")
     .order("name", { ascending: true });
-  return (data ?? []).map(toTemplate);
+  // company_id doesn't exist before migration 0017; the error then just
+  // means there are no company-owned tasks yet.
+  const { data: own } = companyId
+    ? await c.from("game_templates").select("*").eq("status", "private").eq("company_id", companyId).order("created_at", { ascending: false })
+    : { data: [] };
+  // A library task has no owner. Filtered here rather than in the query so
+  // the query still runs on a database without the column.
+  return [...(own ?? []), ...(library ?? []).filter((r: any) => !r.company_id)].map(toTemplate);
+}
+
+/**
+ * Saves a generated task as this company's own and attaches it to the role.
+ * It is stored 'private': outside the published library, so no other
+ * company can attach it and it never appears in the candidates' open pool.
+ */
+export async function createCompanyTemplate(
+  companyId: string,
+  roleId: string,
+  task: {
+    name: string; taskVariant: string; techStack: string[]; durationMin: number;
+    taskBrief: string; starterFiles: Record<string, string>; solutionFiles: Record<string, string>; verification: unknown;
+  },
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const role = await getJobRole(companyId, roleId);
+  if (!role) throw new Error("Role not found");
+  const { data, error } = await c
+    .from("game_templates")
+    .insert({
+      name: task.name, task_variant: task.taskVariant, tech_stack: task.techStack, duration_min: task.durationMin,
+      task_brief: task.taskBrief, starter_files: task.starterFiles, solution_files: task.solutionFiles,
+      verification: task.verification, company_id: companyId, status: "private",
+    })
+    .select("id")
+    .single();
+  if (error && (error.code === "PGRST204" || error.code === "42703")) {
+    throw new Error("Saving a generated task isn't available yet — the database is missing migration 0017_task_generation.");
+  }
+  if (error || !data) throw error ?? new Error("Could not save the task");
+  await setJobRoleTemplate(companyId, roleId, data.id);
 }
 
 function toJobRole(r: any): JobRole {
@@ -133,6 +178,14 @@ export async function getJobRole(companyId: string, roleId: string): Promise<Job
 export async function setJobRoleTemplate(companyId: string, roleId: string, templateId: string | null): Promise<void> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");
+  // The id comes from a form. It has to be one this company may use: a
+  // published library task, or a private one of its own — not another
+  // company's private task whose id someone has got hold of.
+  if (templateId) {
+    const { data: template } = await c.from("game_templates").select("*").eq("id", templateId).maybeSingle();
+    const allowed = template && ((template.status === "published" && !template.company_id) || (template.status === "private" && template.company_id === companyId));
+    if (!allowed) throw new Error("That assessment isn't available to attach.");
+  }
   const { error } = await c
     .from("job_roles")
     .update({ template_id: templateId })
