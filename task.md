@@ -76,12 +76,12 @@ and social accounts are connected through **Composio**.
 
 | # | What | State today |
 |---|---|---|
-| 14 | Invitation email with a link | Not sent — a candidate only sees an invite if they sign up with the same email |
-| 15 | Accept / decline an invitation | Not built |
-| 16 | Notifications (invite, deadline, report ready) | Bell and panel built; nothing feeds them |
+| 14 | Invitation email with a link | Built, off until the company portal has `RESEND_API_KEY`, `RESEND_FROM` and `CANDIDATE_PORTAL_URL`. Inviting a candidate mails them a link to their assessments page and says which address to sign in with; the invite form reports what actually happened to the email, and the candidate page shows whether one was sent. No real email has been sent — the message is built and the send path is the mailer the portal already uses for team invites. The link is not a one-time token: the invitation belongs to whoever signs in with the invited address |
+| 15 | Accept / decline an invitation | Built (migration 0019). An invitation asks for an answer before it offers Start. Declining asks once more, takes an optional reason, and closes it — a declined invitation can't be started. The company sees "Declined" in the pipeline with the reason, and "accepted" with the date. Checked in the browser on 2026-10-07 |
+| 16 | Notifications (invite, deadline, report ready) | Built. The bell shows an invitation waiting for an answer, a due date within three days or passed, and a report that is ready or failed. Nothing is stored as a notification — each is worked out from the candidate's records when the bell is read, so it disappears when the thing it is about is dealt with. Read and dismissed are kept on the server. In-app only: no email or push is sent for a deadline or a report. Checked in the browser on 2026-10-07 |
 | 17 | Activity feed "See all" | Built. The feed shows the five most recent, each linking to its workspace or report; "See all" opens the full assessments list |
-| 18 | Environment check (camera, mic, browser) | Placeholder page; never marked done on the dashboard |
-| 19 | Practice run | Placeholder page; not tracked |
+| 18 | Environment check (camera, mic, browser) | Built. Opens the camera and shows the picture, opens the microphone and shows the level it hears, and asks the browser for each thing the workspace uses; a failure says what to do about it. Passing all three ticks the step on the dashboard. What is saved is the browser's own report (three yes/no answers), not something the server measured. Run in the browser with stand-in devices, including a refused permission — not with a real camera or microphone |
+| 19 | Practice run | Built. Opens the real workspace on a small task with one bug and a test that catches it (checked with real Python: fails as given, passes when fixed). There is no session behind it, so nothing is recorded, timed or submitted; only that one was opened is kept, for the dashboard's counter and setup step. The AI assistant is off in a practice run, and the brief says so |
 | 20 | Login check on `/practice` and `/environment-check` | Built. Both now require sign-in, like the rest of the portal |
 | 21 | Per-candidate limit on self-started sessions | Built. Three open-pool assessments in any 24 hours, and never two at once; invitations aren't counted. Not yet run against the live database |
 
