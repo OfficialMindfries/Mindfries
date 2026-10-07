@@ -221,6 +221,21 @@ export async function startLiveInterview(sessionId: string, files: Record<string
   });
 }
 
+/**
+ * A ticket and address for the session's live event stream, for a page to
+ * subscribe with — see candidate/backend's handleSessionEvents. Undefined
+ * when there's no backend or it can't be asked: the page then just polls.
+ */
+export async function sessionEventsOrUndefined(sessionId: string): Promise<{ url: string; ticket: string } | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    const { ticket } = await request<{ ticket: string }>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/events-ticket`, { method: "POST" });
+    return { url: baseUrl().replace(/^http/, "ws") + "/api/v1/session-events", ticket };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Where the browser opens the live interview call: the backend's own address, as a WebSocket. */
 export function liveInterviewUrl(): string {
   return baseUrl().replace(/^http/, "ws") + "/api/v1/live-interview";

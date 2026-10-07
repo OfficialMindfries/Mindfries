@@ -101,8 +101,8 @@ and social accounts are connected through **Composio**.
 | 31 | Separate saved workspace per assessment | Built. Each session has its own browser storage key |
 | 32 | Resume an in-progress session from the dashboard | Built. An assessment under way has a Resume link; the clock keeps running on the server, and a session resumed after its interview began opens on the interview |
 | 33 | Git changes view and diff viewer | Built as a Changes tab: files that differ from the task as given, with lines added and removed, each opening as a side-by-side diff. It compares with the starting files rather than git's index. Seen working in a browser on 2026-10-07 |
-| 34 | `git clone` / `push` / `pull` | Refuses honestly; needs a proxy or the sandbox |
-| 35 | Live status over WebSocket | Server broadcasts; the browser polls instead |
+| 34 | `git clone` / `push` / `pull` | Partly, on purpose. `clone`, `fetch`, `pull` and `remote` work for public repositories on GitHub, GitLab, Bitbucket and Codeberg, through a narrow read-only proxy; clone needs an empty workspace. `push` is refused: work is submitted through the assessment, and no git credentials pass through the app. A real clone and pull were run in a browser on 2026-10-07. Each session now has its own git storage |
+| 35 | Live status over WebSocket | Built for the candidate's report page: it listens to the session's event stream and refreshes the moment the report changes, with slow polling as a fallback. The stream was checked against a local backend on 2026-10-07; the page using it has not been watched in a browser. The company portal still polls |
 
 **After submitting**
 

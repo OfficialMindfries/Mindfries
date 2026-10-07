@@ -41,6 +41,7 @@ import { isTestCommand, parseTestRun, testResults } from "@/lib/ide/test-results
 import { lineChange } from "@/lib/ide/line-change";
 import { DIFF_PREFIX, fileOfTab, isDiffTab, workspaceChanges } from "@/lib/ide/changes";
 import { startCameraSnapshots } from "@/lib/ide/camera-snapshots";
+import { setGitScope } from "@/lib/ide/git/idb";
 import { startSnapshotUpload } from "@/app/ide/interview-actions";
 
 interface IdeShellProps {
@@ -88,6 +89,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // props already resolved server-side before this component ever mounted
   // — not re-derived on every render — since useState only reads its
   // initializer on the very first render anyway.
+  // Git's storage is per session too — set before anything can run git.
+  useState(() => setGitScope(sessionId));
   const [seeded] = useState(() =>
     starterFiles && Object.keys(starterFiles).length > 0
       ? buildInitialWorkspace(starterFiles)
