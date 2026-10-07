@@ -4,16 +4,40 @@
     {
       "name": "candidate-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "candidate/frontend"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "candidate/frontend"
+      ],
       "port": 3000,
       "autoPort": true
     },
     {
       "name": "internal-admin",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "internal-admin/frontend"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "internal-admin/frontend"
+      ],
       "port": 3001,
       "autoPort": true
+    },
+    {
+      "name": "company-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "company/frontend",
+        "--",
+        "--port",
+        "3002"
+      ],
+      "port": 3002
     }
   ]
 }
