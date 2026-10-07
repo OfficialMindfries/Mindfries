@@ -50,7 +50,7 @@ func TestAssistantUptakeFindsTheAssistantsCodeInTheSubmission(t *testing.T) {
 	got := assistantUptake(uptakeEvents(map[string]string{
 		"/gateway/limiter.py": "class Limiter:\n    def allow(self, key):\n        window_start   = now - self.window_seconds\n        return self.count < 3\n",
 	}, 2))
-	for _, want := range []string{"sent the assistant 2 messages", "2 lines of code new to their project", "1 of them appear word for word", "- /gateway/limiter.py: window_start = now - self.window_seconds", "copied text out of the assistant panel 2 times"} {
+	for _, want := range []string{"sent the assistant 2 messages", "2 lines of code new to their project", "1 of them appears word for word", "- /gateway/limiter.py: window_start = now - self.window_seconds", "copied text out of the assistant panel 2 times"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}

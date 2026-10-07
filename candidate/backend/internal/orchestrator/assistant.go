@@ -260,7 +260,11 @@ func assistantUptake(events []db.ActivityEvent) string {
 		if used == 0 {
 			fmt.Fprintf(&b, " Its replies showed %s of code new to their project; none of them appear in the submitted work.", plural(total, "line"))
 		} else {
-			fmt.Fprintf(&b, " Its replies showed %s of code new to their project; %d of them appear word for word in the submitted work:", plural(total, "line"), used)
+			verb := "appear"
+			if used == 1 {
+				verb = "appears"
+			}
+			fmt.Fprintf(&b, " Its replies showed %s of code new to their project; %d of them %s word for word in the submitted work:", plural(total, "line"), used, verb)
 			paths := make([]string, 0, len(where))
 			for p := range where {
 				paths = append(paths, p)
