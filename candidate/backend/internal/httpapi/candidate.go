@@ -387,9 +387,11 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// In a sandbox session the shell itself reports each command and this
-	// backend records it (sandbox.go). The page has no business supplying
-	// one there: a terminal_command it posted would sit in the trail beside
-	// the real ones, indistinguishable from them. Looked up only if the
+	// backend records it, and reads a test run's result out of the output
+	// it relayed (terminals.go, orchestrator/testrun.go). The page has no
+	// business supplying either there: one it posted would sit in the trail
+	// beside the real ones, indistinguishable from them — "all tests
+	// passed" from a script, not a test runner. Looked up only if the
 	// request contains one.
 	sandboxed := func() bool { return s.orc != nil && s.orc.SandboxReady(r.Context(), sess) }
 
@@ -399,7 +401,7 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "event type must be lowercase letters, digits and underscores, starting with a letter, 64 characters or fewer")
 			return
 		}
-		if serverOnlyEventTypes[e.Type] || (e.Type == "terminal_command" && sandboxed()) {
+		if serverOnlyEventTypes[e.Type] || ((e.Type == "terminal_command" || e.Type == "test_run") && sandboxed()) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("event type %q is recorded by the server and can't be submitted", e.Type))
 			return
 		}

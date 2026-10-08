@@ -69,7 +69,12 @@ export function TerminalPanel({
 }) {
   // Fixed for the life of the workspace: a session is a sandbox one or it
   // isn't, from its first render.
-  const sandboxSessionId = useSandbox()?.sessionId;
+  const sandbox = useSandbox();
+  const sandboxSessionId = sandbox?.sessionId;
+  const sandboxRefreshRef = useRef(sandbox?.refresh);
+  useEffect(() => {
+    sandboxRefreshRef.current = sandbox?.refresh;
+  }, [sandbox]);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<XFitAddon | null>(null);
@@ -133,7 +138,7 @@ export function TerminalPanel({
           // instance here (the effect only runs once, on mount) behaves
           // identically to a "live" reference — no staleness concern.
           detachShell = sandboxSessionId
-            ? attachSandboxTerminal(term, sandboxSessionId)
+            ? attachSandboxTerminal(term, sandboxSessionId, () => sandboxRefreshRef.current?.())
             : attachVfsShell(term, vfs, {
                 open: (build) => previewRef.current.open(build),
                 stop: () => previewRef.current.stop(),

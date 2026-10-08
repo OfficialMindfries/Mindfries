@@ -192,6 +192,9 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         if (!isTestCommand(done.command)) return;
         const run = parseTestRun(done.command, done.output, done.exitCode);
         testResults.record(run);
+        // In a sandbox the backend read this run's result itself, from the
+        // output it relayed; it doesn't take one from the page.
+        if (sandboxed) return;
         telemetryRef.current?.record("test_run", {
           command: run.command.slice(0, 300),
           exitCode: run.exitCode,
