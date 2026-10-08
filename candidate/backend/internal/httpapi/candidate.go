@@ -169,6 +169,10 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
+	if errors.Is(err, orchestrator.ErrEmailUnconfirmed) {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil {
 		slog.Error("handleStartSession", "error", err)
 		writeError(w, http.StatusBadRequest, "could not start that assessment: "+err.Error())

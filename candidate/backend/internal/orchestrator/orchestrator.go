@@ -38,7 +38,16 @@ type Orchestrator struct {
 	// same names: what a sandbox may reach, and how many may run at once.
 	SandboxNetwork string
 	SandboxMaxLive int
+	// RequireVerifiedEmail is config.Config's setting of the same name: an
+	// invitation can only be started from an account whose address is
+	// confirmed.
+	RequireVerifiedEmail bool
 }
+
+// ErrEmailUnconfirmed is an invitation the candidate can't start until
+// they have confirmed the address it was sent to. Its text is written for
+// the candidate.
+var ErrEmailUnconfirmed = errors.New("Confirm your email address before starting this assessment. The link is in the email we sent when you signed up — you can send a new one from your dashboard.")
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {
 	o := &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
@@ -116,6 +125,19 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 	}
 	if inv.Status != "invited" {
 		return db.Session{}, fmt.Errorf("orchestrator: this assessment is already %s", strings.ReplaceAll(inv.Status, "_", " "))
+	}
+	// An invitation is addressed to an email, and an account is created by
+	// typing one in. Until the address is confirmed, the person holding the
+	// account hasn't shown that the invitation reached them rather than
+	// someone who knew, or guessed, who was invited.
+	if o.RequireVerifiedEmail {
+		standing, err := o.DB.GetAccountStanding(ctx, candidateID)
+		if err != nil {
+			return db.Session{}, fmt.Errorf("orchestrator: checking the account: %w", err)
+		}
+		if !standing.EmailVerified {
+			return db.Session{}, ErrEmailUnconfirmed
+		}
 	}
 
 	sess, err := o.DB.StartSessionFromInvitation(ctx, candidateID, candidateName, inv)

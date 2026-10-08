@@ -76,6 +76,12 @@ type Config struct {
 	// SandboxMaxLive is how many sessions may hold a sandbox at once. One
 	// more than that starts in the browser instead. 0 means no ceiling.
 	SandboxMaxLive int
+
+	// RequireVerifiedEmail makes a confirmed email address a condition of
+	// starting an invitation. Off by default because confirming needs
+	// candidate/frontend to be able to send mail; with it off, whoever
+	// registers an invited address can take that invitation.
+	RequireVerifiedEmail bool
 }
 
 func getenv(key, fallback string) string {
@@ -119,6 +125,7 @@ func Load() (Config, error) {
 		DaytonaBaseURL:         getenv("DAYTONA_BASE_URL", "https://app.daytona.io/api"),
 		SandboxNetwork:         strings.ToLower(getenv("SANDBOX_NETWORK", "open")),
 		SandboxMaxLive:         25,
+		RequireVerifiedEmail:   strings.EqualFold(os.Getenv("REQUIRE_VERIFIED_EMAIL"), "true"),
 	}
 	if v := os.Getenv("SANDBOX_MAX_LIVE"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -160,6 +167,9 @@ func (c Config) Warnings() []string {
 	}
 	if c.GeminiAPIKey == "" {
 		w = append(w, "GEMINI_API_KEY is not set — the interview runs turn by turn instead of as a live voice call")
+	}
+	if !c.RequireVerifiedEmail {
+		w = append(w, "REQUIRE_VERIFIED_EMAIL is not true — an invitation can be started by whoever registers the invited address, confirmed or not. Turn it on once candidate/frontend can send mail")
 	}
 	if c.DaytonaAPIKey == "" {
 		w = append(w, "DAYTONA_API_KEY is not set — sandbox provisioning will answer 'not configured'; sessions still record")

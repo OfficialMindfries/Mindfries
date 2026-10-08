@@ -281,19 +281,24 @@ type AccountStanding struct {
 	Found             bool
 	Active            bool
 	SessionsValidFrom *time.Time
+	// EmailVerified is whether the account's address has been confirmed —
+	// by the emailed link, or by signing in through a provider that vouches
+	// for it.
+	EmailVerified bool
 }
 
 func (d *DB) GetAccountStanding(ctx context.Context, candidateID string) (AccountStanding, error) {
 	var status string
 	var from *time.Time
-	err := d.pool.QueryRow(ctx, `select status, sessions_valid_from from candidate_users where id = $1`, candidateID).Scan(&status, &from)
+	var verified bool
+	err := d.pool.QueryRow(ctx, `select status, sessions_valid_from, email_verified_at is not null from candidate_users where id = $1`, candidateID).Scan(&status, &from, &verified)
 	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
 		return AccountStanding{}, nil
 	}
 	if err != nil {
 		return AccountStanding{}, err
 	}
-	return AccountStanding{Found: true, Active: status == "active", SessionsValidFrom: from}, nil
+	return AccountStanding{Found: true, Active: status == "active", SessionsValidFrom: from, EmailVerified: verified}, nil
 }
 
 // RestartClock sets a live session's start to now and returns it — for the
