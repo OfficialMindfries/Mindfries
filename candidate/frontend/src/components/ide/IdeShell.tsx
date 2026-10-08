@@ -55,18 +55,6 @@ interface IdeShellProps {
   /** The signed-in candidate's real name from the active session. */
   candidateName?: string;
   /**
-   * The real assessment title from game_templates.title — shown in the
-   * IDE header bar. Falls back to a generic label when the backend isn't
-   * configured or the session has no attached template yet.
-   */
-  assessmentName?: string;
-  /**
-   * Total assessment duration in seconds from game_templates.duration_min.
-   * Drives the IDE countdown timer. Falls back to a default when absent so
-   * the header still renders rather than crashing on an unset value.
-   */
-  durationSeconds?: number;
-  /**
    * The real assessment content behind `sessionId` — its task brief and
    * starting files, from `game_templates.task_brief`/`starter_files` via
    * GET /sessions/{id}/assessment (see app/ide/page.tsx, which fetches this
