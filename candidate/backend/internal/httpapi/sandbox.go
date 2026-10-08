@@ -249,6 +249,26 @@ func (s *Server) handleSandboxRun(w http.ResponseWriter, r *http.Request) {
 
 var terminalCounts sync.Map // session id → *atomic.Int32
 
+// spentTerminalTickets makes a terminal ticket good for one connection. A
+// ticket is valid for a minute so that a slow page can still present it;
+// without this, anything that saw it in that minute could open a second
+// shell with it. Kept in memory: with more than one instance of this
+// backend a ticket could be spent once per instance, which is still bounded
+// by the minute and by the per-session terminal limit.
+var spentTerminalTickets sync.Map // ticket → expiry (unix seconds)
+
+func spendTerminalTicket(ticket string, exp int64) bool {
+	now := time.Now().Unix()
+	spentTerminalTickets.Range(func(k, v any) bool {
+		if v.(int64) < now {
+			spentTerminalTickets.Delete(k)
+		}
+		return true
+	})
+	_, already := spentTerminalTickets.LoadOrStore(ticket, exp)
+	return !already
+}
+
 func (s *Server) handleTerminalTicket(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.sandboxFor(w, r, true)
 	if !ok {
@@ -293,7 +313,7 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ticket, err := session.VerifyTerminalTicket(hello.Ticket, s.cfg.CandidateSessionSecret)
-	if err != nil {
+	if err != nil || !spendTerminalTicket(hello.Ticket, ticket.Exp) {
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())

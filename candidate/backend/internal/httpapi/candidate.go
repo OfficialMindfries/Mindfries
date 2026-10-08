@@ -386,13 +386,20 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// In a sandbox session the shell itself reports each command and this
+	// backend records it (sandbox.go). The page has no business supplying
+	// one there: a terminal_command it posted would sit in the trail beside
+	// the real ones, indistinguishable from them. Looked up only if the
+	// request contains one.
+	sandboxed := func() bool { return s.orc != nil && s.orc.SandboxReady(r.Context(), sess) }
+
 	events := make([]db.NewActivityEvent, 0, len(body.Events))
 	for _, e := range body.Events {
 		if e.Type == "" || !eventTypePattern.MatchString(e.Type) {
 			writeError(w, http.StatusBadRequest, "event type must be lowercase letters, digits and underscores, starting with a letter, 64 characters or fewer")
 			return
 		}
-		if serverOnlyEventTypes[e.Type] {
+		if serverOnlyEventTypes[e.Type] || (e.Type == "terminal_command" && sandboxed()) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("event type %q is recorded by the server and can't be submitted", e.Type))
 			return
 		}
