@@ -159,6 +159,11 @@ type LiveTicket struct {
 	SessionID   string `json:"sid"`
 	CandidateID string `json:"cid"`
 	Exp         int64  `json:"exp"`
+	// Nonce makes two tickets issued in the same second different strings.
+	// Set where a ticket is single-use (the sandbox terminal): without it,
+	// two terminals opened together would be handed the same ticket and the
+	// second would be refused as already spent.
+	Nonce string `json:"n,omitempty"`
 }
 
 // liveTicketSecret keeps tickets and cookies from being interchangeable: a

@@ -274,8 +274,11 @@ func (s *Server) handleTerminalTicket(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	nonce := make([]byte, 9)
+	_, _ = rand.Read(nonce)
 	ticket, err := session.SignTerminalTicket(session.LiveTicket{
 		SessionID: sess.ID, CandidateID: candidateFrom(r).ID, Exp: time.Now().Add(terminalTicketTTL).Unix(),
+		Nonce: hex.EncodeToString(nonce),
 	}, s.cfg.CandidateSessionSecret)
 	if err != nil {
 		slog.Error("handleTerminalTicket: signing ticket", "error", err)
