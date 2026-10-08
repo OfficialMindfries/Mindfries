@@ -177,7 +177,19 @@ func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session
 	// The sandbox is where the candidate's workspace lives when there is one
 	// (sandbox_workspace.go). A session without one — Daytona not
 	// configured, or not answering — runs in the browser, as before.
+	began := time.Now()
 	sess, _ = o.setUpSandbox(ctx, sess, candidateName, candidateEmail)
+	// Making the machine and putting the task on it takes around ten
+	// seconds (longer when it fails and the session falls back to the
+	// browser). That is our time, not the candidate's: the session's clock
+	// starts now, when there is a workspace to open.
+	if time.Since(began) > time.Second {
+		if startedAt, err := o.DB.RestartClock(context.WithoutCancel(ctx), sess.ID); err != nil {
+			slog.Error("orchestrator: restarting the session clock after setup failed", "session", sess.ID, "error", err)
+		} else {
+			sess.StartedAt = startedAt
+		}
+	}
 	o.broadcast(sess.ID, "session_started", sess)
 	return sess
 }

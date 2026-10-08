@@ -37,6 +37,18 @@ export interface SandboxSync {
   refresh: () => void;
   /** Resolves once everything saved in the editor has reached the sandbox. */
   flush: () => Promise<void>;
+  /**
+   * Files that are in the project but can't be shown in the editor — too
+   * large, or not text. They exist and the terminal works with them as
+   * usual; the editor just isn't the tool for them. (The backend's snapshot
+   * leaves the same files out of what the report reads.)
+   */
+  unshown: UnshownFile[];
+}
+
+export interface UnshownFile {
+  path: string;
+  why: "too_large" | "binary";
 }
 
 export function useSandboxSync(opts: {
@@ -52,6 +64,8 @@ export function useSandboxSync(opts: {
   const { sessionId, paused } = opts;
   const [status, setStatus] = useState<SandboxSyncStatus>(sessionId ? "loading" : "off");
   const [problem, setProblem] = useState<string | null>(null);
+  const [unshown, setUnshown] = useState<UnshownFile[]>([]);
+  const unshownRef = useRef<Record<string, UnshownFile["why"]>>({});
 
   // Read from async work, long after the render that started it.
   const filesRef = useRef(opts.files);
@@ -90,6 +104,7 @@ export function useSandboxSync(opts: {
         return;
       }
       const read: Record<string, string | null> = {};
+      const fetchedWhy: Record<string, string> = {};
       if (plan.changed.length > 0) {
         const fetched = await readSandboxFiles(sessionId, plan.changed);
         if (!fetched.ok) throw new Error(fetched.error);
@@ -98,7 +113,21 @@ export function useSandboxSync(opts: {
           // not there; the next listing reports it removed.
           if (f.skipped === "missing") continue;
           read[editorPath(f.path)] = f.skipped ? null : f.content;
+          if (f.skipped) fetchedWhy[editorPath(f.path)] = f.skipped;
         }
+      }
+      // Which of the project's files the editor is leaving out, and why.
+      const left: Record<string, UnshownFile["why"]> = {};
+      for (const [path, why] of Object.entries(unshownRef.current)) if (path in current && !(path in read)) left[path] = why;
+      for (const [path, content] of Object.entries(read)) {
+        if (content !== null) continue;
+        const why = fetchedWhy[path];
+        left[path] = why === "binary" ? "binary" : "too_large";
+      }
+      const before = unshownRef.current;
+      if (Object.keys(left).length !== Object.keys(before).length || Object.keys(left).some((p) => before[p] !== left[p])) {
+        unshownRef.current = left;
+        setUnshown(Object.entries(left).map(([path, why]) => ({ path, why })).sort((a, b) => a.path.localeCompare(b.path)));
       }
       // Decided against the editor as it is *now*, not as it was when the
       // listing was asked for: the candidate may have typed in between.
@@ -207,5 +236,5 @@ export function useSandboxSync(opts: {
     await run(push).catch(() => undefined);
   }, [sessionId, run, push]);
 
-  return { status, problem, refresh, flush };
+  return { status, problem, refresh, flush, unshown };
 }

@@ -296,6 +296,15 @@ func (d *DB) GetAccountStanding(ctx context.Context, candidateID string) (Accoun
 	return AccountStanding{Found: true, Active: status == "active", SessionsValidFrom: from}, nil
 }
 
+// RestartClock sets a live session's start to now and returns it — for the
+// moment its workspace is ready, so that the time spent preparing it isn't
+// taken out of the candidate's.
+func (d *DB) RestartClock(ctx context.Context, id string) (time.Time, error) {
+	var startedAt time.Time
+	err := d.pool.QueryRow(ctx, `update sessions set started_at = now() where id = $1 and status = 'live' returning started_at`, id).Scan(&startedAt)
+	return startedAt, err
+}
+
 // CountLiveSandboxes is how many sessions still being worked on hold a
 // sandbox — each one a running machine.
 func (d *DB) CountLiveSandboxes(ctx context.Context) (int, error) {

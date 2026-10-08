@@ -943,6 +943,24 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         </div>
       )}
 
+      {/* Files the editor leaves out are still in the project. Without this
+          line a candidate who generated a large data file from the terminal
+          would see nothing appear and reasonably think it failed. */}
+      {sandboxed && sandboxSync.unshown.length > 0 && (
+        <div role="status" className={clsx("shrink-0 rounded-xl border px-3 py-1.5 text-xs", palette.border, palette.textMuted)}>
+          {sandboxSync.unshown.length === 1 ? "1 file in your project isn't" : `${sandboxSync.unshown.length} files in your project aren't`} shown in the
+          editor (too large or not text):{" "}
+          <span className="font-mono">
+            {sandboxSync.unshown
+              .slice(0, 4)
+              .map((f) => f.path)
+              .join(", ")}
+          </span>
+          {sandboxSync.unshown.length > 4 && ` and ${sandboxSync.unshown.length - 4} more`}. They are on your sandbox — use the terminal to open or
+          change them. The report and the interviewer read text files only.
+        </div>
+      )}
+
       <div className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}>
         <StatusBar
           activePath={activePath}
