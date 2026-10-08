@@ -76,9 +76,21 @@ type CreateOptions struct {
 	Memory   int               `json:"memory,omitempty"`
 	Disk     int               `json:"disk,omitempty"`
 	Env      map[string]string `json:"env,omitempty"`
+	// Minutes of inactivity before Daytona stops the sandbox (0 leaves
+	// Daytona's default). A stopped sandbox keeps its files and starts again
+	// in a couple of seconds — see EnsureStarted.
+	AutoStopInterval int `json:"autoStopInterval,omitempty"`
+	// Minutes a sandbox stays stopped before Daytona deletes it by itself.
+	// A backstop for a sandbox this backend lost track of.
+	AutoDeleteInterval int               `json:"autoDeleteInterval,omitempty"`
+	Labels             map[string]string `json:"labels,omitempty"`
 }
 
 func (c *Client) do(ctx context.Context, method, url string, body any, out any) error {
+	return c.doWith(c.httpClient, ctx, method, url, body, out)
+}
+
+func (c *Client) doWith(client *http.Client, ctx context.Context, method, url string, body any, out any) error {
 	var reader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -96,7 +108,7 @@ func (c *Client) do(ctx context.Context, method, url string, body any, out any) 
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("sandbox: request to %s: %w", url, err)
 	}
@@ -139,6 +151,13 @@ type ExecuteResult struct {
 // the one path confirmed without pulling in Daytona's SDK, but worth
 // revisiting if Daytona removes it.
 func (c *Client) ExecuteCommand(ctx context.Context, sandboxID, command string) (ExecuteResult, error) {
+	return c.Execute(ctx, sandboxID, command, "", 0)
+}
+
+// Execute is ExecuteCommand with a working directory and a time limit in
+// seconds (0 for Daytona's default). A command that runs past the limit is
+// stopped by Daytona and comes back as an error.
+func (c *Client) Execute(ctx context.Context, sandboxID, command, cwd string, timeoutSec int) (ExecuteResult, error) {
 	if !c.Configured() {
 		return ExecuteResult{}, ErrNotConfigured
 	}
@@ -149,8 +168,20 @@ func (c *Client) ExecuteCommand(ctx context.Context, sandboxID, command string) 
 		Result   string `json:"result"`
 		Output   string `json:"output"`
 	}
+	body := map[string]any{"command": command}
+	if cwd != "" {
+		body["cwd"] = cwd
+	}
+	if timeoutSec > 0 {
+		body["timeout"] = timeoutSec
+		// The shared client gives up after 30s; a command allowed longer
+		// than that needs a request that waits for it.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec+15)*time.Second)
+		defer cancel()
+	}
 	url := fmt.Sprintf("%s/toolbox/%s/process/execute", c.proxyURL, sandboxID)
-	if err := c.do(ctx, http.MethodPost, url, map[string]string{"command": command}, &raw); err != nil {
+	if err := c.doWith(c.longClient(timeoutSec), ctx, http.MethodPost, url, body, &raw); err != nil {
 		return ExecuteResult{}, err
 	}
 	res := ExecuteResult{ExitCode: raw.ExitCode, Output: raw.Result}
@@ -158,6 +189,14 @@ func (c *Client) ExecuteCommand(ctx context.Context, sandboxID, command string) 
 		res.Output = raw.Output
 	}
 	return res, nil
+}
+
+// longClient is the HTTP client for a request allowed to take `timeoutSec`.
+func (c *Client) longClient(timeoutSec int) *http.Client {
+	if timeoutSec <= 20 {
+		return c.httpClient
+	}
+	return &http.Client{Timeout: time.Duration(timeoutSec+15) * time.Second, Transport: c.httpClient.Transport}
 }
 
 // DeleteSandbox tears down a sandbox once a session ends. DELETE /sandbox/{id}
