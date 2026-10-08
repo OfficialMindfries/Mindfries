@@ -132,5 +132,18 @@ func (w Workspace) Seed(ctx context.Context, files map[string]string, authorName
 	if res.ExitCode != 0 {
 		return fmt.Errorf("workspace: setting up git failed: %s", strings.TrimSpace(res.Output))
 	}
+
+	// Caches and installed dependencies are kept out of `git status` without
+	// touching the task's own .gitignore: .git/info/exclude is local to this
+	// repository and isn't a file in the project. Not fatal if it fails —
+	// the candidate just sees a noisier status.
+	var exclude strings.Builder
+	exclude.WriteString("# Mindfries: caches and installed dependencies\n")
+	for _, d := range ignoredDirs {
+		if d != ".git" {
+			exclude.WriteString(d + "/\n")
+		}
+	}
+	_ = w.Client.WriteFile(ctx, w.SandboxID, Dir+"/.git/info/exclude", []byte(exclude.String()))
 	return nil
 }
