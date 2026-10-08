@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createAccount } from "@/lib/auth/users";
 import { sendVerification } from "@/lib/auth/email-links";
 import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, sessionSecret } from "@/lib/auth/session";
+import { attemptsExceeded, noteAttempt, waitMessage } from "@/lib/auth/throttle";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
@@ -22,8 +23,12 @@ export async function signUp(_prev: SignUpState, form: FormData): Promise<SignUp
   const confirm = text(form.get("confirm"), 512);
   if (password !== confirm) return { error: "Those passwords don't match." };
 
+  const wait = await attemptsExceeded("signup");
+  if (wait > 0) return { error: waitMessage(wait) };
+
   const result = await createAccount(name, email, password);
   if (!result.ok) return { error: result.error };
+  await noteAttempt("signup");
 
   // A new account signs straight in, and is mailed a link to confirm its
   // address. Sign-up doesn't wait on that link or fail without it: an

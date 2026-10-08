@@ -273,6 +273,29 @@ func (d *DB) SetSandboxID(ctx context.Context, id string, sandboxID *string) err
 	return err
 }
 
+// AccountStanding is what decides whether a candidate's signed session
+// still counts: whether the account is active, and the moment before which
+// it has withdrawn its sessions (migration 0020). Found is false when there
+// is no such account.
+type AccountStanding struct {
+	Found             bool
+	Active            bool
+	SessionsValidFrom *time.Time
+}
+
+func (d *DB) GetAccountStanding(ctx context.Context, candidateID string) (AccountStanding, error) {
+	var status string
+	var from *time.Time
+	err := d.pool.QueryRow(ctx, `select status, sessions_valid_from from candidate_users where id = $1`, candidateID).Scan(&status, &from)
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
+		return AccountStanding{}, nil
+	}
+	if err != nil {
+		return AccountStanding{}, err
+	}
+	return AccountStanding{Found: true, Active: status == "active", SessionsValidFrom: from}, nil
+}
+
 // CountLiveSandboxes is how many sessions still being worked on hold a
 // sandbox — each one a running machine.
 func (d *DB) CountLiveSandboxes(ctx context.Context) (int, error) {

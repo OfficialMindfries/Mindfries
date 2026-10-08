@@ -27,9 +27,9 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; social_error?: string; social_message?: string; reset?: string }>;
+  searchParams: Promise<{ next?: string; social_error?: string; social_message?: string; reset?: string; ended?: string }>;
 }) {
-  const { next, social_error, social_message, reset } = await searchParams;
+  const { next, social_error, social_message, reset, ended } = await searchParams;
   // Only a path on this site survives; anything else falls back to /dashboard,
   // so a crafted ?next= can't bounce someone off to another origin after login.
   const safeNext = typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "";
@@ -55,7 +55,13 @@ export default async function LoginPage({
           next={safeNext}
           configuredProviders={configuredProviders}
           socialError={socialError}
-          notice={reset === "1" ? "Your password has been changed. Sign in with the new one." : null}
+          notice={
+            reset === "1"
+              ? "Your password has been changed, and every device was signed out. Sign in with the new one."
+              : ended === "1"
+                ? "You've been signed out on every device. Sign in again to continue."
+                : null
+          }
         />
       </div>
     </div>

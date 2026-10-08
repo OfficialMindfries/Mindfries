@@ -41,6 +41,10 @@ type CandidateClaims struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Exp   int64  `json:"exp"`
+	// Iat is when the session was issued. An account can withdraw every
+	// session issued before a moment; a cookie from before this field
+	// existed has 0 here and counts as older than any withdrawal.
+	Iat int64 `json:"iat"`
 }
 
 // AdminClaims mirrors internal-admin/frontend/lib/auth/session.ts's Session.

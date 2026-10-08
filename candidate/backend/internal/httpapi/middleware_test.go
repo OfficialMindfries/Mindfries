@@ -7,13 +7,17 @@ import (
 	"time"
 
 	"github.com/mindfries/candidate-backend/internal/config"
+	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/session"
 )
 
 const testSecret = "test-secret-at-least-32-characters-long!!"
 
 func newTestServer(candidateSecret, adminSecret string) *Server {
-	return New(config.Config{CandidateSessionSecret: candidateSecret, AdminSessionSecret: adminSecret, AllowedOrigins: []string{"http://localhost:3000"}}, nil, nil, nil)
+	s := New(config.Config{CandidateSessionSecret: candidateSecret, AdminSessionSecret: adminSecret, AllowedOrigins: []string{"http://localhost:3000"}}, nil, nil, nil)
+	// requireCandidate asks the store whether the account still stands.
+	s.db = &fakeDB{}
+	return s
 }
 
 func TestRequireCandidateRejectsMissingCookie(t *testing.T) {
@@ -148,5 +152,43 @@ func TestCORSOnlyReflectsAllowlistedOrigins(t *testing.T) {
 	h.ServeHTTP(rec2, blocked)
 	if got := rec2.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("disallowed origin should get no CORS header, got %q", got)
+	}
+}
+
+// A good signature isn't enough once the account has withdrawn its
+// sessions, been disabled, or gone.
+func TestRequireCandidateRefusesAWithdrawnSession(t *testing.T) {
+	withdrawn := time.Now().Add(-time.Minute)
+	cases := []struct {
+		name, id string
+		iat      time.Time
+		standing db.AccountStanding
+		want     int
+	}{
+		{"issued before the withdrawal", "w1", withdrawn.Add(-time.Hour), db.AccountStanding{Found: true, Active: true, SessionsValidFrom: &withdrawn}, http.StatusUnauthorized},
+		{"issued after it", "w2", time.Now(), db.AccountStanding{Found: true, Active: true, SessionsValidFrom: &withdrawn}, http.StatusOK},
+		{"no issue time, from before they were recorded", "w3", time.Time{}, db.AccountStanding{Found: true, Active: true, SessionsValidFrom: &withdrawn}, http.StatusUnauthorized},
+		{"no issue time, nothing withdrawn", "w4", time.Time{}, db.AccountStanding{Found: true, Active: true}, http.StatusOK},
+		{"a disabled account", "w5", time.Now(), db.AccountStanding{Found: true}, http.StatusUnauthorized},
+		{"an account that is gone", "w6", time.Now(), db.AccountStanding{}, http.StatusUnauthorized},
+	}
+	for _, c := range cases {
+		s := newTestServer(testSecret, "")
+		s.db = &fakeDB{standing: map[string]db.AccountStanding{c.id: c.standing}}
+		claims := session.CandidateClaims{ID: c.id, Email: "a@b.com", Name: "A", Exp: time.Now().Add(time.Hour).Unix()}
+		if !c.iat.IsZero() {
+			claims.Iat = c.iat.Unix()
+		}
+		token, err := session.SignCandidate(claims, testSecret)
+		if err != nil {
+			t.Fatalf("SignCandidate: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+		req.AddCookie(&http.Cookie{Name: session.CandidateCookie, Value: token})
+		rec := httptest.NewRecorder()
+		s.requireCandidate(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, rec.Code, c.want)
+		}
 	}
 }

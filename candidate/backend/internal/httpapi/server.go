@@ -39,6 +39,7 @@ type sessionStore interface {
 	SetSandboxID(ctx context.Context, id string, sandboxID *string) error
 	ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]db.SessionRef, error)
 	GetInterviewConfig(ctx context.Context, assessmentID *string) db.InterviewConfig
+	GetAccountStanding(ctx context.Context, candidateID string) (db.AccountStanding, error)
 }
 
 // Server holds every dependency a handler might need. Constructed once in

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { LogOut, ShieldCheck, User } from "lucide-react";
 import { useDismissablePanel } from "@/lib/useDismissablePanel";
-import { signOut as endSession } from "@/app/login/actions";
+import { signOut as endSession, signOutEverywhere } from "@/app/login/actions";
 import { PoliciesModal } from "./PoliciesModal";
 
 /**
@@ -12,13 +12,12 @@ import { PoliciesModal } from "./PoliciesModal";
  * standard shape (View profile, policies, sign out) once there's more than
  * one place worth going from here.
  *
- * "Sign out" now does two real, separate things: ends the real session
- * (lib/auth — a signed cookie against a row in candidate_users) and clears
- * the profile data kept only in this browser (resume, linked accounts,
- * identity edits — lib/profile/storage.ts). The confirmation names both,
- * because they're genuinely different kinds of data with different
- * lifetimes, and a candidate signing out on a shared machine cares about
- * both being gone.
+ * "Sign out" ends the session on this browser: the cookie is cleared. The
+ * profile, resume and linked accounts live on the account and stay there,
+ * which the confirmation says. "Sign out of all devices" is the other,
+ * stronger thing — it withdraws every session the account has, wherever it
+ * is signed in (lib/auth/revocation.ts) — for a candidate who left a
+ * shared machine signed in or thinks someone else has their session.
  */
 interface AccountMenuProps {
   sessionName?: string;
@@ -45,7 +44,7 @@ export function AccountMenu({ sessionName, profile }: AccountMenuProps) {
     setConfirmingSignOut(false);
   }
 
-  function signOut() {
+  function signOut(everywhere = false) {
     // Clear localStorage profile data just in case it exists from old version
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("mf_profile_identity");
@@ -57,7 +56,7 @@ export function AccountMenu({ sessionName, profile }: AccountMenuProps) {
     // AssessmentWall already uses to call startAssessment from a client
     // component.
     startTransition(() => {
-      void endSession();
+      void (everywhere ? signOutEverywhere() : endSession());
     });
   }
 
@@ -102,13 +101,21 @@ export function AccountMenu({ sessionName, profile }: AccountMenuProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={signOut}
+                    onClick={() => signOut()}
                     disabled={pending}
                     className="flex-1 rounded-lg bg-[#a6203c] px-3 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                   >
                     {pending ? "Signing out…" : "Sign out"}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => signOut(true)}
+                  disabled={pending}
+                  className="mt-2.5 w-full text-center text-[11.5px] font-medium text-[#1A3D63] hover:underline disabled:opacity-50"
+                >
+                  Sign out of all devices instead
+                </button>
               </div>
             ) : (
               <div className="p-1.5">

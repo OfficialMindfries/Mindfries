@@ -1,8 +1,11 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { db } from "../supabase";
 import { dummyWork, hashPassword, verifyPassword } from "./password";
 import { readSession, SESSION_COOKIE, sessionSecret, type Session } from "./session";
+import { sessionStillValid } from "./revocation";
 
 // Deciding who may sign in, who may create an account, and reading back who
 // did — the candidate-side counterpart to internal-admin's lib/auth/admins.ts,
@@ -33,7 +36,7 @@ const MAX_ATTEMPTS = 8;
 const LOCK_MINUTES = 15;
 const MIN_PASSWORD_LENGTH = 8;
 
-export type SignInResult = { ok: true; session: Omit<Session, "exp"> } | { ok: false; error: string };
+export type SignInResult = { ok: true; session: Omit<Session, "exp" | "iat"> } | { ok: false; error: string };
 
 /**
  * One message for every login failure. "No such account" and "wrong
@@ -98,7 +101,7 @@ export async function checkCredentials(emailRaw: string, password: string): Prom
   return { ok: true, session: { id: row.id, email: row.email, name: row.name } };
 }
 
-export type SignUpResult = { ok: true; session: Omit<Session, "exp"> } | { ok: false; error: string };
+export type SignUpResult = { ok: true; session: Omit<Session, "exp" | "iat"> } | { ok: false; error: string };
 
 /**
  * Creates a real row — a scrypt hash with its own salt, never the password
@@ -142,8 +145,21 @@ export async function createAccount(nameRaw: string, emailRaw: string, password:
   return { ok: true, session: { id: row.id as string, email, name } };
 }
 
-/** The signed-in candidate, or null. Reads the cookie; never trusts a header. */
-export async function currentCandidate(): Promise<Session | null> {
+/**
+ * The signed-in candidate, or null. Reads the cookie; never trusts a header.
+ *
+ * A good signature is not the whole answer: the account may have been
+ * disabled, or have withdrawn its sessions since this one was issued
+ * (lib/auth/revocation.ts). Such a session is sent to /api/auth/ended, which
+ * clears the cookie and lands on the sign-in page — the middleware, which
+ * only checks signatures, would otherwise keep sending it back in.
+ *
+ * Asked once per request however many callers there are.
+ */
+export const currentCandidate = cache(async (): Promise<Session | null> => {
   const jar = await cookies();
-  return readSession(jar.get(SESSION_COOKIE)?.value, sessionSecret());
-}
+  const session = await readSession(jar.get(SESSION_COOKIE)?.value, sessionSecret());
+  if (!session) return null;
+  if (!(await sessionStillValid(session))) redirect("/api/auth/ended");
+  return session;
+});

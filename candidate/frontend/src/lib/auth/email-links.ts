@@ -195,6 +195,10 @@ export async function resetPassword(token: string, password: string): Promise<Re
       locked_until: null,
       // Opening the link showed they receive mail at this address.
       email_verified_at: before?.email_verified_at ?? now,
+      // Whoever knew the old password — or holds a browser still signed in
+      // with it — is signed out everywhere. That is usually why a password
+      // is being reset.
+      sessions_valid_from: now,
     })
     .eq("id", candidateId);
   if (error) return { ok: false, error: "Couldn't save the new password — ask for a new link and try again." };
