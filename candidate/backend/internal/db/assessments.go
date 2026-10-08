@@ -65,8 +65,12 @@ func (d *DB) GetPublishedTemplate(ctx context.Context, id string) (*Template, er
 // can be real file content, and a list of every published template shouldn't
 // drag that along for assessments nobody started.
 type TemplateContent struct {
-	Name      string
-	TaskBrief *string
+	Name string
+	// DurationMin is the template's own time limit. A session carries the
+	// limit it was started with (sessions.duration_min), which is what its
+	// clock runs on; this is the template's, for callers with no session.
+	DurationMin int
+	TaskBrief   *string
 	// InterviewerPrompt is the author's guidance for the AI interviewer
 	// ("probe how they located the failing path…"). Often unset.
 	InterviewerPrompt *string
@@ -112,18 +116,18 @@ func (d *DB) GetTemplateContent(ctx context.Context, templateID string) (Templat
 	var tc TemplateContent
 	var starterFilesRaw, variantsRaw []byte
 	err := d.pool.QueryRow(ctx, `
-		select name, task_brief, interviewer_prompt, starter_files, rubric, variants
+		select name, coalesce(duration_min, 0), task_brief, interviewer_prompt, starter_files, rubric, variants
 		from game_templates
 		where id = $1
-	`, templateID).Scan(&tc.Name, &tc.TaskBrief, &tc.InterviewerPrompt, &starterFilesRaw, &tc.Rubric, &variantsRaw)
+	`, templateID).Scan(&tc.Name, &tc.DurationMin, &tc.TaskBrief, &tc.InterviewerPrompt, &starterFilesRaw, &tc.Rubric, &variantsRaw)
 	if isUndefinedColumn(err) {
 		// A database migration 0017 hasn't reached yet: no template there
 		// can have variants, so the answer without them is the whole answer.
 		err = d.pool.QueryRow(ctx, `
-			select name, task_brief, interviewer_prompt, starter_files, rubric
+			select name, coalesce(duration_min, 0), task_brief, interviewer_prompt, starter_files, rubric
 			from game_templates
 			where id = $1
-		`, templateID).Scan(&tc.Name, &tc.TaskBrief, &tc.InterviewerPrompt, &starterFilesRaw, &tc.Rubric)
+		`, templateID).Scan(&tc.Name, &tc.DurationMin, &tc.TaskBrief, &tc.InterviewerPrompt, &starterFilesRaw, &tc.Rubric)
 	}
 	if err != nil {
 		return TemplateContent{}, err
