@@ -32,7 +32,7 @@ const hashOf = (token: string) => createHash("sha256").update(token).digest("hex
  * caller chose. In development the request's host is used, since that is
  * the only address there is.
  */
-async function siteUrl(): Promise<string | null> {
+export async function siteUrl(): Promise<string | null> {
   const fixed = process.env.CANDIDATE_PORTAL_URL?.replace(/\/+$/, "");
   if (fixed) return fixed;
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;

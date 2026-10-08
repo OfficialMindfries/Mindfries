@@ -32,6 +32,12 @@ export interface StoredLink {
   savedAt: string;
   /** Only for the two platforms whose public API answered when this was saved. */
   stats?: PlatformStats;
+  /**
+   * Set when the candidate signed in to the account to show it is theirs:
+   * when, and as whom — the username on GitHub/GitLab, the member's name on
+   * LinkedIn (which gives no profile address to compare `value` against).
+   */
+  verified?: { at: string; as: string };
 }
 
 /** What the "Edit profile" form writes. Absent (`null`) means nothing has been edited yet — the page falls back to the sample identity in lib/dashboard/data.ts and lib/profile/data.ts. */

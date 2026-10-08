@@ -51,9 +51,22 @@ export function CandidateProfileCard({ profile }: { profile: CandidateProfile | 
         {profile.links.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
             {profile.links.map((l) => (
-              <a key={l.platform} href={l.url} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
-                {l.label}
-              </a>
+              <span key={l.platform}>
+                {l.url ? (
+                  <a href={l.url} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
+                    {l.label}
+                  </a>
+                ) : (
+                  <span className="font-semibold">{l.label}</span>
+                )}
+                {l.platform === "linkedin" && l.signedInAs && (
+                  <span className="text-xs text-faint">
+                    {" "}
+                    — signed in to LinkedIn as {l.signedInAs}
+                    {l.url ? "; the address is as the candidate entered it" : ""}
+                  </span>
+                )}
+              </span>
             ))}
           </div>
         )}

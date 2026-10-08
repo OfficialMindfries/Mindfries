@@ -85,11 +85,19 @@ export async function saveLink(platform: string, rawValue: string) {
   const c = db();
   if (!c) return { error: "Database not connected" };
 
+  const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
+  const currentLinks = data?.links || {};
+  // A sign-in showed one particular account is theirs. Typing a username
+  // keeps that only if it is the same account; a LinkedIn sign-in confirms
+  // a name rather than an address, so it stands whatever address is typed.
+  const was = currentLinks[platform]?.verified as { at: string; as: string } | undefined;
+  const verified = was && (platform === "linkedin" || was.as.toLowerCase() === value.toLowerCase()) ? was : undefined;
+
   let stats: ReturnType<typeof statsOf> | undefined;
   if (isKnowledgeSource(platform)) {
     try {
       const knowledge = await readAccount(platform, value);
-      await storeKnowledge(session.id, knowledge);
+      await storeKnowledge(session.id, knowledge, !!verified);
       stats = statsOf(knowledge);
     } catch (e) {
       if (e instanceof AccountNotFound) return { error: e.message };
@@ -99,13 +107,10 @@ export async function saveLink(platform: string, rawValue: string) {
     }
   }
 
-  const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
-  const currentLinks = data?.links || {};
-
   const { error } = await c
     .from("candidate_users")
     .update({
-      links: { ...currentLinks, [platform]: { value, savedAt: new Date().toISOString(), ...(stats ? { stats } : {}) } },
+      links: { ...currentLinks, [platform]: { value, savedAt: new Date().toISOString(), ...(stats ? { stats } : {}), ...(verified ? { verified } : {}) } },
     })
     .eq("id", session.id);
 
@@ -142,7 +147,9 @@ export async function refreshKnowledge(platform: string) {
 
   try {
     const knowledge = await readAccount(platform, value);
-    await storeKnowledge(session.id, knowledge);
+    // A refresh re-reads the same account, so it stays verified if it was.
+    const verifiedAs = links[platform]?.verified?.as;
+    await storeKnowledge(session.id, knowledge, typeof verifiedAs === "string" && verifiedAs.toLowerCase() === value.toLowerCase());
     await c
       .from("candidate_users")
       .update({ links: { ...links, [platform]: { ...links[platform], stats: statsOf(knowledge) } } })

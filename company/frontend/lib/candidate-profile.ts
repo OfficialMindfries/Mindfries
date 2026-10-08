@@ -22,7 +22,14 @@ import { db } from "./supabase";
 export interface ProfileLink {
   platform: "github" | "gitlab" | "linkedin" | "portfolio";
   label: string;
-  url: string;
+  /** Null when the candidate signed in to the platform but gave no address (LinkedIn). */
+  url: string | null;
+  /**
+   * Set when the candidate signed in to this platform: the username or, for
+   * LinkedIn, the member's name they signed in under. For LinkedIn it shows
+   * they hold an account in that name — not that `url` is that account.
+   */
+  signedInAs: string | null;
 }
 
 export interface ProfileProject {
@@ -93,9 +100,10 @@ function toLinks(raw: any): ProfileLink[] {
   const out: ProfileLink[] = [];
   for (const platform of ["github", "gitlab", "linkedin", "portfolio"] as const) {
     const value = raw?.[platform]?.value;
-    if (typeof value !== "string" || !value) continue;
-    const url = safeUrl(LINK_URL[platform](value));
-    if (url) out.push({ platform, label: LINK_LABEL[platform], url });
+    const as = raw?.[platform]?.verified?.as;
+    const signedInAs = typeof as === "string" && as ? as.slice(0, 200) : null;
+    const url = typeof value === "string" && value ? safeUrl(LINK_URL[platform](value)) : null;
+    if (url || signedInAs) out.push({ platform, label: LINK_LABEL[platform], url, signedInAs });
   }
   return out;
 }

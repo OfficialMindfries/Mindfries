@@ -6,12 +6,12 @@ import { shapeGithub, shapeGitlab, type Knowledge, type KnowledgeSource } from "
  * Reading a linked GitHub or GitLab account and keeping what it says
  * (candidate_knowledge, 0018_candidate_account_and_knowledge.sql).
  *
- * This reads the public profile of the username the candidate entered. It
- * proves the account exists, not that it is theirs — the row is stored with
+ * This reads the public profile of a username. On its own that proves the
+ * account exists, not that it is the candidate's — such a row is stored with
  * `verified: false`, and both the candidate's profile and the hiring team's
- * view say so. Proving ownership means the candidate signing in to that
- * account, which is what the Composio connection is for; nothing here
- * pretends to be that.
+ * view say so. Ownership is shown by the candidate signing in to the
+ * account (lib/composio.ts, app/api/connect); the same public read is then
+ * stored with `verified: true`.
  */
 
 /** No such account — a definite answer, unlike a platform that didn't respond. */
@@ -95,15 +95,19 @@ export interface StoredKnowledge {
   knowledge: Knowledge;
 }
 
-export async function storeKnowledge(candidateId: string, k: Knowledge): Promise<void> {
+/**
+ * `verified` is true only when the candidate has signed in to this account
+ * to show it is theirs (lib/profile/connect.ts). A read of a username that
+ * was merely typed is stored unverified, whatever was there before.
+ */
+export async function storeKnowledge(candidateId: string, k: Knowledge, verified = false): Promise<void> {
   const c = db();
   if (!c) return;
-  // A fresh read of a typed username is never verified, whatever was there before.
   await c.from("candidate_knowledge").upsert({
     candidate_id: candidateId,
     source: k.source,
     handle: k.handle,
-    verified: false,
+    verified,
     payload: k,
     fetched_at: new Date().toISOString(),
   });

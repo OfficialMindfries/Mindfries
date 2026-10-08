@@ -11,6 +11,7 @@ import { currentCandidate } from "@/lib/auth/users";
 import { getProfile, getResumeUrl } from "@/lib/profile/actions";
 import { listKnowledge } from "@/lib/profile/knowledge";
 import { KnowledgeBase } from "@/components/profile/KnowledgeBase";
+import { composioReady } from "@/lib/composio";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 import type { ResumeFields } from "@/lib/profile/resume-fields";
 
@@ -39,7 +40,8 @@ export const metadata: Metadata = {
  * motif is for the dashboard's wall of things happening to you; a profile
  * reads as reference material, so these sit flat.
  */
-export default async function ProfilePage() {
+export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ connect?: string; result?: string }> }) {
+  const query = await searchParams;
   const [session, profile, assessments] = await Promise.all([
     currentCandidate(),
     getProfile(),
@@ -72,7 +74,11 @@ export default async function ProfilePage() {
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 space-y-6">
               <IdentityCard sessionName={session?.name} profile={profile} />
-              <LinkedAccounts links={profile?.links || {}} />
+              <LinkedAccounts
+                links={profile?.links || {}}
+                canVerify={composioReady()}
+                connectResult={query.connect && query.result ? { platform: query.connect, result: query.result } : undefined}
+              />
               <KnowledgeBase items={knowledge} />
             </div>
 
