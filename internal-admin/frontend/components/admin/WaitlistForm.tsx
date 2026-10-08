@@ -9,6 +9,9 @@ export function WaitlistForm() {
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
   const [message, setMessage] = useState("");
+  // Not for people: hidden from sight and from assistive technology, and
+  // skipped by the tab key. Whatever fills it in isn't reading the page.
+  const [website, setWebsite] = useState("");
   const [pending, start] = useTransition();
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -16,7 +19,7 @@ export function WaitlistForm() {
   function submit() {
     setErr(null);
     start(async () => {
-      const res = await joinWaitlist({ name, email, company, message });
+      const res = await joinWaitlist({ name, email, company, message, website });
       if (res.ok) setDone(true);
       else setErr(res.error);
     });
@@ -39,8 +42,14 @@ export function WaitlistForm() {
           <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" /></Field>
           <Field label="Work email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@company.com" /></Field>
         </div>
-        <Field label="Company"><Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Robotics" /></Field>
-        <Field label="What are you hiring for?" hint="Optional"><Textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
+        <Field label="Company"><Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Robotics" maxLength={160} /></Field>
+        <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
+          <label>
+            Website
+            <input type="text" name="website" tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} />
+          </label>
+        </div>
+        <Field label="What are you hiring for?" hint="Optional"><Textarea rows={3} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
         <Button onClick={submit} disabled={pending || !email.trim()} className="w-full">
           {pending ? "Joining…" : "Join the waitlist"}
         </Button>

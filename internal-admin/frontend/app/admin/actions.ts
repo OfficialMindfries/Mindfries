@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  addOnboarded, addWaitlist, createCompany, createInvitation, createTemplate, recordEmailEvent, setCompanyStatus,
+  addOnboarded, addWaitlist, waitlistActivity, createCompany, createInvitation, createTemplate, recordEmailEvent, setCompanyStatus,
   setLeadStage, setSessionState, setTemplateStatus,
 } from "@/lib/db";
 import { sendMail, NOTIFY_EMAIL } from "@/lib/mailer";
@@ -280,16 +280,43 @@ export async function retriggerEval(id: string): Promise<Result> {
 }
 
 // Public waitlist form → store + ping the team inbox.
-export async function joinWaitlist(input: {
-  name?: string; email: string; company?: string; message?: string;
+//
+// The one action here anyone on the internet can call, so nothing about its
+// input is taken on trust: every field is capped, and how much it will
+// accept is bounded.
+//
+//   - `website` is a field no person sees or fills in (WaitlistForm hides
+//     it). A form-filling script fills it; that submission is answered as
+//     if it worked and dropped.
+//   - An address that signed up in the last day is answered the same way,
+//     without a second row or a second email to the team.
+//   - Past WAITLIST_PER_HOUR sign-ups in an hour, across everyone, the form
+//     asks to be tried later. A real launch day could reach that; a few
+//     people waiting an hour is the cheaper failure than a full table and a
+//     flooded inbox.
+const WAITLIST_PER_HOUR = 60;
+const cap = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
+
+export async function joinWaitlist(raw: {
+  name?: string; email: string; company?: string; message?: string; website?: string;
 }): Promise<Result> {
   try {
+    if (cap(raw?.website, 200)) return { ok: true };
+    const input = {
+      email: cap(raw?.email, 254).toLowerCase(),
+      name: cap(raw?.name, 120) || undefined,
+      company: cap(raw?.company, 160) || undefined,
+      message: cap(raw?.message, 2000) || undefined,
+    };
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email)) throw new Error("Enter a valid email");
+    const activity = await waitlistActivity(input.email);
+    if (activity.sameEmailToday) return { ok: true };
+    if (activity.lastHour >= WAITLIST_PER_HOUR) throw new Error("We're getting a lot of sign-ups right now — please try again in an hour.");
     await addWaitlist(input);
     try {
       await sendMail({
         to: NOTIFY_EMAIL,
-        subject: `New Mindfries waitlist signup${input.company ? ` — ${input.company}` : ""}`,
+        subject: `New Mindfries waitlist signup${input.company ? ` — ${input.company}` : ""}`.replace(/[\r\n]+/g, " "),
         text: `${input.name ?? "Someone"} (${input.email})${input.company ? ` from ${input.company}` : ""} joined the waitlist.\n\n${input.message ?? ""}`,
       });
     } catch {
