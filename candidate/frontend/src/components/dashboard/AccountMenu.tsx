@@ -89,7 +89,7 @@ export function AccountMenu({ sessionName, profile }: AccountMenuProps) {
             {confirmingSignOut ? (
               <div className="p-4">
                 <p className="text-[12.5px] leading-relaxed text-[#0A1931]">
-                  Ends your session and clears your resume, linked accounts and any profile edits saved in this browser.
+                  Signs you out on this browser. Your profile, resume and linked accounts stay saved to your account.
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button
