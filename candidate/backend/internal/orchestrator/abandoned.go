@@ -60,6 +60,13 @@ func (o *Orchestrator) SubmitAbandoned(ctx context.Context, now time.Time) (int,
 		if err := o.DB.InsertActivityEvents(ctx, sess.ID, []db.NewActivityEvent{{EventType: eventAutoSubmitted, Payload: payload}}); err != nil {
 			slog.Error("orchestrator: recording an automatic submit failed", "session", sess.ID, "error", err)
 		}
+		// A sandbox session's work is on the sandbox's disk, and Submit is
+		// about to delete the sandbox — so it is read off first. (For a
+		// browser session this records nothing new: the last checkpoint the
+		// page sent already is the work.)
+		if err := o.CaptureWorkspace(ctx, sess, nil, false); err != nil {
+			slog.Error("orchestrator: capturing an abandoned session's work failed", "session", sess.ID, "error", err)
+		}
 		slog.Info("orchestrator: submitting an abandoned session", "session", sess.ID, "minutesOverdue", overdue)
 		// Submit is safe against the candidate's own submit arriving at the
 		// same moment — only one of the two wins db.MarkSubmitted.

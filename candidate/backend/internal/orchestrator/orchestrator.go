@@ -100,7 +100,7 @@ func (o *Orchestrator) StartAssessment(ctx context.Context, candidateID, candida
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: %s is not an available assessment: %w", id, err)
 	}
-	return o.startFromTemplate(ctx, candidateID, candidateName, *tmpl)
+	return o.startFromTemplate(ctx, candidateID, candidateEmail, candidateName, *tmpl)
 }
 
 func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, candidateEmail, candidateName string, inv db.Invitation) (db.Session, error) {
@@ -129,11 +129,11 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 	}
 
 	o.assignVariant(ctx, sess)
-	sess = o.provisionAndAnnounce(ctx, sess)
+	sess = o.provisionAndAnnounce(ctx, sess, candidateName, candidateEmail)
 	return sess, nil
 }
 
-func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candidateName string, tmpl db.Template) (db.Session, error) {
+func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candidateEmail, candidateName string, tmpl db.Template) (db.Session, error) {
 	existing, err := o.DB.GetSessionByCandidateAndTemplate(ctx, candidateID, tmpl.ID)
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return db.Session{}, fmt.Errorf("orchestrator: checking existing session: %w", err)
@@ -161,7 +161,7 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)
 	}
 	o.assignVariant(ctx, sess)
-	sess = o.provisionAndAnnounce(ctx, sess)
+	sess = o.provisionAndAnnounce(ctx, sess, candidateName, candidateEmail)
 	return sess, nil
 }
 
@@ -169,28 +169,11 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 // sandbox (never fails the session over it — "real, or an honest failure,"
 // never "fail the whole flow over an optional piece that isn't wired up")
 // and the real-time broadcast every session start makes.
-func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session) db.Session {
-	if o.Sandbox != nil && o.Sandbox.Configured() {
-		sb, err := o.Sandbox.CreateSandbox(ctx, sandbox.CreateOptions{})
-		if err != nil {
-			slog.Error("orchestrator: sandbox provisioning failed", "session", sess.ID, "error", err)
-			degraded := "degraded"
-			_ = o.DB.UpdateSessionState(ctx, sess.ID, db.SessionStatePatch{SandboxHealth: &degraded})
-			sess.SandboxHealth = degraded
-		} else {
-			// The ID CreateSandbox just returned used to be thrown away here —
-			// with no column to hold it and nothing left to find it by, a real
-			// DAYTONA_API_KEY would have started leaking real, billable
-			// sandboxes with no way to ever tear them down. Stored now so
-			// teardownSandbox (called from Submit and the admin reset path)
-			// has something to delete.
-			if err := o.DB.SetSandboxID(ctx, sess.ID, &sb.ID); err != nil {
-				slog.Error("orchestrator: recording sandbox id failed", "session", sess.ID, "sandbox", sb.ID, "error", err)
-			} else {
-				sess.SandboxID = &sb.ID
-			}
-		}
-	}
+func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session, candidateName, candidateEmail string) db.Session {
+	// The sandbox is where the candidate's workspace lives when there is one
+	// (sandbox_workspace.go). A session without one — Daytona not
+	// configured, or not answering — runs in the browser, as before.
+	sess, _ = o.setUpSandbox(ctx, sess, candidateName, candidateEmail)
 	o.broadcast(sess.ID, "session_started", sess)
 	return sess
 }

@@ -11,6 +11,9 @@ import { createSession } from "@/lib/ide/shell/types";
 import { executeCommandLine } from "@/lib/ide/shell/execute";
 import { terminalLog } from "@/lib/ide/terminal-log";
 import { testCommandFor, testResults, type TestCase } from "@/lib/ide/test-results";
+import { useSandbox } from "@/lib/ide/sandbox/context";
+import { forSandbox } from "@/lib/ide/sandbox/sync";
+import { runInSandbox } from "@/app/ide/sandbox-actions";
 
 /**
  * The Tests panel: the last test run, as results rather than as a wall of
@@ -32,6 +35,7 @@ export function TestsPanel({ theme, vfs, preview }: { theme: IdeTheme; vfs: VfsB
   const [running, setRunning] = useState(false);
   const [note, setNote] = useState<string | undefined>();
   const [open, setOpen] = useState<string | null>(null);
+  const sandbox = useSandbox();
 
   const runTests = async () => {
     const command = testCommandFor(Object.keys(vfs.getSnapshot().files));
@@ -41,6 +45,23 @@ export function TestsPanel({ theme, vfs, preview }: { theme: IdeTheme; vfs: VfsB
     }
     setNote(undefined);
     setRunning(true);
+    if (sandbox) {
+      // On the sandbox the tests run on the real machine, against the files
+      // as they are on its disk. The result goes through the terminal log
+      // exactly as a run typed in the terminal does.
+      const sandboxCommand = forSandbox(command);
+      const tracked = terminalLog.begin(sandboxCommand);
+      const result = await runInSandbox(sandbox.sessionId, sandboxCommand).catch(() => null);
+      if (!result || !result.ok) {
+        setNote(result && !result.ok ? result.error : "The sandbox didn't answer — try again in a moment.");
+        setRunning(false);
+        return;
+      }
+      tracked.output(result.output);
+      tracked.finish(result.exitCode);
+      setRunning(false);
+      return;
+    }
     // Run the way the terminal would, so the run is recorded the same way:
     // it reaches the terminal log's listeners, which is what fills this
     // panel and what telemetry hears.

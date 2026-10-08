@@ -174,7 +174,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "could not start that assessment: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, sessionView(sess))
+	writeJSON(w, http.StatusCreated, s.sessionView(r.Context(), sess))
 }
 
 type sessionResponse struct {
@@ -185,6 +185,16 @@ type sessionResponse struct {
 	DurationMin   int    `json:"durationMin"`
 	ElapsedMin    int    `json:"elapsedMin"`
 	StartedAt     string `json:"startedAt"`
+	// Sandbox is true when this session's workspace is a real machine — the
+	// terminal and files are the sandbox's — and false when it runs in the
+	// candidate's browser.
+	Sandbox bool `json:"sandbox"`
+}
+
+func (s *Server) sessionView(ctx context.Context, sess db.Session) sessionResponse {
+	view := sessionView(sess)
+	view.Sandbox = s.orc != nil && s.orc.SandboxReady(ctx, sess)
+	return view
 }
 
 func sessionView(s db.Session) sessionResponse {
@@ -224,7 +234,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionView(sess))
+	writeJSON(w, http.StatusOK, s.sessionView(r.Context(), sess))
 }
 
 type sessionAssessmentResponse struct {
@@ -336,6 +346,7 @@ var serverOnlyEventTypes = map[string]bool{
 	"ai_cost":            true,
 	"auto_submitted":     true,
 	"variant_assigned":   true,
+	"sandbox_ready":      true,
 }
 
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
@@ -426,7 +437,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	// snapshot or events exist.
 	if files, ok := decodeFiles(w, r); !ok {
 		return
-	} else if err := s.orc.RecordSnapshot(r.Context(), sessionID, files); err != nil {
+	} else if err := s.orc.CaptureWorkspace(r.Context(), sess, files, false); err != nil {
 		slog.Error("handleSubmit: recording final workspace", "session", sessionID, "error", err)
 	}
 

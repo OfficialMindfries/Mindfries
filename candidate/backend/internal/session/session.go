@@ -247,3 +247,32 @@ func VerifyEventsTicket(token, secret string) (*LiveTicket, error) {
 	}
 	return &t, nil
 }
+
+// A terminal ticket lets a candidate's browser open the WebSocket that is
+// their sandbox's terminal — again the LiveTicket shape under its own key,
+// so a ticket for the event stream or the voice call can't open a shell.
+func terminalTicketSecret(secret string) string { return secret + "|sandbox-terminal-ticket" }
+
+// SignTerminalTicket issues a ticket for a session's sandbox terminal.
+func SignTerminalTicket(t LiveTicket, secret string) (string, error) {
+	if secret == "" {
+		return "", ErrInvalid
+	}
+	return sign(t, terminalTicketSecret(secret))
+}
+
+// VerifyTerminalTicket checks a terminal ticket's signature and expiry.
+func VerifyTerminalTicket(token, secret string) (*LiveTicket, error) {
+	if secret == "" {
+		return nil, ErrInvalid
+	}
+	raw, err := verify(token, terminalTicketSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	var t LiveTicket
+	if err := json.Unmarshal(raw, &t); err != nil || t.SessionID == "" || t.CandidateID == "" {
+		return nil, ErrInvalid
+	}
+	return &t, nil
+}
