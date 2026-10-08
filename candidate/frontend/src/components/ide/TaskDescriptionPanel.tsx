@@ -94,55 +94,19 @@ export function TaskDescriptionPanel({
 }
 
 /**
- * Sample task description shown only when there's no real session to fetch
- * a real brief for — opening `/ide` directly, or onboarding's own honest
- * fallback when the backend isn't configured (see IdeShell's own doc
- * comment on `sessionId`). A real session with a real
- * `game_templates.task_brief` authored shows that instead
- * (GET /sessions/{id}/assessment); a real session whose template has none
- * authored yet shows NO_BRIEF_MARKDOWN below, not this — showing this
- * content for a real assessment would be exactly the "looks connected and
- * isn't" bug this used to be everywhere. Written to feel like a genuine
- * engineering problem, not a toy example, since it's still what a candidate
- * sees while exploring without a tracked session.
+ * Shown when the workspace is opened without a session — directly at /ide.
+ * There is no assessment here, so there is no task to describe; this says
+ * that, rather than presenting a made-up one as if it were being scored.
  */
-export const MOCK_TASK_MARKDOWN = `# Authentication Bug Fix
+export const SCRATCH_MARKDOWN = `# Scratch workspace
 
-## Context
+This workspace isn't attached to an assessment. Nothing you do here is timed, recorded or submitted.
 
-You are working on a Node.js REST API for a task management application. The authentication middleware has a bug that allows expired JWT tokens to pass validation under certain conditions.
-
-## Objective
-
-- Identify the bug in the authentication middleware
-- Write a fix that correctly rejects expired tokens
-- Add at least one test case that reproduces the original bug
-- Make sure all existing tests still pass
-
-## Constraints
-
-- **Time limit**: shown in the header above
-- **You may use the AI assistant** for help — how you use it is part of the evaluation
-- Use the terminal to run tests: \`npm test\`
-
-## Getting Started
-
-- Read through \`src/middleware/auth.js\`
-- Check the existing tests in \`tests/auth.test.js\`
-- The bug is in the token expiry check
-
-## Evaluation
-
-Your work will be evaluated on:
-- **Correctness** — does the fix actually solve the problem?
-- **Process** — how you approached debugging (explored the codebase, reproduced the issue, validated the fix)
-- **Code quality** — clean, readable changes
-- **Testing** — did you verify your fix with tests?
-`;
+Use it to get used to the editor and terminal. To work on a real task, start an assessment from your dashboard.`;
 
 /**
  * Shown for a real session whose template has no `task_brief` authored yet
- * — distinct from MOCK_TASK_MARKDOWN above on purpose: this is a real
+ * — distinct from SCRATCH_MARKDOWN above on purpose: this is a real
  * assessment, so showing sample content here would silently misrepresent
  * what the candidate is actually being asked to do. Says so plainly instead.
  */

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { stats as sampleStats, deriveStats, type Assessment } from "@/lib/dashboard/data";
+import { deriveStats, type Assessment } from "@/lib/dashboard/data";
 import { hand } from "@/lib/dashboard/fonts";
 import { StickyNote } from "./StickyNote";
 import { TONE } from "./noteTones";
@@ -7,13 +7,13 @@ import { TONE } from "./noteTones";
 interface StatNotesProps {
   /**
    * The same real-or-undefined list the dashboard passes to
-   * `AssessmentNotes` — `undefined` when the backend is unconfigured or
-   * unreachable (sample stats), a real array otherwise, even when empty
-   * (real, derived stats). This is what keeps this component and
-   * `AssessmentNotes` from ever disagreeing about whether the backend is
-   * connected again.
+   * `AssessmentNotes` — `undefined` when the candidate's records couldn't
+   * be read at all, which counts as zero here; `AssessmentNotes` is where
+   * that case is explained.
    */
   items?: Assessment[];
+  /** Practice runs the candidate has opened (lib/setup-state.ts). */
+  practiceRuns?: number;
 }
 
 /**
@@ -24,8 +24,8 @@ interface StatNotesProps {
  * sans: it's the part that tells you what to do about the number, and it has
  * to be readable in one glance.
  */
-export function StatNotes({ items }: StatNotesProps) {
-  const stats = items ? deriveStats(items) : sampleStats;
+export function StatNotes({ items, practiceRuns }: StatNotesProps) {
+  const stats = deriveStats(items ?? [], practiceRuns);
   return (
     <div className="grid grid-cols-2 gap-x-5 gap-y-7 pt-2 lg:grid-cols-4">
       {stats.map((stat, index) => (

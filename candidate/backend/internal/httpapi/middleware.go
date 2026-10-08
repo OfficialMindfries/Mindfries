@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"bufio"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"time"
@@ -130,4 +133,24 @@ func (s *Server) requireFullAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Hijack lets a WebSocket upgrade through the logging wrapper. Without it
+// the upgrader sees a ResponseWriter that can't be taken over and refuses
+// every handshake.
+func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := sw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("httpapi: the underlying ResponseWriter cannot be hijacked")
+	}
+	sw.status = http.StatusSwitchingProtocols
+	return h.Hijack()
+}
+
+// Flush lets a handler stream through the logging wrapper (the assistant's
+// replies are server-sent events).
+func (sw *statusWriter) Flush() {
+	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

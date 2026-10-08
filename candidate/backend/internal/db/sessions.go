@@ -136,6 +136,107 @@ func (d *DB) ListAdminSessions(ctx context.Context) ([]AdminSessionRow, error) {
 	return out, rows.Err()
 }
 
+// ListLiveSessionsPastTime returns sessions that are still "live" although
+// their own time ran out — candidates for the orchestrator's abandoned-session
+// sweep, which decides (it knows the interview's allowance; this doesn't)
+// whether each has really been left behind. Sessions whose time ended more
+// than maxAge ago are left out: a row that has sat "live" for months predates
+// the sweep, and closing it now would spend model calls evaluating history
+// nobody asked about.
+func (d *DB) ListLiveSessionsPastTime(ctx context.Context, maxAge time.Duration) ([]Session, error) {
+	rows, err := d.pool.Query(ctx, `
+		select `+sessionColumns+` from sessions
+		where status = 'live'
+		  and started_at + make_interval(mins => duration_min) < now()
+		  and started_at + make_interval(mins => duration_min) > now() - make_interval(secs => $1)
+		order by started_at
+	`, maxAge.Seconds())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Session
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// CountEarlierSessions is how many sessions were started on a template
+// before the given one — what deals task variants out in turn (see
+// orchestrator/variants.go).
+func (d *DB) CountEarlierSessions(ctx context.Context, templateID, sessionID string) (int, error) {
+	var n int
+	err := d.pool.QueryRow(ctx, `
+		select count(*) from sessions
+		where template_id = $1 and id <> $2
+		  and started_at <= (select started_at from sessions where id = $2)
+	`, templateID, sessionID).Scan(&n)
+	return n, err
+}
+
+// SelfStarted summarises the sessions a candidate began on their own, from
+// the open pool rather than by invitation: how many since a given moment,
+// and whether one is still running.
+type SelfStarted struct {
+	Recent int
+	Live   bool
+}
+
+// CountSelfStarted is what the limit on self-started sessions is checked
+// against (orchestrator.startFromTemplate). A session with no assessment_id
+// is one nobody invited the candidate to.
+func (d *DB) CountSelfStarted(ctx context.Context, candidateID string, since time.Time) (SelfStarted, error) {
+	var out SelfStarted
+	err := d.pool.QueryRow(ctx, `
+		select count(*) filter (where started_at >= $2),
+		       coalesce(bool_or(status = 'live'), false)
+		from sessions
+		where candidate_id = $1 and assessment_id is null
+	`, candidateID, since).Scan(&out.Recent, &out.Live)
+	return out, err
+}
+
+// SessionRef is where one of a candidate's sessions stands: which invitation
+// or template it is for, and its status.
+type SessionRef struct {
+	ID           string
+	AssessmentID *string
+	TemplateID   *string
+	Status       string
+}
+
+// ListSessionRefsForCandidate returns a candidate's sessions, newest first —
+// what lets their assessments list say which ones are under way (and can be
+// resumed) and which have a report to open.
+func (d *DB) ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]SessionRef, error) {
+	rows, err := d.pool.Query(ctx, `
+		select id, assessment_id, template_id, status
+		from sessions
+		where candidate_id = $1
+		order by started_at desc
+	`, candidateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SessionRef
+	for rows.Next() {
+		var r SessionRef
+		if err := rows.Scan(&r.ID, &r.AssessmentID, &r.TemplateID, &r.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ErrAlreadySubmitted means a session's status was no longer "live" at the
 // moment this tried to move it to "submitted" — either it was already
 // submitted, or a concurrent request beat this one to it. Distinct from a

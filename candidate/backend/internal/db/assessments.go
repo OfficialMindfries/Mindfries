@@ -3,6 +3,9 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Template is a published assessment ("game") a candidate can start —
@@ -62,10 +65,41 @@ func (d *DB) GetPublishedTemplate(ctx context.Context, id string) (*Template, er
 // can be real file content, and a list of every published template shouldn't
 // drag that along for assessments nobody started.
 type TemplateContent struct {
-	Name         string
-	DurationMin  int
-	TaskBrief    *string
-	StarterFiles map[string]string
+	Name      string
+	TaskBrief *string
+	// InterviewerPrompt is the author's guidance for the AI interviewer
+	// ("probe how they located the failing path…"). Often unset.
+	InterviewerPrompt *string
+	StarterFiles      map[string]string
+	// Rubric is the template's evaluation rubric as stored: a JSON array of
+	// {id, label, weight}. Empty or "[]" when the author set none.
+	Rubric json.RawMessage
+	// Variants are alternative versions of the task (0017_task_generation.sql).
+	// Empty for most templates.
+	Variants []TemplateVariant
+}
+
+// TemplateVariant is one alternative version of a template's task: its own
+// brief and starting files, sharing everything else with the original.
+type TemplateVariant struct {
+	TaskBrief    string            `json:"taskBrief"`
+	StarterFiles map[string]string `json:"starterFiles"`
+}
+
+// Version returns the content as version n of the task: the original for 0
+// (or any n that isn't a variant), otherwise the nth variant's brief and
+// files in place of the original's. The name, rubric and interviewer
+// guidance are the template's either way.
+func (tc TemplateContent) Version(n int) TemplateContent {
+	if n < 1 || n > len(tc.Variants) {
+		return tc
+	}
+	v := tc.Variants[n-1]
+	out := tc
+	brief := v.TaskBrief
+	out.TaskBrief = &brief
+	out.StarterFiles = v.StarterFiles
+	return out
 }
 
 // GetTemplateContent loads a template's name, duration, brief and starter
@@ -76,12 +110,21 @@ type TemplateContent struct {
 // since.
 func (d *DB) GetTemplateContent(ctx context.Context, templateID string) (TemplateContent, error) {
 	var tc TemplateContent
-	var starterFilesRaw []byte
+	var starterFilesRaw, variantsRaw []byte
 	err := d.pool.QueryRow(ctx, `
-		select name, duration_min, task_brief, starter_files
+		select name, task_brief, interviewer_prompt, starter_files, rubric, variants
 		from game_templates
 		where id = $1
-	`, templateID).Scan(&tc.Name, &tc.DurationMin, &tc.TaskBrief, &starterFilesRaw)
+	`, templateID).Scan(&tc.Name, &tc.TaskBrief, &tc.InterviewerPrompt, &starterFilesRaw, &tc.Rubric, &variantsRaw)
+	if isUndefinedColumn(err) {
+		// A database migration 0017 hasn't reached yet: no template there
+		// can have variants, so the answer without them is the whole answer.
+		err = d.pool.QueryRow(ctx, `
+			select name, task_brief, interviewer_prompt, starter_files, rubric
+			from game_templates
+			where id = $1
+		`, templateID).Scan(&tc.Name, &tc.TaskBrief, &tc.InterviewerPrompt, &starterFilesRaw, &tc.Rubric)
+	}
 	if err != nil {
 		return TemplateContent{}, err
 	}
@@ -90,5 +133,22 @@ func (d *DB) GetTemplateContent(ctx context.Context, templateID string) (Templat
 			return TemplateContent{}, err
 		}
 	}
+	if len(variantsRaw) > 0 {
+		// A malformed variants column costs the variants, not the task.
+		var variants []TemplateVariant
+		if json.Unmarshal(variantsRaw, &variants) == nil {
+			for _, v := range variants {
+				if v.TaskBrief != "" && len(v.StarterFiles) > 0 {
+					tc.Variants = append(tc.Variants, v)
+				}
+			}
+		}
+	}
 	return tc, nil
+}
+
+// isUndefinedColumn reports Postgres's "column does not exist" (42703).
+func isUndefinedColumn(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42703"
 }

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { ReportAutoRefresh } from "@/components/assessments/ReportAutoRefresh";
-import { BackendAuthError, BackendError, getSession, getSessionReport, type ReportView } from "@/lib/backend/client";
+import { BackendAuthError, BackendError, getSession, getSessionReport, sessionEventsOrUndefined, type ReportView } from "@/lib/backend/client";
 import { currentCandidate } from "@/lib/auth/users";
 
 export const metadata: Metadata = {
@@ -33,6 +33,12 @@ const CATEGORY_LABEL: Record<string, string> = {
   reasoning: "Reasoning",
   workflow: "Workflow",
   interview: "Interview",
+  ai_usage: "AI assistant usage",
+  integrity: "Integrity",
+  rubric: "Rubric scores",
+  interview_status: "Interview",
+  provenance: "Where the work came from",
+  incomplete: "Missing from this report",
 };
 
 const STATUS_COPY: Record<ReportView["status"], { title: string; body: string }> = {
@@ -75,7 +81,7 @@ export default async function SessionReportPage({
   return (
     <div className="min-h-full flex-1 bg-[#F6FAFD]">
       <DashboardNav sessionName={viewer?.name} />
-      {!isTerminal && <ReportAutoRefresh />}
+      {!isTerminal && <ReportAutoRefresh live={await sessionEventsOrUndefined(sessionId)} />}
 
       <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8">
         <div>
@@ -145,7 +151,9 @@ export default async function SessionReportPage({
                       <p className="text-xs font-semibold uppercase tracking-widest text-[#4A7FA7]">
                         {CATEGORY_LABEL[item.category] ?? item.category}
                       </p>
-                      <p className="mt-2 text-sm leading-relaxed text-[#0A1931]">{item.observation}</p>
+                      <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-[#0A1931]">
+                        {item.observation.replace(/ ?\[E\d+\]/g, "")}
+                      </p>
                     </div>
                   ))}
                 </div>

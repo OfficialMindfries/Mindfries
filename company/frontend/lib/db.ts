@@ -1,6 +1,10 @@
 import "server-only";
 import { db } from "./supabase";
 import { inviteSecret, signInviteToken } from "./auth/invite-token";
+import { normalizeAssistantConfig } from "./assistant";
+import { citedIds, describeEvent, type Moment } from "./moments";
+import { normalizeInterviewConfig } from "./interview";
+import type { CameraRecord } from "./types";
 import type {
   ApplicationStage,
   AssessmentReport,
@@ -10,6 +14,8 @@ import type {
   CompanyRole,
   CompanyUser,
   DueCandidate,
+  InterviewExchange,
+  InvitationResponse,
   GameTemplate,
   JobRole,
   RoleStatus,
@@ -38,19 +44,64 @@ function toTemplate(r: any): GameTemplate {
     taskVariant: r.task_variant,
     techStack: r.tech_stack ?? [],
     durationMin: r.duration_min ?? 60,
+    own: !!r.company_id,
   };
 }
 
-/** Only published templates — this portal picks from the shared library, it doesn't author rubrics/repo config (that stays in internal-admin). */
-export async function listPublishedTemplates(): Promise<GameTemplate[]> {
+/**
+ * The tasks a company can attach to a role: Mindfries' published library,
+ * plus the ones it generated for itself (status 'private', owned by it —
+ * supabase/migrations/0017_task_generation.sql). Never another company's.
+ */
+export async function listPublishedTemplates(companyId?: string): Promise<GameTemplate[]> {
   const c = db();
   if (!c) return [];
-  const { data } = await c
+  const { data: library } = await c
     .from("game_templates")
     .select("*")
     .eq("status", "published")
     .order("name", { ascending: true });
-  return (data ?? []).map(toTemplate);
+  // company_id doesn't exist before migration 0017; the error then just
+  // means there are no company-owned tasks yet.
+  const { data: own } = companyId
+    ? await c.from("game_templates").select("*").eq("status", "private").eq("company_id", companyId).order("created_at", { ascending: false })
+    : { data: [] };
+  // A library task has no owner. Filtered here rather than in the query so
+  // the query still runs on a database without the column.
+  return [...(own ?? []), ...(library ?? []).filter((r: any) => !r.company_id)].map(toTemplate);
+}
+
+/**
+ * Saves a generated task as this company's own and attaches it to the role.
+ * It is stored 'private': outside the published library, so no other
+ * company can attach it and it never appears in the candidates' open pool.
+ */
+export async function createCompanyTemplate(
+  companyId: string,
+  roleId: string,
+  task: {
+    name: string; taskVariant: string; techStack: string[]; durationMin: number;
+    taskBrief: string; starterFiles: Record<string, string>; solutionFiles: Record<string, string>; verification: unknown;
+  },
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const role = await getJobRole(companyId, roleId);
+  if (!role) throw new Error("Role not found");
+  const { data, error } = await c
+    .from("game_templates")
+    .insert({
+      name: task.name, task_variant: task.taskVariant, tech_stack: task.techStack, duration_min: task.durationMin,
+      task_brief: task.taskBrief, starter_files: task.starterFiles, solution_files: task.solutionFiles,
+      verification: task.verification, company_id: companyId, status: "private",
+    })
+    .select("id")
+    .single();
+  if (error && (error.code === "PGRST204" || error.code === "42703")) {
+    throw new Error("Saving a generated task isn't available yet — the database is missing migration 0017_task_generation.");
+  }
+  if (error || !data) throw error ?? new Error("Could not save the task");
+  await setJobRoleTemplate(companyId, roleId, data.id);
 }
 
 function toJobRole(r: any): JobRole {
@@ -65,6 +116,10 @@ function toJobRole(r: any): JobRole {
     visibility: r.visibility,
     status: r.status,
     createdAt: r.created_at,
+    // Absent before migration 0014 has run; normalizing fills the defaults either way.
+    interviewConfig: normalizeInterviewConfig(r.interview_config),
+    // Absent before migration 0015 has run; same.
+    assistantConfig: normalizeAssistantConfig(r.assistant_config),
   };
 }
 
@@ -125,6 +180,14 @@ export async function getJobRole(companyId: string, roleId: string): Promise<Job
 export async function setJobRoleTemplate(companyId: string, roleId: string, templateId: string | null): Promise<void> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");
+  // The id comes from a form. It has to be one this company may use: a
+  // published library task, or a private one of its own — not another
+  // company's private task whose id someone has got hold of.
+  if (templateId) {
+    const { data: template } = await c.from("game_templates").select("*").eq("id", templateId).maybeSingle();
+    const allowed = template && ((template.status === "published" && !template.company_id) || (template.status === "private" && template.company_id === companyId));
+    if (!allowed) throw new Error("That assessment isn't available to attach.");
+  }
   const { error } = await c
     .from("job_roles")
     .update({ template_id: templateId })
@@ -145,6 +208,49 @@ export async function setJobRoleStatus(companyId: string, roleId: string, status
   if (error) throw error;
 }
 
+/**
+ * Saves how the AI interview runs for a role. The value is normalized first,
+ * so what's stored is always a complete, in-range config — the backend
+ * normalizes again on read, but there's no reason to store junk.
+ */
+export async function setJobRoleInterview(companyId: string, roleId: string, config: unknown): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("job_roles")
+    .update({ interview_config: normalizeInterviewConfig(config) })
+    .eq("company_id", companyId)
+    .eq("id", roleId)
+    .select("id");
+  // PGRST204 / 42703: the column isn't there yet — say what's actually wrong
+  // instead of a raw Postgres message about a schema cache.
+  if (error && (error.code === "PGRST204" || error.code === "42703")) {
+    throw new Error("Interview settings aren't available yet — the database is missing migration 0014_interview_config.");
+  }
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Role not found");
+}
+
+/**
+ * Saves whether candidates for a role get the AI assistant and how many
+ * messages they may send it. Normalized first, like the interview settings.
+ */
+export async function setJobRoleAssistant(companyId: string, roleId: string, config: unknown): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const { data, error } = await c
+    .from("job_roles")
+    .update({ assistant_config: normalizeAssistantConfig(config) })
+    .eq("company_id", companyId)
+    .eq("id", roleId)
+    .select("id");
+  if (error && (error.code === "PGRST204" || error.code === "42703")) {
+    throw new Error("Assistant settings aren't available yet — the database is missing migration 0015_assistant_config.");
+  }
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Role not found");
+}
+
 const EMPTY_STAGE_COUNTS: StageCounts = {
   invited: 0,
   in_progress: 0,
@@ -152,6 +258,7 @@ const EMPTY_STAGE_COUNTS: StageCounts = {
   shortlisted: 0,
   rejected: 0,
   hired: 0,
+  declined: 0,
 };
 
 /** Per-role pipeline stage counts (IMPLEMENTATION.md §9) — one query per role for now; fine at MVP volumes. */
@@ -253,6 +360,35 @@ export async function inviteCandidateToRole(input: {
   return toApplication(data);
 }
 
+/**
+ * Records that the invitation was mailed. Scoped by company as well as id,
+ * like every write here.
+ */
+export async function markInvitationEmailed(companyId: string, assessmentId: string): Promise<void> {
+  const c = db();
+  if (!c) return;
+  await c.from("assessments").update({ invite_emailed_at: new Date().toISOString() }).eq("id", assessmentId).eq("company_id", companyId);
+}
+
+/** What the candidate did with an invitation. Null when the application has no invitation behind it. */
+export async function getInvitationResponse(companyId: string, assessmentId: string | null): Promise<InvitationResponse | null> {
+  const c = db();
+  if (!c || !assessmentId) return null;
+  const { data } = await c
+    .from("assessments")
+    .select("invite_emailed_at, accepted_at, declined_at, decline_reason")
+    .eq("id", assessmentId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    emailedAt: data.invite_emailed_at ?? null,
+    acceptedAt: data.accepted_at ?? null,
+    declinedAt: data.declined_at ?? null,
+    declineReason: data.decline_reason ?? null,
+  };
+}
+
 export interface CandidateApplicationWithRole extends CandidateApplication {
   roleTitle: string;
 }
@@ -335,7 +471,7 @@ export async function getApplicationForCompany(companyId: string, applicationId:
  * an honest empty state, not an error.
  */
 export async function getCandidateReport(assessmentId: string | null): Promise<CandidateReport> {
-  const empty: CandidateReport = { session: null, report: null };
+  const empty: CandidateReport = { session: null, report: null, interview: [], camera: { total: 0, expired: 0, stills: [] } };
   if (!assessmentId) return empty;
   const c = db();
   if (!c) return empty;
@@ -360,7 +496,8 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
   };
 
   const { data: reportRow } = await c.from("assessment_reports").select("*").eq("session_id", session.id).maybeSingle();
-  if (!reportRow) return { session, report: null };
+  const [interview, camera] = await Promise.all([getInterviewExchanges(session.id), getCameraRecord(session.id, session.startedAt)]);
+  if (!reportRow) return { session, report: null, interview, camera };
 
   const { data: evidenceRows } = await c
     .from("evidence_items")
@@ -375,9 +512,240 @@ export async function getCandidateReport(assessmentId: string | null): Promise<C
     summary: reportRow.summary ?? null,
     error: reportRow.error ?? null,
     evidence: (evidenceRows ?? []).map((e: any) => ({ id: e.id, category: e.category, observation: e.observation })),
+    moments: [],
+    annotations: [],
+    review:
+      reportRow.reviewer_recommendation || reportRow.reviewer_note
+        ? {
+            recommendation: reportRow.reviewer_recommendation ?? null,
+            note: reportRow.reviewer_note ?? null,
+            by: reportRow.reviewed_by ?? null,
+            at: reportRow.reviewed_at ?? null,
+          }
+        : null,
   };
+  report.moments = await getMoments(session.id, session.startedAt, citedIds(report.evidence.map((e) => e.observation)));
 
-  return { session, report };
+  // Absent before migration 0016 has run — then there are simply no notes yet.
+  const { data: noteRows } = await c
+    .from("report_annotations")
+    .select("id, category, kind, body, author_name, created_at")
+    .eq("report_id", reportRow.id)
+    .order("created_at", { ascending: true });
+  report.annotations = (noteRows ?? []).map((n: any) => ({
+    id: n.id,
+    category: n.category ?? null,
+    kind: n.kind === "correction" ? "correction" : "note",
+    body: n.body,
+    authorName: n.author_name,
+    createdAt: n.created_at,
+  }));
+
+  return { session, report, interview, camera };
+}
+
+const SNAPSHOTS_BUCKET = "proctor-snapshots";
+/** How many stills the report page shows. A session has one every half minute; a reviewer wants a sense of it, not all 120. */
+const CAMERA_SAMPLE = 24;
+
+/**
+ * The proctoring camera's stills for a session (candidate/frontend's
+ * lib/ide/camera-snapshots.ts): an even sample of them, each with a signed
+ * link valid for an hour. Only paths inside the session's own folder are
+ * used — the events come from the candidate's browser.
+ */
+async function getCameraRecord(sessionId: string, startedAt: string): Promise<CameraRecord> {
+  const c = db();
+  const none: CameraRecord = { total: 0, expired: 0, stills: [] };
+  if (!c) return none;
+  const { data } = await c
+    .from("activity_events")
+    .select("event_type, payload, occurred_at")
+    .eq("session_id", sessionId)
+    .in("event_type", ["camera_snapshot", "camera_snapshot_expired"])
+    .order("occurred_at", { ascending: true });
+  if (!data || data.length === 0) return none;
+
+  const expired = data.filter((r: any) => r.event_type === "camera_snapshot_expired").length;
+  const live = data
+    .filter((r: any) => r.event_type === "camera_snapshot")
+    .map((r: any) => ({ path: (r.payload ?? {}).path as unknown, at: r.occurred_at as string }))
+    .filter((s): s is { path: string; at: string } => typeof s.path === "string" && s.path.startsWith(`${sessionId}/`) && !s.path.includes(".."));
+
+  const step = Math.max(1, Math.ceil(live.length / CAMERA_SAMPLE));
+  const sample = live.filter((_, i) => i % step === 0);
+  const start = new Date(startedAt).getTime();
+  const stills = (
+    await Promise.all(
+      sample.map(async (s) => {
+        const { data: signed } = await c.storage.from(SNAPSHOTS_BUCKET).createSignedUrl(s.path, RECORDING_LINK_SECONDS);
+        return signed?.signedUrl ? { url: signed.signedUrl, offsetSeconds: Math.max(0, (new Date(s.at).getTime() - start) / 1000) } : null;
+      }),
+    )
+  ).filter((s): s is { url: string; offsetSeconds: number } => s !== null);
+  return { total: live.length + expired, expired, stills };
+}
+
+/**
+ * The session events a report's evidence cites, as moments: how far into
+ * the session, and what happened. Restricted to the session's own events, so
+ * a citation can only ever resolve to something that session recorded.
+ */
+async function getMoments(sessionId: string, startedAt: string, ids: number[]): Promise<Moment[]> {
+  const c = db();
+  if (!c || ids.length === 0) return [];
+  const { data } = await c
+    .from("activity_events")
+    .select("id, event_type, payload, occurred_at")
+    .eq("session_id", sessionId)
+    .in("id", ids.slice(0, 200));
+  const start = new Date(startedAt).getTime();
+  return (data ?? []).map((row: any) => ({
+    id: Number(row.id),
+    offsetSeconds: Math.max(0, (new Date(row.occurred_at).getTime() - start) / 1000),
+    what: describeEvent(row.event_type, (row.payload ?? {}) as Record<string, unknown>),
+  }));
+}
+
+/**
+ * The report behind one of this company's applications. Every write to a
+ * report goes through here: the application is looked up under the company
+ * first, so a report can only be reached by the company whose candidate it
+ * is about.
+ */
+async function reportIdForApplication(companyId: string, applicationId: string): Promise<string> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const application = await getApplicationForCompany(companyId, applicationId);
+  if (!application?.assessmentId) throw new Error("Candidate not found");
+  const { data: sessionRow } = await c
+    .from("sessions")
+    .select("id")
+    .eq("assessment_id", application.assessmentId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!sessionRow) throw new Error("This candidate has no session yet");
+  const { data: reportRow } = await c.from("assessment_reports").select("id").eq("session_id", sessionRow.id).maybeSingle();
+  if (!reportRow) throw new Error("This candidate has no report yet");
+  return reportRow.id;
+}
+
+const NEEDS_0016 = "Reviewing reports isn't available yet — the database is missing migration 0016_report_review.";
+const missingSchema = (error: { code?: string } | null) =>
+  !!error && ["PGRST204", "PGRST205", "42703", "42P01"].includes(error.code ?? "");
+
+/** Adds a reviewer's note or correction to a report. */
+export async function addReportAnnotation(
+  companyId: string,
+  applicationId: string,
+  note: { category: string | null; kind: "note" | "correction"; body: string; authorName: string; authorEmail: string },
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const reportId = await reportIdForApplication(companyId, applicationId);
+  const { error } = await c.from("report_annotations").insert({
+    report_id: reportId,
+    category: note.category,
+    kind: note.kind,
+    body: note.body,
+    author_name: note.authorName,
+    author_email: note.authorEmail,
+  });
+  if (missingSchema(error)) throw new Error(NEEDS_0016);
+  if (error) throw error;
+}
+
+/** Records (or, with nothing chosen and no note, clears) the reviewer's own decision on a report. */
+export async function setReviewerDecision(
+  companyId: string,
+  applicationId: string,
+  decision: { recommendation: string | null; note: string | null; by: string },
+): Promise<void> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const reportId = await reportIdForApplication(companyId, applicationId);
+  const cleared = !decision.recommendation && !decision.note;
+  const { error } = await c
+    .from("assessment_reports")
+    .update({
+      reviewer_recommendation: decision.recommendation,
+      reviewer_note: decision.note,
+      reviewed_by: cleared ? null : decision.by,
+      reviewed_at: cleared ? null : new Date().toISOString(),
+    })
+    .eq("id", reportId);
+  if (missingSchema(error)) throw new Error(NEEDS_0016);
+  if (error) throw error;
+}
+
+const RECORDINGS_BUCKET = "interview-recordings";
+const RECORDING_LINK_SECONDS = 3600;
+const NO_ANSWER_TEXT = "(no answer given in the time allowed)";
+
+/**
+ * Rebuilds the interview from the session's evidence trail: "interview"
+ * events are the questions and answers, in order (written by
+ * candidate/backend's orchestrator), and "interview_recording" events point
+ * at the clip uploaded for each answer (written by candidate/frontend once
+ * an upload succeeds). Recordings sit in a private bucket; each gets a
+ * signed link valid for an hour.
+ *
+ * Returns [] on any failure — a missing transcript must not take the whole
+ * report page down with it.
+ */
+async function getInterviewExchanges(sessionId: string): Promise<InterviewExchange[]> {
+  const c = db();
+  if (!c) return [];
+  const { data, error } = await c
+    .from("activity_events")
+    .select("event_type, payload, occurred_at")
+    .eq("session_id", sessionId)
+    .in("event_type", ["interview", "interview_recording", "interview_recording_expired"])
+    .order("occurred_at", { ascending: true });
+  if (error || !data) return [];
+
+  const exchanges: InterviewExchange[] = [];
+  const clips = new Map<number, { path: string; kind: "audio" | "video"; seconds: number }>();
+  // Recordings are deleted after 90 days (internal-admin's lib/retention.ts),
+  // which leaves this event behind in place of the one pointing at the file.
+  const expired = new Set<number>();
+  for (const row of data) {
+    const p = (row.payload ?? {}) as Record<string, unknown>;
+    if (row.event_type === "interview_recording_expired") {
+      if (typeof p.question === "number") expired.add(p.question);
+      continue;
+    }
+    if (row.event_type === "interview_recording") {
+      if (typeof p.path === "string" && typeof p.question === "number" && p.path.startsWith(`${sessionId}/`)) {
+        clips.set(p.question, { path: p.path, kind: p.kind === "video" ? "video" : "audio", seconds: Number(p.seconds) || 0 });
+      }
+      continue;
+    }
+    if (typeof p.text !== "string") continue;
+    if (p.role === "interviewer") {
+      exchanges.push({ number: exchanges.length + 1, question: p.text, answer: null, seconds: null, timedOut: false, unanswered: false, recording: null, recordingExpired: false });
+    } else if (p.role === "candidate" && exchanges.length > 0) {
+      const last = exchanges[exchanges.length - 1];
+      last.answer = p.text;
+      last.seconds = typeof p.seconds === "number" ? p.seconds : null;
+      last.timedOut = p.timedOut === true;
+      last.unanswered = p.text === NO_ANSWER_TEXT;
+    }
+  }
+
+  await Promise.all(
+    exchanges.map(async (x) => {
+      const clip = clips.get(x.number);
+      if (!clip) {
+        x.recordingExpired = expired.has(x.number);
+        return;
+      }
+      const { data: signed } = await c.storage.from(RECORDINGS_BUCKET).createSignedUrl(clip.path, RECORDING_LINK_SECONDS);
+      if (signed?.signedUrl) x.recording = { url: signed.signedUrl, kind: clip.kind, seconds: clip.seconds };
+    }),
+  );
+  return exchanges;
 }
 
 /**

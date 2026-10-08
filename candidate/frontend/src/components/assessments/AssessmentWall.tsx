@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import clsx from "clsx";
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { statusLabels, type Assessment } from "@/lib/dashboard/data";
@@ -9,6 +10,7 @@ import { hand } from "@/lib/dashboard/fonts";
 import { startAssessment } from "@/app/dashboard/actions";
 import { StickyNote } from "@/components/dashboard/StickyNote";
 import { TONE } from "@/components/dashboard/noteTones";
+import { InvitationAnswer } from "./InvitationAnswer";
 
 /**
  * The note-wall grid, shared by the dashboard's preview and the full
@@ -16,12 +18,10 @@ import { TONE } from "@/components/dashboard/noteTones";
  * exactly the same way and share one Start implementation rather than two
  * that could drift apart.
  *
- * Every button still goes somewhere: Start begins the onboarding wizard;
- * Submitted shows its state rather than a button wired to nothing.
- * In-progress has no action at all — deliberately: nothing lets a candidate
- * re-enter a session once it's underway (see the "in-progress" case below
- * for why), so there's nothing honest to link it to. See AssessmentNotes for
- * the fuller rationale — it hasn't moved, only the rendering has.
+ * Every button goes somewhere. A company's invitation asks to be accepted
+ * or declined first (InvitationAnswer); once accepted — and for an
+ * open-pool assessment straight away — Start begins the onboarding wizard.
+ * In-progress resumes the session, and Submitted opens its report.
  */
 export function AssessmentWall({
   items,
@@ -71,12 +71,15 @@ function AssessmentNote({
   pending: boolean;
   onStart: () => void;
 }) {
-  const { status } = assessment;
+  const { status, invitation } = assessment;
+  // A company's invitation the candidate hasn't answered yet: it asks for
+  // an answer before it offers Start.
+  const unanswered = status === "invited" && !!invitation && !invitation.accepted;
 
   return (
     <StickyNote tone={TONE[status]} index={index} faded={status === "closed"} className="min-h-[232px]">
       <div className="flex items-center gap-2 text-[10.5px] font-semibold tracking-[0.08em] text-[#1A3D63] uppercase">
-        <span>{statusLabels[status]}</span>
+        <span>{invitation?.declined ? "Declined" : status === "invited" && invitation?.accepted ? "Accepted" : statusLabels[status]}</span>
         {assessment.match !== undefined && (
           <span className="ml-auto tracking-normal normal-case">{assessment.match}% match</span>
         )}
@@ -94,9 +97,12 @@ function AssessmentNote({
       {/* Pinned to the bottom, so the actions line up across a row even when
           one role's name wraps to two lines and its neighbour's doesn't. */}
       <div className="mt-auto flex items-end justify-between gap-3 pt-5">
-        <span className="text-xs text-[#1A3D63]">{assessment.due}</span>
+        {!unanswered && <span className="text-xs text-[#1A3D63]">{assessment.due}</span>}
+        {unanswered && <span className="self-start text-xs text-[#1A3D63]">{assessment.due}</span>}
 
-        {status === "invited" && (
+        {unanswered && <InvitationAnswer assessmentId={assessment.id} />}
+
+        {status === "invited" && !unanswered && (
           <Button
             type="button"
             size="sm"
@@ -110,18 +116,33 @@ function AssessmentNote({
           </Button>
         )}
 
-        {/* No "Resume": a session, once underway, can't be re-entered — see
-            candidate.go's handleSubmit/handlePostEvents and task.md's
-            "Sandbox, codebases, and session integrity" for why re-entry is
-            deliberately not offered rather than pointed at a session that
-            (today) has nothing stopping it from being replayed. The status
-            chip above is the only thing shown for this state. */}
-
-        {status === "submitted" && (
-          <span className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63]")}>
-            under review ✓
-          </span>
+        {/* A session under way can be picked up again. Nothing is gained by
+            leaving and coming back: the clock is the server's and kept
+            running, the work is the copy the server holds (or this
+            browser's, if newer), and once the interview has begun the
+            workspace opens on the interview with the code frozen. */}
+        {status === "in-progress" && assessment.sessionId && (
+          <Link
+            href={`/ide?session=${encodeURIComponent(assessment.sessionId)}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#0A1931] px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+          >
+            Resume <ArrowRight size={13} />
+          </Link>
         )}
+
+        {status === "submitted" &&
+          (assessment.sessionId ? (
+            <Link
+              href={`/assessments/${encodeURIComponent(assessment.sessionId)}/report`}
+              className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63] underline-offset-4 hover:underline")}
+            >
+              under review ✓
+            </Link>
+          ) : (
+            <span className={clsx(hand.className, "shrink-0 text-[19px] leading-none font-bold text-[#1A3D63]")}>
+              under review ✓
+            </span>
+          ))}
       </div>
     </StickyNote>
   );

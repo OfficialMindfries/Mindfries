@@ -39,9 +39,78 @@ Mostly real and working.
 | 4 | Read the task | ✅ Real, as long as someone has written a real task description for that assessment. If not, it says so honestly instead of showing a fake one |
 | 5 | Work in a real codebase | ✅ Real, same condition as above — starts empty if nobody's added starter files yet |
 | 6 | Use a terminal, run tests | 🟡 The terminal is fully real. There's no automatic test runner yet |
-| 7 | Talk to an AI coding assistant | 🟡 The chat window is real; nothing answers yet |
-| 8 | Do a follow-up AI interview | ❌ Needs a live voice connection that isn't built |
+| 7 | Talk to an AI coding assistant | 🟡 Built and answering — it sees the task and the open file, and won't write the solution. Needs the hosted backend and OpenRouter credit to run for real candidates |
+| 8 | Do a follow-up AI interview | 🟡 Built — four questions about the candidate's own changes before submit, typed or by turn-based voice. Not a live call. Same hosting and credit condition |
 | 9 | Submit | ✅ Real, and can only be done successfully once per session — a candidate can't replay or reset their own submission |
+
+### Candidate side — everything still to build
+
+Checked against the code on 2026-10-07. Two decisions are already made:
+the AI interviewer and assistant use a **Gemini model through OpenRouter**,
+and social accounts are connected through **Composio**.
+
+**AI**
+
+| # | What | State today |
+|---|---|---|
+| 1 | AI chat assistant in the workspace | Built. Refuses to write the fix, to say where the defect is, or to confirm a guess; still answers genuine concept questions (that behaviour was run live on a real model). Replies are streamed. It is shown the whole project and the terminal's recent output, not only the open file. A company can switch it off or cap its messages per role (migration 0015, applied). Closed once the interview starts. The streaming, wider context and role settings were run end to end on 2026-10-07 against a stand-in model, not a real one, and the panel has not been opened in a browser |
+| 2 | AI interviewer (follow-up questions about the candidate's work) | Built and run live through the backend. A company sets the number of questions, tone, language and time per answer on the role (migration 0014 is applied; run live on 2026-10-07 with a two-question Spanish interview). Each answer is timed by the server; at zero it is sent as it stands or recorded as unanswered. When the session clock runs out the interview opens by itself and the work is submitted after it. The dialog has not been clicked through on screen (needs a camera and microphone) |
+| 3 | Voice for the interviewer | Built as a hands-free spoken conversation: the question is read aloud, the microphone opens, and a pause after speaking sends the answer. Two forms. With `GEMINI_API_KEY` set on the candidate backend it is one live voice call on Gemini's Live API, relayed through the backend so the server keeps the transcript and the time limits; run end to end on 2026-10-07 against a stand-in for Gemini, never yet against Gemini itself or in a browser. Without the key, or if the call drops, it is turn-based over the browser's speech features (Chrome and Edge) and resumes where the call stopped. Answers are recorded (voice, plus camera when on) and playable from the company's report page, and deleted after 90 days by a daily job in the admin app (needs `CRON_SECRET` set there; not yet run). Untested on a real microphone |
+| 4 | Recording AI usage as evidence (prompts, what was accepted) | Built. Every assistant and interview turn is recorded and reaches the report; every model call's tokens and billed cost are stored per session. The report has an "AI assistant usage" item: how many messages were sent, how many lines of code the assistant showed, which of them appear word for word in the submitted work, and how often text was copied out of the panel. It only sees verbatim lines — an idea rewritten in the candidate's own words is not detected. Pasting into the editor is not captured (see 26) |
+| 5 | Task generation per company / role | Built. From the admin library or from a company's own role page; from notes, a job description and a sample of the company's code. Every draft comes with a reference solution (never sent to a candidate) and is run before saving — tests must fail as given and pass with the solution — in a Daytona sandbox, or a local process when `TASK_VERIFY=local`; with neither it is marked "not run". A template can carry variants, dealt to candidates in turn. Company tasks are private to the company. Run end to end on 2026-10-07 against a stand-in model with the local runner (the Daytona runner has never been run). Not checked on a real model: whether generated code still labels its own bug, and the quality of what it writes from a job description |
+| 6 | Evaluation report | Built. Code evaluation reads the task brief; the rubric is scored per criterion; attempts to instruct the AI are reported as an integrity finding. An agent that fails is retried once and, if it fails again, named in the report as missing. Observations cite the session moments they rest on, shown to the hiring team as times and what happened. The report says plainly when no interview took place or it was cut short, and lists large outside pastes and time away from the tab as signals. A reviewer can add notes and corrections and record their own decision beside the AI's (migration 0016). Run end to end on 2026-10-07 against a stand-in model. The default model (Claude Sonnet 4.5) has still never been run, and only Gemini has been run for real |
+
+**Profile and accounts**
+
+| # | What | State today |
+|---|---|---|
+| 7 | Connect GitHub / GitLab / LinkedIn through Composio | Not built — needs a Composio key. Until then a GitHub or GitLab username is looked up on the platform and refused if no such account exists, but nothing shows the account is the candidate's; both the candidate and the hiring team are told "ownership not confirmed" |
+| 8 | Candidate knowledge base (projects, languages, activity pulled from connected accounts) | Built from public data (migration 0018). Linking a GitHub or GitLab username reads the account's own projects (forks left out), the languages across them and recent public activity; the candidate can refresh it. Read against real GitHub and GitLab accounts on 2026-10-07. Stored as unverified until item 7 exists. LinkedIn has no public API, so nothing is read from it |
+| 9 | Resume parsing into the profile / knowledge base | Built. A PDF or DOCX is read in the browser on upload; the server keeps the text and what it finds in it — technologies named (from a fixed list), a headline, location, summary, links, the span of years. The candidate can fill empty profile fields from it with one click; nothing is written without that. Pattern matching, not a model: it finds words, it does not judge skill, and the hiring team's view says so. A .doc or a scanned PDF is stored but not read. Checked in the browser with a real PDF on 2026-10-07. Also fixed: uploads over 1 MB used to fail |
+| 10 | The profile a hiring team actually sees | Built. The company portal's candidate page shows what the candidate wrote, their resume (a link that works for an hour) and what was read from it, and their linked code accounts — each labelled with where it came from, plus whether the email is confirmed. Checked in the browser on 2026-10-07 |
+| 11 | Forgot / reset password | Built, off until `RESEND_API_KEY` and `RESEND_FROM` are set on the candidate app (the form says so when they aren't). A link that works once, for an hour; only a hash of it is stored; three an hour per account. Run end to end on 2026-10-07 against a stand-in mail server — no real email has been sent. A reset does not sign out sessions already open elsewhere |
+| 12 | Email verification on sign-up | Built, off until the same two mail settings are set. Sign-up mails a confirmation link (48 hours); the account works meanwhile, the dashboard asks for confirmation, and hiring teams see "email not confirmed". Accounts made before this stay unconfirmed until they confirm. Social sign-in counts as confirmed — and when it links to an existing account whose email nobody confirmed, that account's password is cleared, since whoever set it never showed the mailbox was theirs. Run end to end against a stand-in mail server |
+| 13 | Sign-in with Google / GitHub / GitLab / LinkedIn | Built; each provider is off until its keys are added |
+
+**Invitations and dashboard**
+
+| # | What | State today |
+|---|---|---|
+| 14 | Invitation email with a link | Built, off until the company portal has `RESEND_API_KEY`, `RESEND_FROM` and `CANDIDATE_PORTAL_URL`. Inviting a candidate mails them a link to their assessments page and says which address to sign in with; the invite form reports what actually happened to the email, and the candidate page shows whether one was sent. No real email has been sent — the message is built and the send path is the mailer the portal already uses for team invites. The link is not a one-time token: the invitation belongs to whoever signs in with the invited address |
+| 15 | Accept / decline an invitation | Built (migration 0019). An invitation asks for an answer before it offers Start. Declining asks once more, takes an optional reason, and closes it — a declined invitation can't be started. The company sees "Declined" in the pipeline with the reason, and "accepted" with the date. Checked in the browser on 2026-10-07 |
+| 16 | Notifications (invite, deadline, report ready) | Built. The bell shows an invitation waiting for an answer, a due date within three days or passed, and a report that is ready or failed. Nothing is stored as a notification — each is worked out from the candidate's records when the bell is read, so it disappears when the thing it is about is dealt with. Read and dismissed are kept on the server. In-app only: no email or push is sent for a deadline or a report. Checked in the browser on 2026-10-07 |
+| 17 | Activity feed "See all" | Built. The feed shows the five most recent, each linking to its workspace or report; "See all" opens the full assessments list |
+| 18 | Environment check (camera, mic, browser) | Built. Opens the camera and shows the picture, opens the microphone and shows the level it hears, and asks the browser for each thing the workspace uses; a failure says what to do about it. Passing all three ticks the step on the dashboard. What is saved is the browser's own report (three yes/no answers), not something the server measured. Run in the browser with stand-in devices, including a refused permission — not with a real camera or microphone |
+| 19 | Practice run | Built. Opens the real workspace on a small task with one bug and a test that catches it (checked with real Python: fails as given, passes when fixed). There is no session behind it, so nothing is recorded, timed or submitted; only that one was opened is kept, for the dashboard's counter and setup step. The AI assistant is off in a practice run, and the brief says so |
+| 20 | Login check on `/practice` and `/environment-check` | Built. Both now require sign-in, like the rest of the portal |
+| 21 | Per-candidate limit on self-started sessions | Built. Three open-pool assessments in any 24 hours, and never two at once; invitations aren't counted. Not yet run against the live database |
+
+**Workspace**
+
+| # | What | State today |
+|---|---|---|
+| 22 | Hosted backend so an assessment can be started at all | Deployed on Railway (`mindfries-candidate-backend.up.railway.app`), database and OpenRouter key configured. Whether the deployed candidate and admin sites point at it (`CANDIDATE_BACKEND_URL` / `ADMIN_BACKEND_URL` on Vercel) has not been checked |
+| 23 | Real sandbox (Daytona) instead of in-browser execution | Not built for the workspace. A client exists and the task verifier can run a generated task in a sandbox, but no key has ever been set, so neither has run. The candidate's terminal still executes in the browser |
+| 24 | Test runner and test results panel | Built. `python -m unittest` and `node --test` / `npm test` run a project's tests, and a Tests tab shows the last run as results — each test, pass or fail, and what a failure said — whether run from the panel or the terminal. Seen working in a browser on 2026-10-07 |
+| 25 | Raw terminal command capture | Built. Each finished command is recorded with its exit code and duration; a test run with its counts and failing tests. Output is not sent, apart from test counts |
+| 26 | Navigation, edit-by-edit, paste and tab-switch capture | Mostly built. Recorded: the file being looked at as it changes, lines added and removed on each save, pastes (size and where, never the text), and time with the tab out of view. Not keystroke-level |
+| 27 | Camera recording / snapshots | Built as stills: one small image every half minute during a real session, in a private bucket, shown on the company's report page as an even sample, deleted after 90 days. Not video, and nothing analyses them. Seen storing real images on 2026-10-07 |
+| 28 | Screen recording | Not built, and the dashboard no longer says the screen is recorded. Whether to build it is an open decision |
+| 29 | Auto-submit when the timer reaches zero | Built. In the browser the interview opens at zero and the work is submitted after it. If the tab is closed instead, the backend submits the session itself once the time and the interview's allowance have passed, using a copy of the workspace the browser saves every two minutes. Run live on 2026-10-07: the server submitted an abandoned session and moved the invitation and pipeline with it; the evaluation that follows could not be checked because the test OpenRouter key was out of credit |
+| 30 | Workspace saved to the server | Built. Saved every minute and when the tab is hidden; restored from the server when this browser has no copy or an older one. Seen restoring in a browser on 2026-10-07 |
+| 31 | Separate saved workspace per assessment | Built. Each session has its own browser storage key |
+| 32 | Resume an in-progress session from the dashboard | Built. An assessment under way has a Resume link; the clock keeps running on the server, and a session resumed after its interview began opens on the interview |
+| 33 | Git changes view and diff viewer | Built as a Changes tab: files that differ from the task as given, with lines added and removed, each opening as a side-by-side diff. It compares with the starting files rather than git's index. Seen working in a browser on 2026-10-07 |
+| 34 | `git clone` / `push` / `pull` | Partly, on purpose. `clone`, `fetch`, `pull` and `remote` work for public repositories on GitHub, GitLab, Bitbucket and Codeberg, through a narrow read-only proxy; clone needs an empty workspace. `push` is refused: work is submitted through the assessment, and no git credentials pass through the app. A real clone and pull were run in a browser on 2026-10-07. Each session now has its own git storage |
+| 35 | Live status over WebSocket | Built for the candidate's report page: it listens to the session's event stream and refreshes the moment the report changes, with slow polling as a fallback. The stream was checked against a local backend on 2026-10-07; the page using it has not been watched in a browser. The company portal still polls |
+
+**After submitting**
+
+| # | What | State today |
+|---|---|---|
+| 36 | Report page | Built; shows "failed" without an OpenRouter key |
+| 37 | The company's pipeline updating when a candidate starts or submits | Built: in progress on start, completed with time taken on submit, score and per-criterion scores after evaluation; a stage set by hand is left alone. Start and submit run live on 2026-10-07; the score write-back still has not been, for lack of OpenRouter credit |
+| 38 | Candidate-facing outcome (shortlisted, rejected) | Not built |
 
 ## What the platform should do behind the scenes
 

@@ -7,6 +7,7 @@ import { executeCommandLine } from "@/lib/ide/shell/execute";
 import { isMultiLineInput, splitPastedInput } from "@/lib/ide/shell/paste";
 import { commandNames } from "@/lib/ide/shell/registry";
 import { createSession, type PreviewController, type ShellSession } from "@/lib/ide/shell/types";
+import { terminalLog, type RunningCommand } from "@/lib/ide/terminal-log";
 
 // True-color (24-bit) escape for the exact brand mid-blue (#4A7FA7) — the
 // standard 16-color ANSI palette has no matching blue close enough to read
@@ -84,8 +85,19 @@ export function attachVfsShell(
   /** Text after a paste's last line break — goes on the prompt, not executed. */
   let pendingInput = "";
 
+  /** The command line that is running, for the terminal log — see terminal-log.ts. */
+  let tracked: RunningCommand | null = null;
+
   const io = {
-    write: (text: string) => term.write(text),
+    // Everything a command prints is also kept as text (terminal-log.ts):
+    // the assistant can be asked about an error that's on screen here, and
+    // each finished command — what it was, how it exited, what it printed —
+    // is evidence of how the candidate worked.
+    write: (text: string) => {
+      if (tracked) tracked.output(text);
+      else terminalLog.output(text);
+      term.write(text);
+    },
     clear: () => term.clear(),
     preview,
   };
@@ -166,7 +178,10 @@ export function attachVfsShell(
    */
   const submit = (line: string) => {
     const trimmed = line.trim();
-    if (trimmed) session.history.push(trimmed);
+    if (trimmed) {
+      session.history.push(trimmed);
+      tracked = terminalLog.begin(trimmed);
+    }
     historyIndex = session.history.length;
     buffer = "";
     cursor = 0;
@@ -178,6 +193,8 @@ export function attachVfsShell(
         term.writeln(`\x1b[31m${err instanceof Error ? err.message : String(err)}\x1b[0m`)
       )
       .finally(() => {
+        tracked?.finish(session.lastExit);
+        tracked = null;
         busy = false;
         running = null;
         const next = queued.shift();

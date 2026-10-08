@@ -8,6 +8,7 @@ import { languageForPath } from "@/lib/ide/language";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
 import { NotebookEditor } from "./NotebookEditor";
+import { DIFF_PREFIX, fileOfTab, isDiffTab } from "@/lib/ide/changes";
 
 // Self-hosted instead of the library's CDN default (jsdelivr): assets are
 // copied to public/monaco-editor/vs by scripts/copy-monaco.js, so the
@@ -17,6 +18,7 @@ loader.config({ paths: { vs: "/monaco-editor/vs" } });
 // Monaco touches `window`/`navigator` at import time, so it can only load
 // on the client — never during SSR.
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+const MonacoDiffEditor = dynamic(() => import("@monaco-editor/react").then((m) => m.DiffEditor), { ssr: false });
 
 interface EditorPanelProps {
   theme: IdeTheme;
@@ -24,6 +26,12 @@ interface EditorPanelProps {
   activePath: string | null;
   dirtyPaths: Set<string>;
   content: string;
+  /**
+   * For a diff tab (a path under DIFF_PREFIX): the file as the task gave it.
+   * `content` is then the file as it stands now. Undefined when the file
+   * didn't exist at the start.
+   */
+  original?: string;
   onSelectTab: (path: string) => void;
   onCloseTab: (path: string) => void;
   onChange: (path: string, value: string) => void;
@@ -36,6 +44,7 @@ export function EditorPanel({
   activePath,
   dirtyPaths,
   content,
+  original,
   onSelectTab,
   onCloseTab,
   onChange,
@@ -55,7 +64,8 @@ export function EditorPanel({
         {openPaths.map((path) => {
           const isActive = path === activePath;
           const isDirty = dirtyPaths.has(path);
-          const name = path.split("/").pop() ?? path;
+          const diff = isDiffTab(path);
+          const name = `${(fileOfTab(path) ?? path).split("/").pop() ?? path}${diff ? " (changes)" : ""}`;
           return (
             <div
               key={path}
@@ -67,7 +77,7 @@ export function EditorPanel({
                 isActive ? palette.text : palette.textMuted
               )}
               onClick={() => onSelectTab(path)}
-              title={path}
+              title={diff ? `Changes to ${path.slice(DIFF_PREFIX.length)} since the task started` : path}
             >
               <span className="max-w-[160px] truncate">{name}</span>
               <button
@@ -92,7 +102,18 @@ export function EditorPanel({
       </div>
 
       <div className="min-h-0 flex-1">
-        {activePath && languageForPath(activePath) === "ipynb" ? (
+        {isDiffTab(activePath) ? (
+          // Read-only: this is a view of what changed. The file itself is
+          // edited in its own tab.
+          <MonacoDiffEditor
+            key={activePath}
+            original={original ?? ""}
+            modified={content}
+            language={languageForPath(activePath.slice(DIFF_PREFIX.length))}
+            theme={theme === "dark" ? "vs-dark" : "light"}
+            options={{ readOnly: true, renderSideBySide: true, fontSize: 13, automaticLayout: true, scrollBeyondLastLine: false, minimap: { enabled: false } }}
+          />
+        ) : activePath && languageForPath(activePath) === "ipynb" ? (
           <NotebookEditor
             key={activePath}
             theme={theme}

@@ -25,6 +25,7 @@ import (
 const (
 	CandidateCookie = "mf_candidate"
 	AdminCookie     = "mf_admin"
+	CompanyCookie   = "mf_company"
 )
 
 // ErrInvalid covers every way a token can fail to verify: missing, malformed,
@@ -147,4 +148,102 @@ func VerifyAdmin(token, secret string) (*AdminClaims, error) {
 		return nil, ErrInvalid
 	}
 	return &a, nil
+}
+
+// LiveTicket lets a candidate's browser open one WebSocket straight to this
+// backend for the live voice interview. The browser can't present the
+// "mf_candidate" cookie there — that cookie belongs to candidate/frontend's
+// origin — so the frontend's server, which can, asks for a ticket on the
+// candidate's behalf and hands it to the page.
+type LiveTicket struct {
+	SessionID   string `json:"sid"`
+	CandidateID string `json:"cid"`
+	Exp         int64  `json:"exp"`
+}
+
+// liveTicketSecret keeps tickets and cookies from being interchangeable: a
+// ticket is signed with a key derived from the session secret, so neither
+// verifies as the other even though both are HMACs under the same setting.
+func liveTicketSecret(secret string) string { return secret + "|live-interview-ticket" }
+
+// SignLiveTicket issues a ticket valid until t.Exp (unix seconds).
+func SignLiveTicket(t LiveTicket, secret string) (string, error) {
+	if secret == "" {
+		return "", ErrInvalid
+	}
+	return sign(t, liveTicketSecret(secret))
+}
+
+// VerifyLiveTicket checks a ticket's signature and expiry.
+func VerifyLiveTicket(token, secret string) (*LiveTicket, error) {
+	if secret == "" {
+		return nil, ErrInvalid
+	}
+	raw, err := verify(token, liveTicketSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	var t LiveTicket
+	if err := json.Unmarshal(raw, &t); err != nil || t.SessionID == "" || t.CandidateID == "" {
+		return nil, ErrInvalid
+	}
+	return &t, nil
+}
+
+// CompanyClaims mirrors company/frontend/lib/auth/session.ts's Session.
+type CompanyClaims struct {
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Role        string `json:"role"` // "admin" | "recruiter" | "viewer"
+	CompanyID   string `json:"companyId"`
+	CompanyName string `json:"companyName"`
+	Exp         int64  `json:"exp"`
+}
+
+// VerifyCompany validates an "mf_company" cookie value against
+// COMPANY_SESSION_SECRET (the same value company/frontend's SESSION_SECRET
+// holds).
+func VerifyCompany(token, secret string) (*CompanyClaims, error) {
+	raw, err := verify(token, secret)
+	if err != nil {
+		return nil, err
+	}
+	var c CompanyClaims
+	if err := json.Unmarshal(raw, &c); err != nil || c.Email == "" || c.CompanyID == "" ||
+		(c.Role != "admin" && c.Role != "recruiter" && c.Role != "viewer") {
+		return nil, ErrInvalid
+	}
+	return &c, nil
+}
+
+// SignCompany is the company equivalent of SignCandidate — for tests.
+func SignCompany(c CompanyClaims, secret string) (string, error) { return sign(c, secret) }
+
+// An events ticket lets a candidate's browser subscribe to their own
+// session's live events — the same LiveTicket shape, signed under a
+// different key so that neither kind of ticket can be spent as the other.
+func eventsTicketSecret(secret string) string { return secret + "|session-events-ticket" }
+
+// SignEventsTicket issues a ticket for a session's event stream.
+func SignEventsTicket(t LiveTicket, secret string) (string, error) {
+	if secret == "" {
+		return "", ErrInvalid
+	}
+	return sign(t, eventsTicketSecret(secret))
+}
+
+// VerifyEventsTicket checks an events ticket's signature and expiry.
+func VerifyEventsTicket(token, secret string) (*LiveTicket, error) {
+	if secret == "" {
+		return nil, ErrInvalid
+	}
+	raw, err := verify(token, eventsTicketSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	var t LiveTicket
+	if err := json.Unmarshal(raw, &t); err != nil || t.SessionID == "" || t.CandidateID == "" {
+		return nil, ErrInvalid
+	}
+	return &t, nil
 }

@@ -2,13 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { ForbiddenError, requireCompanyPermission } from "@/lib/auth/company-users";
-import { bulkSetApplicationStage, inviteCandidateToRole, setApplicationStage, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
+import { bulkSetApplicationStage, createCompanyTemplate, getJobRole, inviteCandidateToRole, markInvitationEmailed, setApplicationStage, setJobRoleAssistant, setJobRoleInterview, setJobRoleStatus, setJobRoleTemplate } from "@/lib/db";
 import type { ApplicationStage } from "@/lib/types";
+import { invitationMail } from "@/lib/invitation-mail";
+import { mailerReady, sendMail } from "@/lib/mailer";
+import { generateTask, parseCodeSample, taskGenerationReady, type GeneratedTask } from "@/lib/task-generation";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).trim() : "");
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-export type InviteCandidateState = { error: string | null; success: boolean };
+export type InviteCandidateState = { error: string | null; success: boolean; /** What happened with the email, for the form to say. */ notice?: string };
 
 /**
  * Bound to a specific roleId in the client form (`inviteCandidate.bind(null, roleId)`)
@@ -19,8 +22,11 @@ export type InviteCandidateState = { error: string | null; success: boolean };
  */
 export async function inviteCandidate(roleId: string, _prev: InviteCandidateState, form: FormData): Promise<InviteCandidateState> {
   let companyId: string;
+  let companyName: string;
   try {
-    companyId = (await requireCompanyPermission("candidate:invite")).companyId;
+    const session = await requireCompanyPermission("candidate:invite");
+    companyId = session.companyId;
+    companyName = session.companyName;
   } catch (e) {
     return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
   }
@@ -31,8 +37,27 @@ export async function inviteCandidate(roleId: string, _prev: InviteCandidateStat
   const candidateName = text(form.get("candidateName"), 200) || undefined;
   const dueDate = text(form.get("dueDate"), 10) || undefined;
 
+  let notice: string;
   try {
-    await inviteCandidateToRole({ companyId, jobRoleId: roleId, candidateEmail: email, candidateName, dueDate });
+    const application = await inviteCandidateToRole({ companyId, jobRoleId: roleId, candidateEmail: email, candidateName, dueDate });
+
+    // The invitation exists from here on, and shows on the candidate's
+    // dashboard whether or not a message reaches them. The email is what
+    // tells them it's there — so what the form reports is what actually
+    // happened to the email, not just "Invited".
+    const portal = process.env.CANDIDATE_PORTAL_URL?.replace(/\/+$/, "");
+    if (!mailerReady() || !portal) {
+      notice = `Invited. No email was sent — ${!mailerReady() ? "email isn't set up on this portal" : "CANDIDATE_PORTAL_URL isn't set, so there is no link to send"}. Tell ${email} to sign in to the candidate portal with that address.`;
+    } else {
+      const role = await getJobRole(companyId, roleId);
+      try {
+        await sendMail({ to: email, ...invitationMail({ portal, companyName, roleTitle: role?.title ?? "a role", candidateName, dueDate }) });
+        if (application.assessmentId) await markInvitationEmailed(companyId, application.assessmentId);
+        notice = `Invited, and emailed ${email}.`;
+      } catch (e) {
+        notice = `Invited, but the email to ${email} couldn't be sent (${e instanceof Error ? e.message : "unknown error"}). The invitation is on their dashboard; let them know yourself.`;
+      }
+    }
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't invite that candidate — try again.", success: false };
   }
@@ -41,7 +66,7 @@ export async function inviteCandidate(roleId: string, _prev: InviteCandidateStat
   revalidatePath("/roles");
   revalidatePath("/candidates");
   revalidatePath("/dashboard");
-  return { error: null, success: true };
+  return { error: null, success: true, notice };
 }
 
 /**
@@ -101,6 +126,133 @@ export async function attachTemplate(roleId: string, _prev: AttachTemplateState,
   }
   revalidatePath(`/roles/${roleId}`);
   revalidatePath("/roles");
+  return { error: null, success: true };
+}
+
+export type InterviewSettingsState = { error: string | null; success: boolean };
+
+/**
+ * Saves the role's AI interview settings. The form's values arrive as
+ * strings; setJobRoleInterview normalizes them against the allowed ranges,
+ * so a tampered form can't store an interview with a thousand questions.
+ */
+export async function saveInterviewSettings(roleId: string, _prev: InterviewSettingsState, form: FormData): Promise<InterviewSettingsState> {
+  let companyId: string;
+  try {
+    companyId = (await requireCompanyPermission("role:write")).companyId;
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+  try {
+    await setJobRoleInterview(companyId, roleId, {
+      questions: Number(form.get("questions")),
+      answerSeconds: Number(form.get("answerSeconds")),
+      tone: String(form.get("tone") ?? ""),
+      language: String(form.get("language") ?? ""),
+    });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't save the interview settings — try again.", success: false };
+  }
+  revalidatePath(`/roles/${roleId}`);
+  return { error: null, success: true };
+}
+
+const TASK_TYPES = new Set(["bug_fix", "feature", "refactor", "debug"]);
+
+/**
+ * Drafts a task for this role from the company's own material. Returns the
+ * draft to the page, with what running it found — nothing is saved here.
+ */
+export async function generateRoleTask(roleId: string, form: FormData): Promise<{ ok: true; task: GeneratedTask } | { ok: false; error: string }> {
+  try {
+    const user = await requireCompanyPermission("role:write");
+    const role = await getJobRole(user.companyId, roleId);
+    if (!role) return { ok: false, error: "Role not found." };
+    if (!taskGenerationReady()) return { ok: false, error: "Task generation isn't connected for this portal yet. You can still attach a task from the library." };
+
+    const name = text(form.get("name"), 120);
+    const jobDescription = text(form.get("jobDescription"), 12000);
+    const notes = text(form.get("notes"), 4000);
+    if (!name) return { ok: false, error: "Give the task a name." };
+    if (!jobDescription && !notes) return { ok: false, error: "Paste the job description, or say what the task should reflect." };
+    const taskVariant = String(form.get("taskVariant") ?? "");
+    const stack = text(form.get("techStack"), 200);
+
+    const task = await generateTask({
+      name,
+      taskVariant: TASK_TYPES.has(taskVariant) ? taskVariant : "bug_fix",
+      techStack: stack ? stack.split(",").map((s) => s.trim()).filter(Boolean) : role.techStack,
+      durationMin: Number(form.get("durationMin")) || role.durationMin || 60,
+      notes: `Company: ${user.companyName}. Role: ${role.title}.${notes ? ` ${notes}` : ""}`,
+      jobDescription,
+      codebase: parseCodeSample(typeof form.get("codebase") === "string" ? (form.get("codebase") as string).slice(0, 60000) : ""),
+    });
+    return { ok: true, task };
+  } catch (e) {
+    return { ok: false, error: e instanceof ForbiddenError ? e.message : e instanceof Error ? e.message : "Couldn't generate a task — try again." };
+  }
+}
+
+/** Saves a draft from generateRoleTask as the company's own task and attaches it to the role. */
+export async function saveGeneratedTask(roleId: string, input: { name: string; taskVariant: string; task: GeneratedTask }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await requireCompanyPermission("role:write");
+    const role = await getJobRole(user.companyId, roleId);
+    if (!role) return { ok: false, error: "Role not found." };
+    const name = text(input.name, 120);
+    const task = input.task;
+    // The draft has been to the browser and back, so it is checked like any
+    // other input rather than trusted as what the model returned.
+    const files = (v: unknown): Record<string, string> =>
+      v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, c]) => typeof c === "string").slice(0, 40)) as Record<string, string> : {};
+    const starterFiles = files(task?.starterFiles);
+    if (!name || typeof task?.taskBrief !== "string" || !task.taskBrief.trim() || Object.keys(starterFiles).length === 0) {
+      return { ok: false, error: "That draft is incomplete — generate it again." };
+    }
+    const size = JSON.stringify(task).length;
+    if (size > 600_000) return { ok: false, error: "That task is too large to save." };
+
+    await createCompanyTemplate(user.companyId, roleId, {
+      name,
+      taskVariant: TASK_TYPES.has(input.taskVariant) ? input.taskVariant : "bug_fix",
+      techStack: role.techStack,
+      durationMin: role.durationMin ?? 60,
+      taskBrief: task.taskBrief.slice(0, 20000),
+      starterFiles,
+      solutionFiles: files(task.solutionFiles),
+      verification: task.verification ?? null,
+    });
+    revalidatePath(`/roles/${roleId}`);
+    revalidatePath("/roles");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof ForbiddenError ? e.message : e instanceof Error ? e.message : "Couldn't save the task — try again." };
+  }
+}
+
+export type AssistantSettingsState = { error: string | null; success: boolean };
+
+/**
+ * Saves the role's AI assistant settings. setJobRoleAssistant normalizes the
+ * values against the allowed range, so a tampered form can't raise the
+ * message limit past the platform's own.
+ */
+export async function saveAssistantSettings(roleId: string, _prev: AssistantSettingsState, form: FormData): Promise<AssistantSettingsState> {
+  let companyId: string;
+  try {
+    companyId = (await requireCompanyPermission("role:write")).companyId;
+  } catch (e) {
+    return { error: e instanceof ForbiddenError ? e.message : "Not signed in.", success: false };
+  }
+  try {
+    await setJobRoleAssistant(companyId, roleId, {
+      enabled: form.get("enabled") !== "off",
+      maxMessages: Number(form.get("maxMessages")),
+    });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't save the assistant settings — try again.", success: false };
+  }
+  revalidatePath(`/roles/${roleId}`);
   return { error: null, success: true };
 }
 

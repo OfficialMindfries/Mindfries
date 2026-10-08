@@ -1,5 +1,7 @@
+import { runNodeFile, runNodeTests, type ProjectRun, type Transpile } from "./js-workspace";
 import { moduleUrlFor } from "./packages";
 import { getPyodide } from "./pyodide-runtime";
+import { moduleScript, mountScript } from "./python-workspace";
 
 export interface RunResult {
   output: string[];
@@ -147,4 +149,54 @@ export async function runPython(code: string): Promise<RunResult> {
     output.push(err instanceof Error ? err.message : String(err));
   }
   return { output, errored };
+}
+
+/**
+ * Copies the workspace's files into Pyodide's filesystem and makes `cwd` the
+ * working directory, so the next run sees the project the candidate sees —
+ * see python-workspace.ts. Called before every terminal `python` run.
+ */
+export async function mountPythonWorkspace(files: Record<string, string>, cwd: string[]): Promise<void> {
+  const pyodide = await getPyodide();
+  await pyodide.runPythonAsync(mountScript(files, cwd));
+}
+
+/** `python -m <module> <args…>` — errored when the module exits non-zero or raises. */
+export async function runPythonModule(module: string, args: string[]): Promise<RunResult> {
+  const output: string[] = [];
+  const pyodide = await getPyodide();
+  pyodide.setStdout({ batched: (text) => output.push(text) });
+  pyodide.setStderr({ batched: (text) => output.push(text) });
+  try {
+    const code = await pyodide.runPythonAsync(moduleScript(module, args));
+    return { output, errored: code !== 0 };
+  } catch (err) {
+    output.push(err instanceof Error ? err.message : String(err));
+    return { output, errored: true };
+  }
+}
+
+/**
+ * A JavaScript/TypeScript *project* — files that import each other, and
+ * tests on Node's own runner. See js-workspace.ts for what that is and
+ * isn't. Every file goes through the real TypeScript compiler, emitted as
+ * CommonJS so both `import` and `require` load through the same loader.
+ */
+async function projectTranspiler(): Promise<Transpile> {
+  const ts = await import("typescript");
+  return (code, fileName) =>
+    ts.transpileModule(code, {
+      fileName,
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, jsx: ts.JsxEmit.React },
+    }).outputText;
+}
+
+/** `node --test [targets…]` in `cwd`. */
+export async function runNodeProjectTests(files: Record<string, string>, cwd: string[], targets: string[]): Promise<ProjectRun> {
+  return runNodeTests(files, `/${cwd.join("/")}`, targets, await projectTranspiler());
+}
+
+/** `node <file>` for a file that imports others in the project. */
+export async function runNodeProjectFile(files: Record<string, string>, path: string[]): Promise<ProjectRun> {
+  return runNodeFile(files, `/${path.join("/")}`, await projectTranspiler());
 }

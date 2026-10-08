@@ -1,4 +1,6 @@
 import { listOnboarded } from "@/lib/db";
+import { getAiSpend } from "@/lib/ai-spend";
+import { AiSpendPanel } from "@/components/admin/AiSpendPanel";
 import { CircleDollarSign, PiggyBank, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/ui";
 import { MetricCard, MetricGrid, Panel, flat } from "@/components/admin/cards";
@@ -8,7 +10,7 @@ import { fmtMoney, planLabel, planPrice } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function CostsPage() {
-  const rows = await listOnboarded();
+  const [rows, aiSpend] = await Promise.all([listOnboarded(), getAiSpend()]);
 
   const withMoney = rows.map((r) => {
     const revenue = planPrice[r.plan];
@@ -49,6 +51,8 @@ export default async function CostsPage() {
           series={netSeries} seriesLabel="Net monthly margin as companies were onboarded, last 12 weeks"
         />
       </MetricGrid>
+
+      <AiSpendPanel spend={aiSpend} />
 
       <Panel title="By company" count={`${withMoney.length} companies`} subtitle="What each company pays, what it costs us to run, and the difference.">
         <div className="overflow-x-auto">

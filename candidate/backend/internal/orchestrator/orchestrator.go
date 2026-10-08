@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/llm"
@@ -29,15 +31,37 @@ type Orchestrator struct {
 	Agents  *llm.Agents
 	Sandbox *sandbox.Client
 	Hub     *ws.Hub
+	// Live is the interviewer's live voice line. Nil or unconfigured means
+	// interviews are held turn by turn through Agents.
+	Live *llm.LiveClient
 }
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {
-	return &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
+	o := &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
+	if agents != nil {
+		agents.OnUsage(o.recordUsage)
+	}
+	return o
 }
 
 // wsEvent is the shape broadcast over a session's WebSocket room — small and
 // generic on purpose, since both the candidate's own workspace and the
 // admin's Global Session Monitor read the same feed for different reasons.
+// The limit on assessments a candidate starts for themselves from the open
+// pool: SelfStartLimit in any selfStartWindow, and never two at once.
+const (
+	SelfStartLimit  = 3
+	selfStartWindow = 24 * time.Hour
+)
+
+// ErrSelfStartLimit and ErrSelfStartLive are returned by StartAssessment
+// when a candidate has reached that limit. Their text is shown to the
+// candidate as it is.
+var (
+	ErrSelfStartLimit = fmt.Errorf("you've started %d practice assessments in the last day — that's the limit. Invitations from companies aren't affected", SelfStartLimit)
+	ErrSelfStartLive  = errors.New("you already have an assessment under way — finish or resume that one first")
+)
+
 type wsEvent struct {
 	Type    string `json:"type"`
 	Payload any    `json:"payload"`
@@ -99,7 +123,12 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 		// entry over the invitation's own status bookkeeping.
 		slog.Error("orchestrator: marking invitation in_progress failed", "invitation", inv.ID, "error", err)
 	}
+	// The hiring team's pipeline follows the session too (db/applications.go).
+	if err := o.DB.MarkApplicationStarted(ctx, inv.ID); err != nil {
+		slog.Error("orchestrator: moving the application to in_progress failed", "invitation", inv.ID, "error", err)
+	}
 
+	o.assignVariant(ctx, sess)
 	sess = o.provisionAndAnnounce(ctx, sess)
 	return sess, nil
 }
@@ -112,10 +141,26 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 	if !errors.Is(err, db.ErrNotFound) {
 		return db.Session{}, fmt.Errorf("orchestrator: candidate already has a session for this template (session %s)", existing.ID)
 	}
+	// A candidate can start open-pool assessments for themselves, and each
+	// one costs real model calls to run and evaluate — so there is a ceiling
+	// on how many, and only one at a time. Invitations aren't counted: a
+	// company asked for those.
+	started, err := o.DB.CountSelfStarted(ctx, candidateID, time.Now().Add(-selfStartWindow))
+	if err != nil {
+		return db.Session{}, fmt.Errorf("orchestrator: checking the self-start limit: %w", err)
+	}
+	if started.Live {
+		return db.Session{}, ErrSelfStartLive
+	}
+	if started.Recent >= SelfStartLimit {
+		return db.Session{}, ErrSelfStartLimit
+	}
+
 	sess, err := o.DB.StartSession(ctx, candidateID, candidateName, tmpl)
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)
 	}
+	o.assignVariant(ctx, sess)
 	sess = o.provisionAndAnnounce(ctx, sess)
 	return sess, nil
 }
@@ -228,6 +273,17 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 		if err := o.DB.SetInvitationStatus(ctx, *sess.AssessmentID, "submitted"); err != nil {
 			slog.Error("orchestrator: marking invitation submitted failed", "invitation", *sess.AssessmentID, "error", err)
 		}
+		// Capped at the session's own length: a submit that arrives after
+		// the clock ran out (the interview ran past it, or the server
+		// submitted an abandoned session hours later) isn't time spent on
+		// the task.
+		took := int(math.Ceil(time.Since(sess.StartedAt).Minutes()))
+		if sess.DurationMin > 0 {
+			took = min(took, sess.DurationMin)
+		}
+		if err := o.DB.MarkApplicationCompleted(ctx, *sess.AssessmentID, took); err != nil {
+			slog.Error("orchestrator: marking the application completed failed", "invitation", *sess.AssessmentID, "error", err)
+		}
 	}
 	// The candidate is done editing the moment they submit — the sandbox
 	// (if one was ever provisioned) has no further reason to exist, and
@@ -236,103 +292,4 @@ func (o *Orchestrator) Submit(ctx context.Context, sessionID string) error {
 
 	o.broadcast(sessionID, "session_submitted", map[string]string{"sessionId": sessionID})
 	return o.Evaluate(ctx, sessionID)
-}
-
-// Evaluate runs the Code Evaluation, Reasoning and Workflow agents over a
-// session's recorded evidence, then the Report agent over their combined
-// output, and stores the result. If the agent layer isn't configured
-// (no OPENROUTER_API_KEY), the report is saved as "failed" with that exact
-// reason — never a fabricated recommendation.
-func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
-	report, err := o.DB.CreatePendingReport(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("orchestrator: creating report row: %w", err)
-	}
-	if err := o.DB.SetReportGenerating(ctx, report.ID); err != nil {
-		return err
-	}
-	o.broadcast(sessionID, "report_generating", map[string]string{"sessionId": sessionID, "reportId": report.ID})
-
-	if o.Agents == nil || !o.Agents.Configured() {
-		reason := "OpenRouter is not configured (OPENROUTER_API_KEY unset) — no model was called"
-		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": reason})
-		return fmt.Errorf("orchestrator: %s", reason)
-	}
-
-	events, err := o.DB.GetSessionEvents(ctx, sessionID)
-	if err != nil {
-		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
-		return err
-	}
-	diff, digest := digestEvents(events)
-
-	var evidence []db.EvidenceItem
-	var forReport []string
-
-	if out, err := o.Agents.EvaluateCode(ctx, diff); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "code_evaluation", Observation: out})
-		forReport = append(forReport, "Code Evaluation:\n"+out)
-	} else {
-		slog.Warn("orchestrator: code evaluation skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeReasoning(ctx, digest); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "reasoning", Observation: out})
-		forReport = append(forReport, "Reasoning:\n"+out)
-	} else {
-		slog.Warn("orchestrator: reasoning analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if out, err := o.Agents.AnalyzeWorkflow(ctx, digest); err == nil {
-		evidence = append(evidence, db.EvidenceItem{Category: "workflow", Observation: out})
-		forReport = append(forReport, "Workflow:\n"+out)
-	} else {
-		slog.Warn("orchestrator: workflow analysis skipped", "session", sessionID, "error", err)
-	}
-
-	if len(forReport) == 0 {
-		reason := "no agent produced usable evidence for this session (see server logs for each agent's error)"
-		_ = o.DB.SaveReportFailure(ctx, report.ID, reason)
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": reason})
-		return fmt.Errorf("orchestrator: %s", reason)
-	}
-
-	result, err := o.Agents.GenerateReport(ctx, forReport)
-	if err != nil {
-		_ = o.DB.SaveReportFailure(ctx, report.ID, err.Error())
-		o.broadcast(sessionID, "report_failed", map[string]string{"sessionId": sessionID, "reason": err.Error()})
-		return err
-	}
-
-	if err := o.DB.SaveReportResult(ctx, report.ID, result.Recommendation, result.Summary, evidence); err != nil {
-		return err
-	}
-	o.broadcast(sessionID, "report_ready", map[string]string{"sessionId": sessionID, "reportId": report.ID})
-	return nil
-}
-
-// digestEvents turns a session's raw activity_events into (a) a best-effort
-// unified diff built from "git" events, for the Code Evaluation agent, and
-// (b) a plain chronological text trail for the Reasoning and Workflow
-// agents. Today's IDE (candidate/frontend/src/app/ide) does not yet post
-// events to this backend at all (see CANDIDATE_BACKEND_PLAN.md's telemetry
-// gap) — until that's wired up, this will usually see an empty slice, and
-// both agents will honestly report "no evidence" rather than a fabricated
-// read on a session they were never shown.
-func digestEvents(events []db.ActivityEvent) (diff string, digest string) {
-	var diffLines []string
-	var trail []string
-	for _, e := range events {
-		trail = append(trail, fmt.Sprintf("[%s] %s: %s", e.OccurredAt.Format("15:04:05"), e.EventType, string(e.Payload)))
-		if e.EventType == "git" {
-			var p struct {
-				Diff string `json:"diff"`
-			}
-			if json.Unmarshal(e.Payload, &p) == nil && p.Diff != "" {
-				diffLines = append(diffLines, p.Diff)
-			}
-		}
-	}
-	return strings.Join(diffLines, "\n\n"), strings.Join(trail, "\n")
 }

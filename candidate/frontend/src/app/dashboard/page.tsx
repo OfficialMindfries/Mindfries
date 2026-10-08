@@ -8,6 +8,9 @@ import { SideRail } from "@/components/dashboard/SideRail";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 import { currentCandidate } from "@/lib/auth/users";
 import { getProfile } from "@/lib/profile/actions";
+import { emailLinksReady } from "@/lib/auth/email-links";
+import { EmailNotice } from "@/components/dashboard/EmailNotice";
+import { getSetupState } from "@/lib/setup-state";
 
 export const metadata: Metadata = {
   title: "Dashboard · Mindfries",
@@ -23,24 +26,21 @@ export const dynamic = "force-dynamic";
  *
  * The counters and the assessments are sticky notes, after brainwhite; see
  * `StickyNote` for why colour carries meaning and the notes never overlap.
- * Assessments (and the counters derived from them) come from the real
- * candidate/backend (Go — PRD §2.3) when it's configured and reachable, and
- * fall back to the sample data in `lib/dashboard/data.ts` otherwise — the
- * two are never allowed to disagree about which mode they're in, since both
- * branch on the exact same `items` value. The greeting uses the real
- * signed-in candidate's name over the sample one; role/location stay
- * sample until a real profile-fields table exists (see
- * CANDIDATE_BACKEND_PLAN.md §6.3). The activity feed and setup checklist
- * are still sample data.
+ * Assessments, the counters and the activity feed all derive from the same
+ * real list (listAssessmentsOrUndefined) — nothing here is sample data. The
+ * greeting and role/location come from the candidate's saved profile.
  */
-export default async function DashboardPage() {
-  const [items, session, profile] = await Promise.all([
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
+  const [items, session, profile, canSendMail, query] = await Promise.all([
     listAssessmentsOrUndefined(),
     currentCandidate(),
     getProfile(),
+    emailLinksReady(),
+    searchParams,
   ]);
 
   // Use DB profile if the candidate has saved it, otherwise just the session name.
+  const setup = await getSetupState(session?.id);
   const displayName = profile?.name || session?.name || "there";
   const hasUpdatedProfile = !!profile?.profile_updated_at;
 
@@ -49,6 +49,9 @@ export default async function DashboardPage() {
       <DashboardNav sessionName={session?.name} profile={profile} />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        {session && profile && (
+          <EmailNotice email={session.email} verified={!!profile.email_verified_at} canSend={canSendMail} outcome={query.email} />
+        )}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-[#0A1931]">
@@ -79,14 +82,14 @@ export default async function DashboardPage() {
         </div>
 
         <div className="mt-8">
-          <StatNotes items={items} />
+          <StatNotes items={items} practiceRuns={setup.practiceRuns} />
         </div>
 
         <div className="mt-12 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
           {/* `min-w-0` stops a grid item's default `min-width: auto` from
               letting wide content stretch this column past the viewport. */}
           <div className="min-w-0 space-y-10">
-            <SetupCard isProfileDone={hasUpdatedProfile} />
+            <SetupCard isProfileDone={hasUpdatedProfile} environmentChecked={!!setup.environmentCheckedAt} practiced={setup.practiceRuns > 0} />
             <AssessmentNotes items={items} />
             <ActivityFeed items={items} />
           </div>

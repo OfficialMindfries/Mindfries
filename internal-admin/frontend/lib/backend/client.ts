@@ -105,3 +105,41 @@ export async function resetSessionViaBackend(sessionId: string, patch?: AdminRes
 export async function retriggerEvaluationViaBackend(sessionId: string): Promise<void> {
   await request(`/api/v1/admin/sessions/${encodeURIComponent(sessionId)}/retrigger-evaluation`, { method: "POST" });
 }
+
+/** What running a generated task found — candidate/backend's internal/verify. */
+export interface TaskVerification {
+  status: "verified" | "failed" | "not_run";
+  /** One sentence saying what happened, or why it couldn't be run. */
+  reason: string;
+  command?: string;
+  starter?: { exitCode: number; output: string };
+  solution?: { exitCode: number; output: string };
+  checkedAt?: string;
+}
+
+export interface GeneratedTask {
+  taskBrief: string;
+  starterFiles: Record<string, string>;
+  /** The files a correct answer changes, as they read once solved. Never shown to a candidate. */
+  solutionFiles: Record<string, string>;
+  verification: TaskVerification;
+}
+
+/** POST /api/v1/admin/templates/generate — asks the Task Generation agent for a draft brief and starter codebase. Nothing is saved. */
+export async function generateTaskViaBackend(spec: {
+  name: string;
+  taskVariant: string;
+  techStack: string[];
+  durationMin: number;
+  notes: string;
+  /** The role's job description, to build the task around. */
+  jobDescription?: string;
+  /** The brief of an existing task to write a different version of. */
+  differentFrom?: string;
+}): Promise<GeneratedTask> {
+  return request<GeneratedTask>("/api/v1/admin/templates/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+}

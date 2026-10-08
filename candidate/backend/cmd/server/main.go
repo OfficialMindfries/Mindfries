@@ -51,6 +51,16 @@ func main() {
 	sandboxClient := sandbox.New(cfg.DaytonaAPIKey, cfg.DaytonaBaseURL)
 	hub := ws.NewHub(cfg.AllowedOrigins)
 	orc := orchestrator.New(database, agents, sandboxClient, hub)
+	orc.Live = llm.NewLiveClient(cfg.GeminiAPIKey, cfg.GeminiLiveModel)
+	// For running against a stand-in for the Live API; unset in every real
+	// deployment.
+	if url := os.Getenv("GEMINI_LIVE_URL"); url != "" {
+		orc.Live = orc.Live.WithURL(url)
+	}
+
+	// Sessions whose candidate closed the tab are submitted from here — see
+	// orchestrator/abandoned.go.
+	go orc.RunAbandonedSweep(ctx, time.Minute)
 
 	server := httpapi.New(cfg, database, orc, hub)
 

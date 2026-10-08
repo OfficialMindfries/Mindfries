@@ -50,6 +50,18 @@ export interface GameTemplate {
   taskBrief: string | null;
   /** Flat {path: content} starting files — the IDE's own VFS shape, seeded verbatim into a candidate's workspace. */
   starterFiles: Record<string, string>;
+  /** What running the task found before it was saved; null when it was never run. */
+  verification?: { status: "verified" | "failed" | "not_run"; reason: string } | null;
+  /** How many alternative versions of the task candidates are dealt in turn. */
+  variantCount?: number;
+}
+
+/** One alternative version of a template's task — see supabase/migrations/0017_task_generation.sql. */
+export interface TemplateVariant {
+  taskBrief: string;
+  starterFiles: Record<string, string>;
+  solutionFiles: Record<string, string>;
+  verification: { status: "verified" | "failed" | "not_run"; reason: string } | null;
 }
 
 // ── Lead Tracker (outbound growth pipeline) ─────────────────────────────────

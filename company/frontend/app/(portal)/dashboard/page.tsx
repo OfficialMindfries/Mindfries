@@ -36,7 +36,8 @@ export default async function OverviewPage() {
 
   const openRoles = roles.filter((r) => r.status === "open");
   const inProgress = applications.filter((a) => a.stage === "invited" || a.stage === "in_progress");
-  const completed = applications.filter((a) => a.stage !== "invited" && a.stage !== "in_progress");
+  // A candidate who declined never took the assessment, so they aren't "completed".
+  const completed = applications.filter((a) => a.stage !== "invited" && a.stage !== "in_progress" && a.stage !== "declined");
   const readyForReview = applications.filter((a) => a.stage === "completed");
   const asOf = getAsOf();
   const createdAtDates = applications.map((a) => a.createdAt);

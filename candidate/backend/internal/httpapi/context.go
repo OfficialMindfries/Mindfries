@@ -12,6 +12,7 @@ type ctxKey int
 const (
 	ctxCandidate ctxKey = iota
 	ctxAdmin
+	ctxCompany
 )
 
 func withCandidate(r *http.Request, c *session.CandidateClaims) *http.Request {
@@ -30,4 +31,13 @@ func withAdmin(r *http.Request, a *session.AdminClaims) *http.Request {
 func adminFrom(r *http.Request) *session.AdminClaims {
 	a, _ := r.Context().Value(ctxAdmin).(*session.AdminClaims)
 	return a
+}
+
+func withCompany(r *http.Request, c *session.CompanyClaims) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ctxCompany, c))
+}
+
+func companyFrom(r *http.Request) *session.CompanyClaims {
+	c, _ := r.Context().Value(ctxCompany).(*session.CompanyClaims)
+	return c
 }

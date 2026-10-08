@@ -14,6 +14,7 @@ import (
 	"github.com/mindfries/candidate-backend/internal/config"
 	"github.com/mindfries/candidate-backend/internal/db"
 	"github.com/mindfries/candidate-backend/internal/orchestrator"
+	"github.com/mindfries/candidate-backend/internal/verify"
 	"github.com/mindfries/candidate-backend/internal/ws"
 )
 
@@ -46,10 +47,17 @@ type Server struct {
 	db  sessionStore
 	orc *orchestrator.Orchestrator
 	hub *ws.Hub
+	// verifier runs a generated task before its author saves it. Nil when
+	// there is nowhere to run one — see verify.FromEnv.
+	verifier verify.Runner
 }
 
 func New(cfg config.Config, database *db.DB, orc *orchestrator.Orchestrator, hub *ws.Hub) *Server {
-	return &Server{cfg: cfg, db: database, orc: orc, hub: hub}
+	s := &Server{cfg: cfg, db: database, orc: orc, hub: hub}
+	if orc != nil {
+		s.verifier = verify.FromEnv(orc.Sandbox)
+	}
+	return s
 }
 
 // Routes builds the full handler: middleware chain wraps a route table keyed
@@ -72,14 +80,31 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/submit", s.requireCandidate(s.handleSubmit))
 	mux.HandleFunc("GET /api/v1/sessions/{id}/report", s.requireCandidate(s.handleGetReport))
 	mux.HandleFunc("GET /api/v1/sessions/{id}/ws", s.requireCandidate(s.handleCandidateWS))
+	// The workspace assistant and the follow-up interview (conversation.go).
+	mux.HandleFunc("GET /api/v1/sessions/{id}/assistant", s.requireCandidate(s.handleAssistantHistory))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/assistant", s.requireCandidate(s.handleAssistantAsk))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/assistant/stream", s.requireCandidate(s.handleAssistantStream))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/interview", s.requireCandidate(s.handleInterview))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/checkpoint", s.requireCandidate(s.handleCheckpoint))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/workspace", s.requireCandidate(s.handleGetWorkspace))
+	// The live voice interview (live.go): a ticket from the first, spent on the second.
+	mux.HandleFunc("POST /api/v1/sessions/{id}/interview/live", s.requireCandidate(s.handleLiveInterviewStart))
+	mux.HandleFunc("GET /api/v1/live-interview", s.handleLiveInterviewCall)
+	// The candidate's own live event stream, by ticket for the same reason.
+	mux.HandleFunc("POST /api/v1/sessions/{id}/events-ticket", s.requireCandidate(s.handleEventsTicket))
+	mux.HandleFunc("GET /api/v1/session-events", s.handleSessionEvents)
 
 	// Admin Portal API — every route requires the "mf_admin" cookie
-	// internal-admin/frontend issues. The two mutating routes additionally
+	// internal-admin/frontend issues. The mutating routes additionally
 	// require the "admin" role, not just "viewer" — see requireFullAdmin.
 	mux.HandleFunc("GET /api/v1/admin/sessions", s.requireAdmin(s.handleAdminListSessions))
 	mux.HandleFunc("GET /api/v1/admin/sessions/{id}/ws", s.requireAdmin(s.handleAdminWS))
 	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/reset", s.requireFullAdmin(s.handleAdminReset))
 	mux.HandleFunc("POST /api/v1/admin/sessions/{id}/retrigger-evaluation", s.requireFullAdmin(s.handleAdminRetrigger))
+	mux.HandleFunc("POST /api/v1/admin/templates/generate", s.requireFullAdmin(s.handleAdminGenerateTask))
+
+	// Company Portal — the "mf_company" cookie company/frontend issues.
+	mux.HandleFunc("POST /api/v1/company/templates/generate", s.requireCompanyWriter(s.handleCompanyGenerateTask))
 
 	return s.recoverPanic(s.logging(s.cors(mux)))
 }

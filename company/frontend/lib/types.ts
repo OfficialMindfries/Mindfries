@@ -1,3 +1,7 @@
+import type { AssistantConfig } from "@/lib/assistant";
+import type { Moment } from "@/lib/moments";
+import type { InterviewConfig } from "@/lib/interview";
+
 // Domain model for the Company Portal (IMPLEMENTATION.md §7).
 
 export type CompanyRole = "admin" | "recruiter" | "viewer";
@@ -26,6 +30,8 @@ export interface GameTemplate {
   taskVariant: TaskVariant;
   techStack: string[];
   durationMin: number;
+  /** True for a task this company generated for itself; false for one from Mindfries' shared library. */
+  own: boolean;
 }
 
 export interface JobRole {
@@ -39,6 +45,10 @@ export interface JobRole {
   visibility: RoleVisibility;
   status: RoleStatus;
   createdAt: string;
+  /** How the AI interview runs for this role — always complete, defaults filled in. */
+  interviewConfig: InterviewConfig;
+  /** Whether candidates for this role get the AI assistant, and its message limit — always complete. */
+  assistantConfig: AssistantConfig;
 }
 
 export type ApplicationStage =
@@ -47,7 +57,11 @@ export type ApplicationStage =
   | "completed"
   | "shortlisted"
   | "rejected"
-  | "hired";
+  | "hired"
+  // The candidate turned the invitation down (candidate/frontend's
+  // lib/invitations.ts sets it) — theirs to set, not one of the moves a
+  // company makes.
+  | "declined";
 
 export interface CandidateApplication {
   id: string;
@@ -102,11 +116,79 @@ export interface AssessmentReport {
   summary: string | null;
   error: string | null;
   evidence: EvidenceItem[];
+  /** The session moments the evidence cites ("[E<id>]" in an observation). */
+  moments: Moment[];
+  /** Notes and corrections a reviewer has added, oldest first. */
+  annotations: ReportAnnotation[];
+  /** The reviewer's own decision, when one has been recorded. */
+  review: ReportReview | null;
+}
+
+/** A reviewer's note against the report, or one section of it. Never shown to the candidate. */
+export interface ReportAnnotation {
+  id: string;
+  /** The evidence category it is about; null for the report as a whole. */
+  category: string | null;
+  kind: "note" | "correction";
+  body: string;
+  authorName: string;
+  createdAt: string;
+}
+
+/** A person's decision, recorded beside the AI's recommendation rather than over it. */
+export interface ReportReview {
+  recommendation: string | null;
+  note: string | null;
+  by: string | null;
+  at: string | null;
+}
+
+/** One question of the AI follow-up interview, with what came back. */
+export interface InterviewExchange {
+  /** 1-based position in the interview. */
+  number: number;
+  question: string;
+  /** null when the interview ended with this question still waiting. */
+  answer: string | null;
+  /** Seconds the candidate took, measured by the backend. null when unknown or unanswered. */
+  seconds: number | null;
+  /** The answer ran past the role's time limit. */
+  timedOut: boolean;
+  /** The time ran out with nothing said at all. */
+  unanswered: boolean;
+  /** The candidate's recorded answer, when one was uploaded. `url` is signed and short-lived. */
+  recording: { url: string; kind: "audio" | "video"; seconds: number } | null;
+  /** There was a recording, and it has been deleted at the end of its 90-day retention. */
+  recordingExpired: boolean;
+}
+
+/** What the candidate did with the invitation, and whether it was mailed to them. */
+export interface InvitationResponse {
+  /** When the invitation email was sent; null when no mail went out. */
+  emailedAt: string | null;
+  acceptedAt: string | null;
+  declinedAt: string | null;
+  /** The candidate's own words, if they gave any. */
+  declineReason: string | null;
 }
 
 export interface CandidateReport {
   session: SessionSummary | null;
   report: AssessmentReport | null;
+  /** The interview as it happened. Empty when none took place. */
+  interview: InterviewExchange[];
+  /** Stills of the proctoring camera through the session. */
+  camera: CameraRecord;
+}
+
+/** The proctoring camera's record of a session: a sample of its stills. */
+export interface CameraRecord {
+  /** How many stills were taken in all. */
+  total: number;
+  /** How many have been deleted at the end of their 90-day retention. */
+  expired: number;
+  /** An even sample across the session, oldest first. `url` is signed and short-lived. */
+  stills: { url: string; offsetSeconds: number }[];
 }
 
 /** A candidate whose assessment has a real due date — the Overview calendar widget. */

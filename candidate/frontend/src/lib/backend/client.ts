@@ -1,7 +1,10 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/session";
+import { currentCandidate } from "@/lib/auth/users";
 import type { AssessmentStatus } from "@/lib/dashboard/data";
+import { listAssessmentsFromDatabase } from "@/lib/dashboard/direct";
+import { db } from "@/lib/supabase";
 
 /**
  * Server-only client for the Go candidate backend
@@ -104,6 +107,10 @@ export interface AssessmentView {
   due: string;
   /** Only ever present on a real invitation (assessments.match_score) — the open pool has no per-candidate match to compute. */
   match?: number;
+  /** The candidate's session for this assessment, when they have one — the workspace to resume, or the report to open. */
+  sessionId?: string;
+  /** Set for a company's invitation to this candidate — see Assessment in lib/dashboard/data.ts. */
+  invitation?: { accepted: boolean; declined: boolean };
 }
 
 export interface SessionView {
@@ -135,25 +142,66 @@ export interface NewActivityEvent {
 }
 
 export async function listAssessments(): Promise<AssessmentView[]> {
-  return request<AssessmentView[]>("/api/v1/assessments");
+  const rows = await request<(Omit<AssessmentView, "status"> & { status: string })[]>("/api/v1/assessments");
+  // The backend already answers in this app's own status words; this only
+  // guards the type, so a status it doesn't know (or the database's raw
+  // "in_progress", should that ever come through) can't reach the dashboard
+  // as something it has no way to draw.
+  return rows.map((row) => ({ ...row, status: KNOWN_STATUS[row.status] ?? "closed" }));
+}
+
+const KNOWN_STATUS: Record<string, AssessmentStatus> = {
+  invited: "invited",
+  "in-progress": "in-progress",
+  in_progress: "in-progress",
+  submitted: "submitted",
+  closed: "closed",
+};
+
+/**
+ * The candidate's real assessments, or `undefined` when nothing could be
+ * asked — never `[]` for "couldn't reach it", and never invented rows. The
+ * Go backend answers when it's configured and reachable; otherwise the same
+ * list is read straight from the shared Supabase
+ * (lib/dashboard/direct.ts), so a deployment without the backend still
+ * shows what's really there. `undefined` means neither source exists, and
+ * callers render an honest "unavailable" state for it.
+ */
+export async function listAssessmentsOrUndefined(): Promise<AssessmentView[] | undefined> {
+  const candidate = await currentCandidate();
+  if (backendReady()) {
+    try {
+      return withInvitationAnswers(await listAssessments(), candidate?.email);
+    } catch (err) {
+      if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this
+      console.error("backend: listAssessments failed, reading the database directly instead:", err);
+    }
+  }
+  if (!candidate) return undefined;
+  const rows = await listAssessmentsFromDatabase(candidate.email);
+  return rows && withInvitationAnswers(rows, candidate.email);
 }
 
 /**
- * Assessments if the backend is configured and actually answers, else
- * `undefined` — never `[]` for "couldn't reach it". An empty array reads as
- * "you have no assessments" on the dashboard; a transient backend outage
- * isn't that, so it degrades to the same honest sample fallback as
- * "unconfigured" rather than showing a false empty state.
+ * Marks which rows are a company's invitation to this candidate, and what
+ * they answered (lib/invitations.ts). Read from the shared database beside
+ * either listing, so the dashboard shows the same thing whichever source
+ * produced the list. If it can't be read the rows go through unmarked — an
+ * invitation then shows a plain Start, as it did before answers existed.
  */
-export async function listAssessmentsOrUndefined(): Promise<AssessmentView[] | undefined> {
-  if (!backendReady()) return undefined;
-  try {
-    return await listAssessments();
-  } catch (err) {
-    if (err instanceof BackendAuthError) return undefined; // middleware should have already caught this; fail closed to sample rather than crash the page
-    console.error("backend: listAssessments failed, falling back to sample data:", err);
-    return undefined;
-  }
+async function withInvitationAnswers(rows: AssessmentView[], email: string | undefined): Promise<AssessmentView[]> {
+  const c = db();
+  if (!c || !email || rows.length === 0) return rows;
+  const { data, error } = await c
+    .from("assessments")
+    .select("id, accepted_at, declined_at")
+    .eq("candidate_email", email.trim().toLowerCase());
+  if (error || !data) return rows;
+  const answers = new Map(data.map((r) => [r.id as string, { accepted: !!r.accepted_at, declined: !!r.declined_at }]));
+  return rows.map((row) => {
+    const invitation = answers.get(row.id);
+    return invitation ? { ...row, invitation } : row;
+  });
 }
 
 export async function startSession(templateId: string): Promise<SessionView> {
@@ -172,8 +220,150 @@ export async function postSessionEvents(sessionId: string, events: NewActivityEv
   });
 }
 
-export async function submitSession(sessionId: string): Promise<{ sessionId: string; status: string }> {
-  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`, { method: "POST" });
+/**
+ * Ends the session. `files` is the workspace as the candidate left it — the
+ * backend records it as the final snapshot evaluation reads.
+ */
+export interface LiveInterviewStart {
+  /** Presented as the first message on the call's WebSocket; good for a minute. */
+  ticket: string;
+  total: number;
+  language: string;
+  answerSeconds: number;
+  inputRate: number;
+  outputRate: number;
+}
+
+/**
+ * Asks for a live voice interview call — see candidate/backend's
+ * internal/httpapi/live.go. Answers 503 (a BackendError) when the backend has
+ * no live voice line, which the caller treats as "hold it turn by turn".
+ */
+export async function startLiveInterview(sessionId: string, files: Record<string, string>): Promise<LiveInterviewStart> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/interview/live`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files }),
+  });
+}
+
+/**
+ * A ticket and address for the session's live event stream, for a page to
+ * subscribe with — see candidate/backend's handleSessionEvents. Undefined
+ * when there's no backend or it can't be asked: the page then just polls.
+ */
+export async function sessionEventsOrUndefined(sessionId: string): Promise<{ url: string; ticket: string } | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    const { ticket } = await request<{ ticket: string }>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/events-ticket`, { method: "POST" });
+    return { url: baseUrl().replace(/^http/, "ws") + "/api/v1/session-events", ticket };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where the browser opens the live interview call: the backend's own address, as a WebSocket. */
+export function liveInterviewUrl(): string {
+  return baseUrl().replace(/^http/, "ws") + "/api/v1/live-interview";
+}
+
+/**
+ * Saves the workspace as it stands, replacing the last checkpoint. It's what
+ * the backend submits if the candidate never does — see
+ * candidate/backend's orchestrator/abandoned.go.
+ */
+export async function saveCheckpoint(sessionId: string, files: Record<string, string>): Promise<void> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/checkpoint`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files }),
+  });
+}
+
+export async function submitSession(
+  sessionId: string,
+  files?: Record<string, string>,
+): Promise<{ sessionId: string; status: string }> {
+  return request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files: files ?? {} }),
+  });
+}
+
+// ── The workspace assistant and the follow-up interview
+// (candidate/backend/internal/httpapi/conversation.go) ─────────────────────
+
+export interface ConversationTurn {
+  role: "candidate" | "assistant";
+  text: string;
+}
+
+export interface AssistantHistory {
+  messages: ConversationTurn[];
+  /** False when the backend has no model key — the panel says so instead of accepting questions it can't answer. */
+  configured: boolean;
+  /** False when the hiring company switched the assistant off for this role. */
+  enabled: boolean;
+  /** How many messages the candidate may send in this session, and how many they have. */
+  limit: number;
+  used: number;
+}
+
+export async function getAssistantHistory(sessionId: string): Promise<AssistantHistory> {
+  return request<AssistantHistory>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant`);
+}
+
+/**
+ * One question to the workspace assistant, answered as a stream. Returns the
+ * backend's raw response rather than a parsed value: on success its body is
+ * server-sent events ("delta" pieces, then "done"), which the caller passes
+ * on to the browser as they arrive; when the question is refused outright it
+ * is an ordinary JSON error with the backend's own status.
+ */
+export async function streamAssistant(sessionId: string, question: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
+  const cookie = await authHeader();
+  const res = await fetch(`${baseUrl()}/api/v1/sessions/${encodeURIComponent(sessionId)}/assistant/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", Cookie: cookie },
+    body: JSON.stringify(question),
+    cache: "no-store",
+    signal,
+  });
+  if (res.status === 401) throw new BackendAuthError();
+  return res;
+}
+
+export interface InterviewState {
+  /** The question waiting for an answer. Absent once `done`. */
+  question?: string;
+  done: boolean;
+  asked: number;
+  total: number;
+  /** BCP-47 tag the interview is held in — set by the hiring company on the role. */
+  language: string;
+  /** The limit per answer, and what's left of it for the waiting question (measured by the backend). */
+  answerSeconds: number;
+  secondsLeft?: number;
+  /** With `done`: the session ran out of time before every question was asked. */
+  cutShort?: boolean;
+}
+
+export interface InterviewInput {
+  answer?: string;
+  /** Records the waiting question as unanswered — the answer timer ran out with nothing to send. */
+  skip?: boolean;
+  /** The workspace files, sent when the interview opens so the questions are about the real code. */
+  files?: Record<string, string>;
+}
+
+/** One step of the interview: records the answer (or skip) if given, returns the next question or `done`. */
+export async function interviewStep(sessionId: string, input: InterviewInput = {}): Promise<InterviewState> {
+  return request<InterviewState>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/interview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer: input.answer ?? "", skip: input.skip ?? false, files: input.files ?? {} }),
+  });
 }
 
 export async function getSessionReport(sessionId: string): Promise<ReportView> {
@@ -181,18 +371,15 @@ export async function getSessionReport(sessionId: string): Promise<ReportView> {
 }
 
 export interface SessionAssessmentView {
-  /** The assessment title from game_templates.title — shown in the IDE header. */
-  assessmentName?: string;
-  /** Total duration in minutes from game_templates.duration_min — drives the IDE countdown. */
-  durationMin?: number;
+  /** The template's real name — what the workspace header shows. */
+  name?: string;
   taskBrief?: string;
   starterFiles?: Record<string, string>;
 }
 
 /**
  * The real task brief + starting files behind a session — what makes the
- * IDE's task panel and workspace real instead of MOCK_TASK_MARKDOWN and an
- * empty VFS (see IdeShell.tsx). Fetched once, server-side, when the IDE
+ * IDE's task panel, header and workspace real (see IdeShell.tsx). Fetched once, server-side, when the IDE
  * page renders — not polled the way session status is, since starterFiles
  * can be real file content.
  */
@@ -205,4 +392,49 @@ export async function getSessionAssessmentOrUndefined(sessionId: string): Promis
     console.error("backend: getSessionAssessment failed, falling back to the IDE's own honest defaults:", err);
     return undefined;
   }
+}
+
+export interface SavedWorkspaceView {
+  files: Record<string, string>;
+  /** When the server took this copy, ISO 8601. */
+  savedAt: string;
+  /** The interview has begun: the work can be read but no longer changed. */
+  frozen: boolean;
+}
+
+/**
+ * The latest copy of the session's files the server holds, for restoring a
+ * workspace this browser doesn't have. Undefined when nothing has been
+ * saved yet, or it couldn't be asked — the workspace then opens from this
+ * browser's own copy, or the task's starting files.
+ */
+export async function getSavedWorkspaceOrUndefined(sessionId: string): Promise<SavedWorkspaceView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return (await request<SavedWorkspaceView | undefined>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/workspace`)) ?? undefined;
+  } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSavedWorkspace failed:", err);
+    return undefined;
+  }
+}
+
+/**
+ * The session's own clock — how long it runs and when it started — so the
+ * workspace timer counts down from what's really left rather than restarting
+ * a fixed duration on every page load. Same honest degrade as above.
+ */
+export async function getSessionOrUndefined(sessionId: string): Promise<SessionView | undefined> {
+  if (!backendReady()) return undefined;
+  try {
+    return await getSession(sessionId);
+  } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSession failed:", err);
+    return undefined;
+  }
+}
+
+/** Seconds left on a session, measured from when it actually started. Never negative. */
+export function secondsRemaining(session: SessionView): number {
+  const elapsed = (Date.now() - Date.parse(session.startedAt)) / 1000;
+  return Math.max(0, Math.round(session.durationMin * 60 - elapsed));
 }

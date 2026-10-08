@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mindfries/candidate-backend/internal/db"
+	"github.com/mindfries/candidate-backend/internal/orchestrator"
 )
 
 // handleMe returns the signed-in candidate's identity as the session cookie
@@ -37,6 +38,10 @@ type assessmentView struct {
 	Status   string   `json:"status"`
 	Due      string   `json:"due"`
 	Match    *int     `json:"match,omitempty"`
+	// SessionID is the candidate's session for this assessment, when they
+	// have one: the workspace to resume while Status is "in_progress", the
+	// report to open once it's "submitted".
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 func techStackTags(stack []string, durationMin int) []string {
@@ -105,12 +110,47 @@ func (s *Server) handleListAssessments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The candidate's own sessions, so each assessment can say whether it is
+	// under way and which workspace that is. Newest first, so the first one
+	// seen for an invitation or a template is the current one. A failure
+	// here costs the Resume links, not the list.
+	byInvitation, byTemplate := map[string]db.SessionRef{}, map[string]db.SessionRef{}
+	if refs, err := s.db.ListSessionRefsForCandidate(r.Context(), c.ID); err != nil {
+		slog.Error("handleListAssessments: sessions", "error", err)
+	} else {
+		for _, ref := range refs {
+			if ref.AssessmentID != nil {
+				if _, seen := byInvitation[*ref.AssessmentID]; !seen {
+					byInvitation[*ref.AssessmentID] = ref
+				}
+			} else if ref.TemplateID != nil {
+				if _, seen := byTemplate[*ref.TemplateID]; !seen {
+					byTemplate[*ref.TemplateID] = ref
+				}
+			}
+		}
+	}
+
 	out := make([]assessmentView, 0, len(invitations)+len(templates))
 	for _, inv := range invitations {
-		out = append(out, toInvitationView(inv))
+		view := toInvitationView(inv)
+		if ref, ok := byInvitation[inv.ID]; ok {
+			view.SessionID = ref.ID
+		}
+		out = append(out, view)
 	}
 	for _, t := range templates {
-		out = append(out, toAssessmentView(t))
+		view := toAssessmentView(t)
+		// The open pool has no invitation to carry a status, so a template
+		// the candidate has a session on takes its status from that session.
+		if ref, ok := byTemplate[t.ID]; ok {
+			view.SessionID = ref.ID
+			view.Status = "submitted"
+			if sessionIsLive(ref.Status) {
+				view.Status = "in-progress"
+			}
+		}
+		out = append(out, view)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -123,6 +163,12 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	sess, err := s.orc.StartAssessment(r.Context(), c.ID, c.Email, c.Name, id)
+	if errors.Is(err, orchestrator.ErrSelfStartLimit) || errors.Is(err, orchestrator.ErrSelfStartLive) {
+		// Not a malformed request: the candidate has hit a limit, and the
+		// message is written for them.
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
 	if err != nil {
 		slog.Error("handleStartSession", "error", err)
 		writeError(w, http.StatusBadRequest, "could not start that assessment: "+err.Error())
@@ -182,13 +228,9 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type sessionAssessmentResponse struct {
-	// AssessmentName and DurationMin are the two fields the IDE header was
-	// hardcoding before this endpoint returned them. Both come from
-	// game_templates — the same row the task_brief and starter_files live in.
-	AssessmentName string            `json:"assessmentName"`
-	DurationMin    int               `json:"durationMin"`
-	TaskBrief      *string           `json:"taskBrief,omitempty"`
-	StarterFiles   map[string]string `json:"starterFiles,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	TaskBrief    *string           `json:"taskBrief,omitempty"`
+	StarterFiles map[string]string `json:"starterFiles,omitempty"`
 }
 
 // handleGetSessionAssessment is what makes the IDE's task brief and
@@ -213,18 +255,11 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	content, err := s.db.GetTemplateContent(r.Context(), *sess.TemplateID)
-	if err != nil {
-		slog.Error("handleGetSessionAssessment", "session", sess.ID, "template", *sess.TemplateID, "error", err)
-		writeError(w, http.StatusInternalServerError, "could not load assessment content")
-		return
-	}
-	writeJSON(w, http.StatusOK, sessionAssessmentResponse{
-		AssessmentName: content.Name,
-		DurationMin:    content.DurationMin,
-		TaskBrief:      content.TaskBrief,
-		StarterFiles:   content.StarterFiles,
-	})
+	// The version of the task this session was dealt — see
+	// orchestrator/variants.go. Only ever the brief and starting files:
+	// a template's reference solution is not part of TemplateContent.
+	content := s.orc.TemplateContent(r.Context(), sess)
+	writeJSON(w, http.StatusOK, sessionAssessmentResponse{Name: content.Name, TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
 }
 
 type postEventsRequest struct {
@@ -270,6 +305,21 @@ func sessionIsLive(status string) bool {
 	return status == "live"
 }
 
+// serverOnlyEventTypes are the parts of a session's trail that this backend
+// writes from what it saw itself: what the assistant and the interviewer
+// said and were told, the code that was submitted, what a model call cost.
+// They are evidence precisely because the candidate's browser didn't supply
+// them, so the telemetry endpoint — which takes whatever a browser posts —
+// refuses them.
+var serverOnlyEventTypes = map[string]bool{
+	"ai_usage":           true,
+	"interview":          true,
+	"workspace_snapshot": true,
+	"ai_cost":            true,
+	"auto_submitted":     true,
+	"variant_assigned":   true,
+}
+
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
 // §1.7), real and in real use — candidate/frontend's workspace batches
 // git/npm/pip activity, preview rebuilds, and file saves here via
@@ -313,6 +363,10 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "event type must be lowercase letters, digits and underscores, starting with a letter, 64 characters or fewer")
 			return
 		}
+		if serverOnlyEventTypes[e.Type] {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("event type %q is recorded by the server and can't be submitted", e.Type))
+			return
+		}
 		if len(e.Payload) > maxEventTypePayloadBytes {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("event payload too large for type %q (max %d bytes)", e.Type, maxEventTypePayloadBytes))
 			return
@@ -346,6 +400,16 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		// codebases, and session integrity" for why this mattered.
 		writeError(w, http.StatusConflict, "this session has already been submitted")
 		return
+	}
+
+	// The final state of the workspace, sent along with the submit — what
+	// the Code Evaluation agent reads. Optional: an older client that sends
+	// no body still submits, and evaluation works from whatever earlier
+	// snapshot or events exist.
+	if files, ok := decodeFiles(w, r); !ok {
+		return
+	} else if err := s.orc.RecordSnapshot(r.Context(), sessionID, files); err != nil {
+		slog.Error("handleSubmit: recording final workspace", "session", sessionID, "error", err)
 	}
 
 	go func() {

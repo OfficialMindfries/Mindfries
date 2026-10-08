@@ -63,18 +63,30 @@ type client struct {
 // so callers should call it directly from the HTTP handler goroutine, not
 // spawn it in a new one.
 func (h *Hub) Join(w http.ResponseWriter, r *http.Request, room string) error {
-	conn, err := h.upgrader.Upgrade(w, r, nil)
+	conn, err := h.Upgrade(w, r)
 	if err != nil {
 		return err
 	}
+	h.Serve(conn, room)
+	return nil
+}
 
+// Upgrade performs the WebSocket handshake (checking the Origin, like Join)
+// without yet putting the connection in a room — for a caller that has to
+// hear from the client before it knows which room, or whether to admit it
+// at all. Follow it with Serve, or close the connection.
+func (h *Hub) Upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+	return h.upgrader.Upgrade(w, r, nil)
+}
+
+// Serve adds an upgraded connection to a room and blocks until it closes.
+func (h *Hub) Serve(conn *websocket.Conn, room string) {
 	c := &client{hub: h, room: room, conn: conn, send: make(chan []byte, sendBuffer)}
 	h.add(c)
 	defer h.remove(c)
 
 	go c.writePump()
 	c.readPump() // blocks until the connection closes
-	return nil
 }
 
 func (h *Hub) add(c *client) {

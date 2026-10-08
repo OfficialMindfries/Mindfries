@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { FileText, Inbox, Repeat, Terminal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Assessment } from "@/lib/dashboard/data";
@@ -19,29 +20,38 @@ const ICONS: Record<string, LucideIcon> = {
   practice: Repeat,
 };
 
+/** The feed is a glance; the full list is the Assessments page. */
+const SHOWN = 5;
+
 export function ActivityFeed({ items = [] }: { items?: Assessment[] }) {
-  // Generate real activities from the user's assessments
-  const activity = items.map((a) => {
+  // Generate real activities from the user's assessments. Each row links to
+  // the thing it's about, where there is one: the workspace to resume, or
+  // the report.
+  const all = items.map((a) => {
     if (a.status === "invited") {
-      return { id: a.id, kind: "invite", title: `Invited to ${a.role}`, detail: `${a.company} · ${a.tags.join(", ")}`, when: a.due };
+      return { id: a.id, kind: "invite", title: `Invited to ${a.role}`, detail: `${a.company} · ${a.tags.join(", ")}`, when: a.due, href: "/assessments" };
     }
     if (a.status === "submitted" || a.status === "closed") {
-      return { id: a.id, kind: "session", title: `Submitted ${a.role} assessment`, detail: a.company, when: a.due };
+      return {
+        id: a.id, kind: a.sessionId ? "report" : "session", title: `Submitted ${a.role} assessment`, detail: a.company, when: a.due,
+        href: a.sessionId ? `/assessments/${encodeURIComponent(a.sessionId)}/report` : "/assessments",
+      };
     }
-    return { id: a.id, kind: "session", title: `Started ${a.role} session`, detail: "In progress", when: a.due };
+    return {
+      id: a.id, kind: "session", title: `Started ${a.role} session`, detail: "In progress — pick it up where you left off", when: a.due,
+      href: a.sessionId ? `/ide?session=${encodeURIComponent(a.sessionId)}` : "/assessments",
+    };
   });
+  const activity = all.slice(0, SHOWN);
 
   return (
     <section>
       <div className="mb-3 flex items-baseline gap-3">
         <h2 className="text-base font-semibold tracking-tight text-[#0A1931]">Recent activity</h2>
-        {activity.length > 0 && (
-          <button
-            type="button"
-            className="ml-auto text-[13px] font-medium text-[#4A7FA7] transition-colors hover:text-[#1A3D63]"
-          >
-            See all
-          </button>
+        {all.length > 0 && (
+          <Link href="/assessments" className="ml-auto text-[13px] font-medium text-[#4A7FA7] transition-colors hover:text-[#1A3D63]">
+            See all{all.length > SHOWN ? ` ${all.length}` : ""}
+          </Link>
         )}
       </div>
 
@@ -64,7 +74,9 @@ export function ActivityFeed({ items = [] }: { items?: Assessment[] }) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-[13.5px] leading-snug font-medium text-[#0A1931]">
-                  {entry.title}
+                  <Link href={entry.href} className="underline-offset-2 hover:underline">
+                    {entry.title}
+                  </Link>
                 </p>
                 <p className="mt-0.5 text-xs leading-relaxed text-[#4A7FA7]">{entry.detail}</p>
               </div>

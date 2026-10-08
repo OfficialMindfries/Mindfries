@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import clsx from "clsx";
 import { GripVertical, GripHorizontal } from "lucide-react";
 import { FileExplorer } from "./FileExplorer";
@@ -13,8 +13,9 @@ import { ChatPanel } from "./ChatPanel";
 import { ProctorGate } from "./ProctorGate";
 import { ChatLauncher } from "./ChatLauncher";
 import { EndSessionDialog, SessionEnded } from "./EndSession";
+import { InterviewDialog } from "./InterviewDialog";
 import { HeaderPanel, SubmitConfirmDialog } from "./HeaderPanel";
-import { TaskDescriptionPanel, MOCK_TASK_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
+import { TaskDescriptionPanel, SCRATCH_MARKDOWN, NO_BRIEF_MARKDOWN } from "./TaskDescriptionPanel";
 import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
@@ -23,7 +24,7 @@ import { addNode, collectFilePaths, findNode, moveNode, removeNode } from "@/lib
 import type { FileContents, TreeNode } from "@/lib/ide/types";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import { emptyNotebookJson } from "@/lib/ide/notebook";
-import { loadPersistedWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
+import { loadPersistedWorkspace, pickWorkspace, savePersistedWorkspace } from "@/lib/ide/fs-persist";
 import { buildPreview, releaseBuild, type PreviewBuild } from "@/lib/ide/preview/build-preview";
 import { useResizable } from "@/lib/ide/use-resizable";
 import { useProctorCamera } from "@/lib/ide/proctor-camera";
@@ -31,16 +32,24 @@ import { useDiagnostics } from "@/lib/ide/diagnostics";
 import { CHANNELS, output } from "@/lib/ide/output";
 import { exitFullscreen } from "@/lib/ide/fullscreen";
 import { loadManifest, saveManifest, type InstalledPackage } from "@/lib/ide/packages";
-import { submitAssessment } from "@/app/ide/actions";
+import { checkpointWorkspace, submitAssessment } from "@/app/ide/actions";
 import { TelemetryBuffer } from "@/lib/ide/telemetry";
+import { snapshotFiles } from "@/lib/ide/snapshot";
+import { watchProvenance } from "@/lib/ide/provenance";
+import { terminalLog } from "@/lib/ide/terminal-log";
+import { isTestCommand, parseTestRun, testResults } from "@/lib/ide/test-results";
+import { lineChange } from "@/lib/ide/line-change";
+import { DIFF_PREFIX, fileOfTab, isDiffTab, workspaceChanges } from "@/lib/ide/changes";
+import { startCameraSnapshots } from "@/lib/ide/camera-snapshots";
+import { setGitScope } from "@/lib/ide/git/idb";
+import { startSnapshotUpload } from "@/app/ide/interview-actions";
 
 interface IdeShellProps {
   /**
    * The real session id this workspace was opened for (onboarding's
    * enterWorkspace passes it as `?session=<id>` on success). Undefined for
-   * a workspace opened without a tracked session — directly at /ide, or
-   * onboarding's own honest fallback when the backend isn't configured —
-   * in which case Submit stays local-only, same as before this was wired.
+   * a workspace opened without a tracked session — directly at /ide — in
+   * which case it's a scratch workspace and Submit stays local-only.
    */
   sessionId?: string;
   /** The signed-in candidate's real name from the active session. */
@@ -64,14 +73,36 @@ interface IdeShellProps {
    * server-side before the IDE ever renders). Undefined whenever `sessionId`
    * is, when the backend isn't configured, or when the fetch itself failed
    * — every one of those degrades to the same honest fallback content
-   * (MOCK_TASK_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
+   * (SCRATCH_MARKDOWN / NO_BRIEF_MARKDOWN, an empty workspace) rather
    * than a special case for each.
    */
   taskBrief?: string;
   starterFiles?: FileContents;
+  /**
+   * The server's latest copy of this session's work (app/ide/page.tsx), or
+   * undefined when it has none. `savedAt` is ms since the epoch.
+   */
+  serverWorkspace?: { files: FileContents; savedAt: number; frozen: boolean };
+  /** The real assessment's name for the header. Undefined without a session. */
+  assessmentName?: string;
+  /** Seconds left on the real session's clock. Undefined when there's no session to time. */
+  remainingSeconds?: number;
+  /**
+   * A practice run: no session, so nothing is recorded — but it has a task
+   * of its own (taskBrief/starterFiles) and its own saved copy in this
+   * browser, kept apart from the scratch workspace and from any session.
+   */
+  practice?: boolean;
 }
 
-export function IdeShell({ sessionId, candidateName, assessmentName, durationSeconds, taskBrief, starterFiles }: IdeShellProps) {
+/** How often the workspace is saved to the backend while the candidate works. */
+const CHECKPOINT_INTERVAL_MS = 60 * 1000;
+
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice }: IdeShellProps) {
+  // Which saved copy (files and git) this workspace reads and writes in this
+  // browser. It is only a storage key — everything that records or submits
+  // asks for `sessionId` itself, which a practice run doesn't have.
+  const storageId = sessionId ?? (practice ? "practice" : undefined);
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -80,6 +111,8 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
   // props already resolved server-side before this component ever mounted
   // — not re-derived on every render — since useState only reads its
   // initializer on the very first render anyway.
+  // Git's storage is per session too — set before anything can run git.
+  useState(() => setGitScope(storageId));
   const [seeded] = useState(() =>
     starterFiles && Object.keys(starterFiles).length > 0
       ? buildInitialWorkspace(starterFiles)
@@ -90,6 +123,13 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
   const [savedFiles, setSavedFiles] = useState<FileContents>(seeded.files);
   const [openPaths, setOpenPaths] = useState<string[]>(DEFAULT_OPEN_PATH ? [DEFAULT_OPEN_PATH] : []);
   const [activePath, setActivePath] = useState<string | null>(DEFAULT_OPEN_PATH);
+
+  // The file the active tab is about. A diff tab is "about" the file it
+  // compares, so everything that asks what the candidate is looking at —
+  // the breadcrumbs, the assistant, telemetry — gets a real path.
+  const activeFile = fileOfTab(activePath);
+  // What has changed since the task was handed over — see lib/ide/changes.ts.
+  const changes = useMemo(() => workspaceChanges(seeded.files, files), [seeded.files, files]);
 
   const dirtyPaths = useMemo(() => {
     const dirty = new Set<string>();
@@ -114,6 +154,55 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
       telemetryRef.current = null;
     };
   }, [sessionId]);
+
+  // Pastes and time away from the tab — sizes and durations only, see
+  // lib/ide/provenance.ts.
+  const activePathRef = useRef<string | null>(null);
+  useEffect(() => {
+    activePathRef.current = activeFile;
+  }, [activeFile]);
+  useEffect(() => {
+    if (!sessionId) return;
+    return watchProvenance(
+      (type, payload) => telemetryRef.current?.record(type, payload),
+      () => activePathRef.current,
+    );
+  }, [sessionId]);
+
+  // Every command that finishes in the terminal (or from the Tests panel):
+  // a test run is read into results for the Tests panel, and — in a real
+  // session — the command, how it exited and how long it took are recorded.
+  // Its output isn't sent, except a test run's counts: what a candidate ran
+  // and whether it worked is the evidence; megabytes of logs aren't.
+  useEffect(
+    () =>
+      terminalLog.onCommand((done) => {
+        telemetryRef.current?.record("terminal_command", { command: done.command.slice(0, 300), exitCode: done.exitCode, ms: done.ms });
+        if (!isTestCommand(done.command)) return;
+        const run = parseTestRun(done.command, done.output, done.exitCode);
+        testResults.record(run);
+        telemetryRef.current?.record("test_run", {
+          command: run.command.slice(0, 300),
+          exitCode: run.exitCode,
+          parsed: run.parsed,
+          passed: run.passed,
+          failed: run.failed,
+          skipped: run.skipped,
+          failing: run.tests.filter((t) => t.status === "fail" || t.status === "error").map((t) => t.name).slice(0, 20),
+        });
+      }),
+    [],
+  );
+
+  // Which file the candidate is looking at, as it changes — the order they
+  // read a codebase in says a lot about how they went looking.
+  useEffect(() => {
+    if (!sessionId || !activeFile) return;
+    const diff = isDiffTab(activePath);
+    // A file flicked past on the way to another isn't one that was read.
+    const timeout = setTimeout(() => telemetryRef.current?.record("file_open", diff ? { path: activeFile, view: "diff" } : { path: activeFile }), 1500);
+    return () => clearTimeout(timeout);
+  }, [sessionId, activeFile, activePath]);
 
   // Relays the Output panel's own channels (git/npm/pip/preview — see
   // lib/ide/output.ts) into telemetry. Tracks how many lines of each
@@ -143,16 +232,38 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
     // localStorage is only reachable client-side, so this restore can only
     // happen post-mount — same unavoidable pattern as theme.tsx's read.
     /* eslint-disable react-hooks/set-state-in-effect */
-    const saved = loadPersistedWorkspace();
-    if (saved) {
+    // This session's own copy — never another session's — or, when the
+    // server's is newer (the candidate last worked somewhere else) or this
+    // browser has none, the server's.
+    const saved = loadPersistedWorkspace(storageId);
+    const source = pickWorkspace(saved, serverWorkspace ?? null);
+    if (source === "local" && saved) {
       setTree(saved.tree);
       setFiles(saved.files);
       setSavedFiles(saved.savedFiles);
       setOpenPaths(saved.openPaths);
       setActivePath(saved.activePath);
+    } else if (source === "server" && serverWorkspace) {
+      const restoredFromServer = buildInitialWorkspace(serverWorkspace.files);
+      setTree(restoredFromServer.tree);
+      setFiles(restoredFromServer.files);
+      setSavedFiles(restoredFromServer.files);
+      // Keep the tabs the candidate had open here, where they still exist.
+      const stillThere = (saved?.openPaths ?? []).filter((p) => p in restoredFromServer.files);
+      setOpenPaths(stillThere);
+      setActivePath(saved?.activePath && saved.activePath in restoredFromServer.files ? saved.activePath : (stillThere[0] ?? null));
+    } else if (storageId) {
+      // A session (or practice run) opening for the first time starts from its task's own
+      // files, with nothing carried over — the mock project's default tab
+      // doesn't exist in it.
+      setOpenPaths((paths) => paths.filter((p) => p in seeded.files));
+      setActivePath((path) => (path && path in seeded.files ? path : null));
     }
     setRestored(true);
     /* eslint-enable react-hooks/set-state-in-effect */
+    // Runs once, on mount: the props it reads were fixed server-side before
+    // this component existed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist on every change, debounced so fast typing doesn't hit
@@ -162,10 +273,10 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
   useEffect(() => {
     if (!restored) return;
     const timeout = setTimeout(() => {
-      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath });
+      savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath }, storageId);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [restored, tree, files, savedFiles, openPaths, activePath]);
+  }, [restored, storageId, tree, files, savedFiles, openPaths, activePath]);
 
   // Auto Save, on by default (no setting to flip it off yet — ask if you
   // want that toggle). A short delay after you stop typing, whatever's
@@ -175,14 +286,20 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
     if (dirtyPaths.size === 0) return;
     const timeout = setTimeout(() => {
       const paths = [...dirtyPaths];
+      // How much each file changed since it was last saved — the size of the
+      // edit, not its text (the text is in the workspace checkpoints).
+      const changes = paths.map((path) => ({ path, ...lineChange(savedFiles[path] ?? "", files[path] ?? "") }));
       setSavedFiles((prev) => {
         const next = { ...prev };
         for (const path of paths) next[path] = files[path];
         return next;
       });
-      telemetryRef.current?.record("file_edit", { paths });
+      telemetryRef.current?.record("file_edit", { paths, changes });
     }, 800);
     return () => clearTimeout(timeout);
+    // savedFiles is read for the size of the edit only; depending on it
+    // would re-run this the moment it saves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirtyPaths, files]);
 
   const sidebar = useResizable({ initial: 240, min: 160, max: 480, axis: "horizontal" });
@@ -195,6 +312,20 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
   // The session is camera-proctored: the gate below blocks the workspace
   // until this is live, and re-blocks if the stream ever stops.
   const camera = useProctorCamera();
+  // A still of the camera every half minute, kept with the session — see
+  // lib/ide/camera-snapshots.ts. Only in a real session: a scratch workspace
+  // records nothing.
+  useEffect(() => {
+    if (!sessionId || !camera.stream) return;
+    return startCameraSnapshots(camera.stream, {
+      uploadTarget: async () => {
+        const target = await startSnapshotUpload(sessionId);
+        return "error" in target ? null : target;
+      },
+      stored: (snapshot) => telemetryRef.current?.record("camera_snapshot", snapshot),
+    });
+  }, [sessionId, camera.stream]);
+
   // Real markers from Monaco's TypeScript service — see lib/ide/diagnostics.ts.
   const diagnostics = useDiagnostics(tree, files);
 
@@ -211,11 +342,78 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
   // candidate now. Without one (no tracked session for this workspace),
   // it falls back to the original local-only confirmation screen.
   const [submitting, setSubmitting] = useState(false);
+  // The follow-up interview (PRD §1.6: workspace → interview → submit) comes
+  // after the candidate confirms they're finished, and only for a real
+  // session — there's nothing to ask about a scratch workspace. Confirming
+  // is the point of no return: the interviewer talks about their code in
+  // specifics, so there is no going back to the editor once it starts.
+  // A session resumed after its interview began opens on the interview:
+  // the work is frozen (the backend refuses further changes), so showing the
+  // editor again would only invite edits that go nowhere.
+  const [interviewing, setInterviewing] = useState(() => !!sessionId && !!serverWorkspace?.frozen);
+  // The interview has been held (or couldn't be) — all that remains is the submit itself.
+  const [interviewed, setInterviewed] = useState(false);
+  // The session's clock has run out. Working time is over: the interview
+  // opens by itself with no way back to the editor, and once it's done the
+  // work is submitted without asking — there is nothing left to confirm.
+  const [timeUp, setTimeUp] = useState(false);
+  // Read through a ref so the interview and submit always send the files as
+  // they are at that moment, without re-creating callbacks on every keystroke.
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+  const currentSnapshot = useCallback(() => snapshotFiles(filesRef.current), []);
+  // A copy of the work goes to the backend every couple of minutes while the
+  // candidate is still working, so that a session whose tab is closed before
+  // Submit still has code on the server (the backend submits it once the
+  // time has run out). Stops when the interview starts: the work is frozen
+  // from then on, and the backend would refuse it anyway.
+  const working = !!sessionId && restored && !interviewing && !interviewed && !timeUp;
+  useEffect(() => {
+    if (!working || !sessionId) return;
+    let lastSent = "";
+    const save = () => {
+      const snapshot = currentSnapshot();
+      const serialized = JSON.stringify(snapshot);
+      if (serialized === lastSent) return;
+      void checkpointWorkspace(sessionId, snapshot).then((result) => {
+        if (result.ok) lastSent = serialized;
+      });
+    };
+    const interval = setInterval(save, CHECKPOINT_INTERVAL_MS);
+    // Leaving the tab is the moment a candidate is most likely not to come
+    // back to this browser, so the server gets a copy then too.
+    const onHidden = () => {
+      if (document.hidden) save();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
+  }, [working, sessionId, currentSnapshot]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
-
-
+  // Time ran out while the candidate was still working (or on the confirm
+  // step): go to the interview. If it's already open it simply loses its
+  // "Back to my work" button. A scratch workspace has no clock to run out.
+  const expire = () => {
+    if (!sessionId || interviewed) return;
+    setTimeUp(true);
+    setSubmitting(false);
+    setInterviewing(true);
+  };
+  const submitNow = () => {
+    if (!sessionId) return;
+    setSubmitError(undefined);
+    startSubmitTransition(async () => {
+      const result = await submitAssessment(sessionId, currentSnapshot());
+      // A successful call redirects and never returns here.
+      if (result?.error) setSubmitError(result.error);
+    });
+  };
   const openFile = (path: string) => {
     setOpenPaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActivePath(path);
@@ -521,9 +719,10 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
     <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.canvas, palette.text)}>
       <HeaderPanel
         theme={theme}
-        assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Practice Workspace")}
-        durationSeconds={durationSeconds ?? 5400}
+        assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Scratch workspace")}
+        durationSeconds={remainingSeconds}
         onSubmit={() => setSubmitting(true)}
+        onExpire={expire}
       />
       <div className="flex min-h-0 flex-1 gap-1">
         <div
@@ -532,7 +731,7 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
         >
           <TaskDescriptionPanel
             theme={theme}
-            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : MOCK_TASK_MARKDOWN}
+            taskMarkdown={sessionId ? (taskBrief ?? NO_BRIEF_MARKDOWN) : practice && taskBrief ? taskBrief : SCRATCH_MARKDOWN}
             collapsed={taskCollapsed}
             onToggle={() => setTaskCollapsed((prev) => !prev)}
           />
@@ -580,14 +779,15 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
               palette.border
             )}
           >
-            <Breadcrumbs path={activePath} theme={theme} />
+            <Breadcrumbs path={activeFile} theme={theme} />
             <div className="min-h-0 flex-1">
               <EditorPanel
                 theme={theme}
                 openPaths={openPaths}
                 activePath={activePath}
                 dirtyPaths={dirtyPaths}
-                content={activePath ? files[activePath] ?? "" : ""}
+                content={activeFile ? files[activeFile] ?? "" : ""}
+                original={isDiffTab(activePath) && activeFile ? seeded.files[activeFile] : undefined}
                 onSelectTab={setActivePath}
                 onCloseTab={closeTab}
                 onChange={changeFile}
@@ -617,6 +817,8 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
               cameraStream={camera.stream}
               diagnostics={diagnostics}
               onOpenLocation={(path) => openFile(path)}
+              changes={changes}
+              onOpenDiff={(path) => openFile(`${DIFF_PREFIX}${path}`)}
               previewState={preview}
               onClosePreview={() => {
                 releaseBuild(previewBuildRef.current);
@@ -645,7 +847,15 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
               style={{ width: chatPane.size }}
               className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
             >
-              <ChatPanel theme={theme} onClose={() => setChatOpen(false)} />
+              <ChatPanel
+                theme={theme}
+                sessionId={sessionId}
+                activePath={activeFile}
+                activeContent={activeFile ? files[activeFile] : undefined}
+                getFiles={currentSnapshot}
+                onCopy={(chars) => telemetryRef.current?.record("assistant_copy", { chars })}
+                onClose={() => setChatOpen(false)}
+              />
             </div>
           </>
         )}
@@ -674,6 +884,23 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
           onEnd={endSession}
         />
       )}
+      {interviewing && sessionId && (
+        <InterviewDialog
+          theme={theme}
+          sessionId={sessionId}
+          getFiles={currentSnapshot}
+          camera={camera.stream}
+          onDone={() => {
+            // The interview is the last step: the candidate confirmed before
+            // it began, so the work goes in as soon as it ends. The dialog
+            // below shows that happening, and the error if it fails.
+            setInterviewing(false);
+            setInterviewed(true);
+            setSubmitting(true);
+            submitNow();
+          }}
+        />
+      )}
       {submitting && (
         <SubmitConfirmDialog
           theme={theme}
@@ -695,12 +922,18 @@ export function IdeShell({ sessionId, candidateName, assessmentName, durationSec
               setSubmitted(true);
               return;
             }
-            startSubmitTransition(async () => {
-              const result = await submitAssessment(sessionId);
-              // A successful call redirects and never returns here.
-              if (result?.error) setSubmitError(result.error);
-            });
+            if (interviewed) {
+              // Already interviewed — this is a retry of a submit that failed.
+              submitNow();
+              return;
+            }
+            // Confirmed: the interview comes next, and there's no way back
+            // from it to the editor.
+            setSubmitting(false);
+            setInterviewing(true);
           }}
+          timeUp={timeUp || interviewed}
+          beforeInterview={!interviewed}
         />
       )}
       <ProctorGate theme={theme} camera={camera} />

@@ -1,7 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { BackendAuthError, submitSession } from "@/lib/backend/client";
+import {
+  backendReady,
+  BackendAuthError,
+  getAssistantHistory,
+  saveCheckpoint,
+  submitSession,
+  type AssistantHistory,
+} from "@/lib/backend/client";
 import { isRedirectError } from "@/lib/isRedirectError";
 
 /**
@@ -17,13 +24,48 @@ import { isRedirectError } from "@/lib/isRedirectError";
  * real to submit, and the caller should keep the local-only confirmation
  * screen rather than call this at all.
  */
-export async function submitAssessment(sessionId: string): Promise<{ error: string } | never> {
+export async function submitAssessment(
+  sessionId: string,
+  files?: Record<string, string>,
+): Promise<{ error: string } | never> {
   try {
-    await submitSession(sessionId);
+    await submitSession(sessionId, files);
   } catch (err) {
     if (err instanceof BackendAuthError) redirect(`/login?next=/ide`);
     if (isRedirectError(err)) throw err;
     return { error: err instanceof Error ? err.message : "Could not submit. Please try again." };
   }
   redirect(`/assessments/${encodeURIComponent(sessionId)}/report`);
+}
+
+/**
+ * Saves the workspace to the backend while the candidate is still working,
+ * so a session that's never submitted from this tab (it was closed, the
+ * laptop died) still has their code on the server to submit for them.
+ * Failing is quiet on purpose: the next one is two minutes away, and the
+ * submit itself carries the files again.
+ */
+export async function checkpointWorkspace(sessionId: string, files: Record<string, string>): Promise<{ ok: boolean }> {
+  if (!backendReady()) return { ok: false };
+  try {
+    await saveCheckpoint(sessionId, files);
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function aiFailure(err: unknown): { error: string } {
+  if (err instanceof BackendAuthError) return { error: "Your sign-in has expired — sign in again to continue." };
+  return { error: err instanceof Error ? err.message : "The AI service didn't answer — try again." };
+}
+
+/** The assistant conversation so far, so a reloaded workspace shows what was already said. */
+export async function loadAssistant(sessionId: string): Promise<AssistantHistory | { error: string }> {
+  if (!backendReady()) return { messages: [], configured: false, enabled: true, limit: 0, used: 0 };
+  try {
+    return await getAssistantHistory(sessionId);
+  } catch (err) {
+    return aiFailure(err);
+  }
 }
