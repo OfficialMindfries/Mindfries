@@ -251,7 +251,7 @@ func (s *Server) handleInterview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "that answer is too long")
 		return
 	}
-	if err := s.orc.RecordSnapshot(r.Context(), sess.ID, body.Files); err != nil {
+	if err := s.orc.CaptureWorkspace(r.Context(), sess, body.Files, false); err != nil {
 		slog.Error("handleInterview: recording workspace", "session", sess.ID, "error", err)
 	}
 
@@ -316,7 +316,7 @@ func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.orc.RecordCheckpoint(r.Context(), sess.ID, files); err != nil {
+	if err := s.orc.CaptureWorkspace(r.Context(), sess, files, true); err != nil {
 		slog.Error("handleCheckpoint", "session", sess.ID, "error", err)
 		writeError(w, http.StatusInternalServerError, "could not save the workspace")
 		return

@@ -93,6 +93,16 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/interview/live", s.requireCandidate(s.handleLiveInterviewStart))
 	mux.HandleFunc("GET /api/v1/live-interview", s.handleLiveInterviewCall)
 	// The candidate's own live event stream, by ticket for the same reason.
+	// The sandbox workspace: the project's files, a command run to
+	// completion, and the terminal (sandbox.go).
+	mux.HandleFunc("GET /api/v1/sessions/{id}/sandbox/files", s.requireCandidate(s.handleSandboxFiles))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/read", s.requireCandidate(s.handleSandboxRead))
+	mux.HandleFunc("PUT /api/v1/sessions/{id}/sandbox/file", s.requireCandidate(s.handleSandboxWrite))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/change", s.requireCandidate(s.handleSandboxChange))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/run", s.requireCandidate(s.handleSandboxRun))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/terminal-ticket", s.requireCandidate(s.handleTerminalTicket))
+	mux.HandleFunc("GET /api/v1/sandbox-terminal", s.handleTerminal)
+
 	mux.HandleFunc("POST /api/v1/sessions/{id}/events-ticket", s.requireCandidate(s.handleEventsTicket))
 	mux.HandleFunc("GET /api/v1/session-events", s.handleSessionEvents)
 
