@@ -37,6 +37,8 @@ type sessionStore interface {
 	ListAdminSessions(ctx context.Context) ([]db.AdminSessionRow, error)
 	UpdateSessionState(ctx context.Context, id string, patch db.SessionStatePatch) error
 	SetSandboxID(ctx context.Context, id string, sandboxID *string) error
+	ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]db.SessionRef, error)
+	GetInterviewConfig(ctx context.Context, assessmentID *string) db.InterviewConfig
 }
 
 // Server holds every dependency a handler might need. Constructed once in

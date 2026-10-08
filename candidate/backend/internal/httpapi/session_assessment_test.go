@@ -51,6 +51,8 @@ func (f *fakeDB) GetEvidenceItems(ctx context.Context, reportID string) ([]db.Ev
 func (f *fakeDB) ListAdminSessions(ctx context.Context) ([]db.AdminSessionRow, error) { panic("unimplemented") }
 func (f *fakeDB) UpdateSessionState(ctx context.Context, id string, patch db.SessionStatePatch) error { panic("unimplemented") }
 func (f *fakeDB) SetSandboxID(ctx context.Context, id string, sandboxID *string) error { panic("unimplemented") }
+func (f *fakeDB) ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]db.SessionRef, error) { panic("unimplemented") }
+func (f *fakeDB) GetInterviewConfig(ctx context.Context, assessmentID *string) db.InterviewConfig { panic("unimplemented") }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 

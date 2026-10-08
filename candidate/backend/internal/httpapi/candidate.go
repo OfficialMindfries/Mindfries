@@ -228,9 +228,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type sessionAssessmentResponse struct {
-	Name         string            `json:"name,omitempty"`
-	TaskBrief    *string           `json:"taskBrief,omitempty"`
-	StarterFiles map[string]string `json:"starterFiles,omitempty"`
+	// Name is what candidate/frontend reads for the workspace header.
+	// AssessmentName and DurationMin carry the same template's name and its
+	// time limit under the names the endpoint's tests pin down, and are
+	// always present.
+	Name           string            `json:"name,omitempty"`
+	AssessmentName string            `json:"assessmentName"`
+	DurationMin    int               `json:"durationMin"`
+	TaskBrief      *string           `json:"taskBrief,omitempty"`
+	StarterFiles   map[string]string `json:"starterFiles,omitempty"`
 }
 
 // handleGetSessionAssessment is what makes the IDE's task brief and
@@ -258,8 +264,20 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 	// The version of the task this session was dealt — see
 	// orchestrator/variants.go. Only ever the brief and starting files:
 	// a template's reference solution is not part of TemplateContent.
-	content := s.orc.TemplateContent(r.Context(), sess)
-	writeJSON(w, http.StatusOK, sessionAssessmentResponse{Name: content.Name, TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
+	//
+	// A server built without an orchestrator (the handler tests do this,
+	// with a fake store) has no record of which variant a session was
+	// dealt, so it serves the template as authored.
+	var content db.TemplateContent
+	if s.orc != nil {
+		content = s.orc.TemplateContent(r.Context(), sess)
+	} else if tc, err := s.db.GetTemplateContent(r.Context(), *sess.TemplateID); err == nil {
+		content = tc
+	}
+	writeJSON(w, http.StatusOK, sessionAssessmentResponse{
+		Name: content.Name, AssessmentName: content.Name, DurationMin: content.DurationMin,
+		TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles,
+	})
 }
 
 type postEventsRequest struct {
