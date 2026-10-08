@@ -90,12 +90,14 @@ interface IdeShellProps {
    * workspace runs in this browser, as it always has.
    */
   sandbox?: boolean;
+  /** What that machine may reach on the network; the Ports panel says so. */
+  sandboxNetwork?: "open" | "essentials" | "none";
 }
 
 /** How often the workspace is saved to the backend while the candidate works. */
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice, sandbox }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice, sandbox, sandboxNetwork = "open" }: IdeShellProps) {
   // Set once, from props resolved before this component existed.
   const sandboxed = !!sessionId && !!sandbox;
   // The sandbox sync's two actions, reachable from effects declared above
@@ -192,6 +194,9 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
         if (!isTestCommand(done.command)) return;
         const run = parseTestRun(done.command, done.output, done.exitCode);
         testResults.record(run);
+        // In a sandbox the backend read this run's result itself, from the
+        // output it relayed; it doesn't take one from the page.
+        if (sandboxed) return;
         telemetryRef.current?.record("test_run", {
           command: run.command.slice(0, 300),
           exitCode: run.exitCode,
@@ -444,7 +449,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     sandboxRefreshRef.current = sandboxRefresh;
     sandboxFlushRef.current = sandboxFlush;
   }, [sandboxRefresh, sandboxFlush]);
-  const sandboxContext = useMemo(() => (sandboxed && sessionId ? { sessionId, refresh: sandboxRefresh } : null), [sandboxed, sessionId, sandboxRefresh]);
+  const sandboxContext = useMemo(() => (sandboxed && sessionId ? { sessionId, refresh: sandboxRefresh, network: sandboxNetwork } : null), [sandboxed, sessionId, sandboxRefresh, sandboxNetwork]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
@@ -935,6 +940,24 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
           {sandboxSync.status === "error" &&
             `Your sandbox couldn't be reached${sandboxSync.problem ? ` (${sandboxSync.problem})` : ""}. Reload the page to try again — your work on it is safe.`}
           {sandboxSync.status === "ready" && sandboxSync.problem && `The sandbox isn't answering (${sandboxSync.problem}). Your edits are kept here and sent as soon as it does.`}
+        </div>
+      )}
+
+      {/* Files the editor leaves out are still in the project. Without this
+          line a candidate who generated a large data file from the terminal
+          would see nothing appear and reasonably think it failed. */}
+      {sandboxed && sandboxSync.unshown.length > 0 && (
+        <div role="status" className={clsx("shrink-0 rounded-xl border px-3 py-1.5 text-xs", palette.border, palette.textMuted)}>
+          {sandboxSync.unshown.length === 1 ? "1 file in your project isn't" : `${sandboxSync.unshown.length} files in your project aren't`} shown in the
+          editor (too large or not text):{" "}
+          <span className="font-mono">
+            {sandboxSync.unshown
+              .slice(0, 4)
+              .map((f) => f.path)
+              .join(", ")}
+          </span>
+          {sandboxSync.unshown.length > 4 && ` and ${sandboxSync.unshown.length - 4} more`}. They are on your sandbox — use the terminal to open or
+          change them. The report and the interviewer read text files only.
         </div>
       )}
 

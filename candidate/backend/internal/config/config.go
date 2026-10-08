@@ -67,6 +67,21 @@ type Config struct {
 	// exists.
 	DaytonaAPIKey  string
 	DaytonaBaseURL string
+
+	// SandboxNetwork is what a session's sandbox may reach: "open"
+	// (everything — the default), "essentials" (package registries, git
+	// hosts and the rest of Daytona's essential services, not the general
+	// web) or "none". See sandbox.CreateOptions for what each really does.
+	SandboxNetwork string
+	// SandboxMaxLive is how many sessions may hold a sandbox at once. One
+	// more than that starts in the browser instead. 0 means no ceiling.
+	SandboxMaxLive int
+
+	// RequireVerifiedEmail makes a confirmed email address a condition of
+	// starting an invitation. Off by default because confirming needs
+	// candidate/frontend to be able to send mail; with it off, whoever
+	// registers an invited address can take that invitation.
+	RequireVerifiedEmail bool
 }
 
 func getenv(key, fallback string) string {
@@ -108,6 +123,21 @@ func Load() (Config, error) {
 		GeminiLiveModel:        os.Getenv("GEMINI_LIVE_MODEL"),
 		DaytonaAPIKey:          os.Getenv("DAYTONA_API_KEY"),
 		DaytonaBaseURL:         getenv("DAYTONA_BASE_URL", "https://app.daytona.io/api"),
+		SandboxNetwork:         strings.ToLower(getenv("SANDBOX_NETWORK", "open")),
+		SandboxMaxLive:         25,
+		RequireVerifiedEmail:   strings.EqualFold(os.Getenv("REQUIRE_VERIFIED_EMAIL"), "true"),
+	}
+	if v := os.Getenv("SANDBOX_MAX_LIVE"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("SANDBOX_MAX_LIVE must be a whole number, 0 for no ceiling (got %q)", v)
+		}
+		cfg.SandboxMaxLive = n
+	}
+	switch cfg.SandboxNetwork {
+	case "open", "essentials", "none":
+	default:
+		return Config{}, fmt.Errorf("SANDBOX_NETWORK must be open, essentials or none (got %q)", cfg.SandboxNetwork)
 	}
 
 	var missing []string
@@ -137,6 +167,9 @@ func (c Config) Warnings() []string {
 	}
 	if c.GeminiAPIKey == "" {
 		w = append(w, "GEMINI_API_KEY is not set — the interview runs turn by turn instead of as a live voice call")
+	}
+	if !c.RequireVerifiedEmail {
+		w = append(w, "REQUIRE_VERIFIED_EMAIL is not true — an invitation can be started by whoever registers the invited address, confirmed or not. Turn it on once candidate/frontend can send mail")
 	}
 	if c.DaytonaAPIKey == "" {
 		w = append(w, "DAYTONA_API_KEY is not set — sandbox provisioning will answer 'not configured'; sessions still record")

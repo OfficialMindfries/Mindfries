@@ -4,6 +4,8 @@ import clsx from "clsx";
 import { Circle, ExternalLink, PanelBottom, Square } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
 import type { IdeTheme } from "@/lib/ide/theme";
+import { useSandbox } from "@/lib/ide/sandbox/context";
+import { SandboxPorts } from "./SandboxPorts";
 
 /**
  * The Ports view.
@@ -20,6 +22,10 @@ import type { IdeTheme } from "@/lib/ide/theme";
  *
  * The Port column reads "—" on purpose. Inventing a plausible number (5173,
  * say) would be a lie the rest of this workspace doesn't tell.
+ *
+ * That is the in-browser workspace. A sandbox session is a machine that can
+ * listen on a port, so there this shows what really is listening
+ * (SandboxPorts) and none of the above applies.
  */
 export function PortsPanel({
   theme,
@@ -33,6 +39,9 @@ export function PortsPanel({
   onStopPreview: () => void;
 }) {
   const palette = idePalette(theme);
+  const sandbox = useSandbox();
+
+  if (sandbox) return <SandboxPorts theme={theme} sessionId={sandbox.sessionId} network={sandbox.network} />;
 
   if (!preview) {
     return (

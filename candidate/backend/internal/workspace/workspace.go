@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -241,6 +242,41 @@ func (w Workspace) MakeDir(ctx context.Context, idePath string) error {
 // Run runs a command in the project directory and waits for it.
 func (w Workspace) Run(ctx context.Context, command string, timeoutSec int) (sandbox.ExecuteResult, error) {
 	return w.run(ctx, command, timeoutSec)
+}
+
+// Port is something listening inside the sandbox.
+type Port struct {
+	Port    int    `json:"port"`
+	Process string `json:"process"`
+}
+
+var listening = regexp.MustCompile(`(?m)^LISTEN\s+\S+\s+\S+\s+(\S+):(\d+)\s+\S+(?:\s+users:\(\("([^"]+)")?`)
+
+// parsePorts reads `ss -ltnpH`. Daytona's own daemon listens in every
+// sandbox; those ports aren't the candidate's and are left out. A server
+// bound to loopback only is left out too — a preview link can't reach it.
+func parsePorts(out string) []Port {
+	ports := []Port{}
+	seen := map[int]bool{}
+	for _, m := range listening.FindAllStringSubmatch(out, -1) {
+		port, _ := strconv.Atoi(m[2])
+		if port == 0 || seen[port] || m[3] == "daytona" || m[1] == "127.0.0.1" || m[1] == "[::1]" {
+			continue
+		}
+		seen[port] = true
+		ports = append(ports, Port{Port: port, Process: m[3]})
+	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i].Port < ports[j].Port })
+	return ports
+}
+
+// Ports lists what is listening in the sandbox right now.
+func (w Workspace) Ports(ctx context.Context) ([]Port, error) {
+	res, err := w.run(ctx, "ss -ltnpH 2>/dev/null", 15)
+	if err != nil {
+		return nil, err
+	}
+	return parsePorts(res.Output), nil
 }
 
 // Snapshot is a copy of the project's text files, as path → content: what

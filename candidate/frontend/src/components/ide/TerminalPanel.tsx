@@ -62,14 +62,22 @@ export function TerminalPanel({
   theme,
   vfs,
   preview,
+  slot = 1,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
+  /** Which terminal tab this is. In a sandbox session each tab has its own shell, found again by this after a reload. */
+  slot?: number;
 }) {
   // Fixed for the life of the workspace: a session is a sandbox one or it
   // isn't, from its first render.
-  const sandboxSessionId = useSandbox()?.sessionId;
+  const sandbox = useSandbox();
+  const sandboxSessionId = sandbox?.sessionId;
+  const sandboxRefreshRef = useRef(sandbox?.refresh);
+  useEffect(() => {
+    sandboxRefreshRef.current = sandbox?.refresh;
+  }, [sandbox]);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<XFitAddon | null>(null);
@@ -133,7 +141,7 @@ export function TerminalPanel({
           // instance here (the effect only runs once, on mount) behaves
           // identically to a "live" reference — no staleness concern.
           detachShell = sandboxSessionId
-            ? attachSandboxTerminal(term, sandboxSessionId)
+            ? attachSandboxTerminal(term, sandboxSessionId, slot, () => sandboxRefreshRef.current?.())
             : attachVfsShell(term, vfs, {
                 open: (build) => previewRef.current.open(build),
                 stop: () => previewRef.current.stop(),

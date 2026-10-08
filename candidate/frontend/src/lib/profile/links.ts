@@ -154,10 +154,18 @@ export const PLATFORMS: Record<LinkPlatform, PlatformConfig> = {
     normalize(input) {
       const trimmed = input.trim();
       if (!trimmed) return { ok: false, error: "Enter a URL." };
+      // Something that already names another scheme (ftp://, javascript:,
+      // mailto:) isn't a web address, and prefixing https:// would only turn
+      // it into a link to nowhere.
+      if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+        return { ok: false, error: "Enter a web address starting with https://" };
+      }
       const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
       try {
         const u = new URL(withScheme);
         if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error();
+        // A real site has a dot in its host; "https://portfolio" doesn't go anywhere.
+        if (!u.hostname.includes(".")) throw new Error();
         return { ok: true, value: u.toString() };
       } catch {
         return { ok: false, error: "That doesn't look like a URL." };

@@ -41,6 +41,10 @@ type CandidateClaims struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Exp   int64  `json:"exp"`
+	// Iat is when the session was issued. An account can withdraw every
+	// session issued before a moment; a cookie from before this field
+	// existed has 0 here and counts as older than any withdrawal.
+	Iat int64 `json:"iat"`
 }
 
 // AdminClaims mirrors internal-admin/frontend/lib/auth/session.ts's Session.
@@ -159,6 +163,11 @@ type LiveTicket struct {
 	SessionID   string `json:"sid"`
 	CandidateID string `json:"cid"`
 	Exp         int64  `json:"exp"`
+	// Nonce makes two tickets issued in the same second different strings.
+	// Set where a ticket is single-use (the sandbox terminal): without it,
+	// two terminals opened together would be handed the same ticket and the
+	// second would be refused as already spent.
+	Nonce string `json:"n,omitempty"`
 }
 
 // liveTicketSecret keeps tickets and cookies from being interchangeable: a

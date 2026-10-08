@@ -102,7 +102,12 @@ export function LinkedAccounts({
                 return res.error || "Couldn't save that.";
               }}
               onRemove={async () => {
-                await removeLink(id);
+                try {
+                  const res = await removeLink(id);
+                  return res.ok ? null : res.error || "Couldn't remove that.";
+                } catch {
+                  return "Couldn't reach the server — check your connection and try again.";
+                }
               }}
             />
           ))}
@@ -133,7 +138,8 @@ function PlatformTile({
   onClose: () => void;
   /** Returns null once saved, or the reason it wasn't. */
   onSave: (value: string) => Promise<string | null>;
-  onRemove: () => Promise<void>;
+  /** Returns null once removed, or the reason it wasn't. */
+  onRemove: () => Promise<string | null>;
 }) {
   const platform = PLATFORMS[id];
   const Icon = platform.icon;
@@ -228,7 +234,7 @@ function PlatformTile({
           {!preview && (
             <button
               type="button"
-              onClick={onRemove}
+              onClick={() => void onRemove().then(setError)}
               aria-label={link.connectionId ? `Remove ${platform.label} and end the connection` : `Remove ${platform.label}`}
               title={link.connectionId ? "Removes the account and ends the connection" : undefined}
               className="ml-auto rounded-lg p-1.5 text-[#4A7FA7] transition-colors hover:bg-white hover:text-[#a6203c]"
@@ -237,6 +243,7 @@ function PlatformTile({
             </button>
           )}
         </div>
+        {error && <p className="mt-1.5 text-[12px] text-[#c0304c]">{error}</p>}
       </div>
     );
   }

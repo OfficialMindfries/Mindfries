@@ -118,7 +118,10 @@ func (o *Orchestrator) Evaluate(ctx context.Context, sessionID string) error {
 	run("interview", "Interview", func() (string, error) { return o.Agents.AnalyzeInterview(ctx, work, interviewTranscript(events)) })
 
 	if len(forReport) == 0 {
-		return fail("no agent produced usable evidence for this session (see server logs for each agent's error)")
+		// This sentence is the report's summary, which the candidate and the
+		// hiring team both read. Why each agent failed is in this server's
+		// log, where the people who can act on it look.
+		return fail("The evaluation didn't produce a report for this session. Everything recorded during the session is intact, and the evaluation can be run again.")
 	}
 
 	// Whether the interview happened at all. Said first and plainly: a

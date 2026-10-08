@@ -21,6 +21,7 @@ import (
 type fakeDB struct {
 	sessions map[string]db.Session
 	content  map[string]db.TemplateContent // keyed by template id
+	standing map[string]db.AccountStanding // keyed by candidate id; absent means active, nothing withdrawn
 }
 
 func (f *fakeDB) GetSession(_ context.Context, id string) (db.Session, error) {
@@ -50,6 +51,12 @@ func (f *fakeDB) GetReportBySession(ctx context.Context, sessionID string) (db.R
 func (f *fakeDB) GetEvidenceItems(ctx context.Context, reportID string) ([]db.EvidenceItem, error) { panic("unimplemented") }
 func (f *fakeDB) ListAdminSessions(ctx context.Context) ([]db.AdminSessionRow, error) { panic("unimplemented") }
 func (f *fakeDB) UpdateSessionState(ctx context.Context, id string, patch db.SessionStatePatch) error { panic("unimplemented") }
+func (f *fakeDB) GetAccountStanding(ctx context.Context, candidateID string) (db.AccountStanding, error) {
+	if standing, ok := f.standing[candidateID]; ok {
+		return standing, nil
+	}
+	return db.AccountStanding{Found: true, Active: true}, nil
+}
 func (f *fakeDB) SetSandboxID(ctx context.Context, id string, sandboxID *string) error { panic("unimplemented") }
 func (f *fakeDB) ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]db.SessionRef, error) { panic("unimplemented") }
 func (f *fakeDB) GetInterviewConfig(ctx context.Context, assessmentID *string) db.InterviewConfig { panic("unimplemented") }

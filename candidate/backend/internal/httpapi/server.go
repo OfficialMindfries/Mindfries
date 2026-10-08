@@ -39,6 +39,7 @@ type sessionStore interface {
 	SetSandboxID(ctx context.Context, id string, sandboxID *string) error
 	ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]db.SessionRef, error)
 	GetInterviewConfig(ctx context.Context, assessmentID *string) db.InterviewConfig
+	GetAccountStanding(ctx context.Context, candidateID string) (db.AccountStanding, error)
 }
 
 // Server holds every dependency a handler might need. Constructed once in
@@ -100,6 +101,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PUT /api/v1/sessions/{id}/sandbox/file", s.requireCandidate(s.handleSandboxWrite))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/change", s.requireCandidate(s.handleSandboxChange))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/run", s.requireCandidate(s.handleSandboxRun))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/sandbox/ports", s.requireCandidate(s.handleSandboxPorts))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/preview", s.requireCandidate(s.handleSandboxPreview))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/sandbox/terminal-ticket", s.requireCandidate(s.handleTerminalTicket))
 	mux.HandleFunc("GET /api/v1/sandbox-terminal", s.handleTerminal)
 

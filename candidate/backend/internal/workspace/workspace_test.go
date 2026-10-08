@@ -259,3 +259,27 @@ func TestLiveWorkspaceInARealSandbox(t *testing.T) {
 		t.Errorf("the prompt should show the project path, got %q", shown.String())
 	}
 }
+
+func TestParsePorts(t *testing.T) {
+	out := `LISTEN 0      4096   *:2280  *:* users:(("daytona",pid=1,fd=8))
+LISTEN 0      4096   *:22222 *:* users:(("daytona",pid=1,fd=9))
+LISTEN 0      5      0.0.0.0:8000 0.0.0.0:* users:(("python3",pid=412,fd=3))
+LISTEN 0      511    127.0.0.1:9229 0.0.0.0:* users:(("node",pid=500,fd=20))
+LISTEN 0      511    *:3000 *:* users:(("node",pid=500,fd=21))
+LISTEN 0      511    [::]:3000 [::]:* users:(("node",pid=500,fd=22))
+LISTEN 0      128    0.0.0.0:5432 0.0.0.0:*
+`
+	got := parsePorts(out)
+	want := []Port{{3000, "node"}, {5432, ""}, {8000, "python3"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("port %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if ports := parsePorts(""); ports == nil || len(ports) != 0 {
+		t.Errorf("nothing listening should be an empty list, got %#v", ports)
+	}
+}

@@ -9,6 +9,16 @@ import { statsOf } from "./knowledge-shape";
 import { readThroughConnection } from "./knowledge-connection";
 import { endConnection } from "../composio";
 import { PLATFORMS, type LinkPlatform } from "./links";
+import { NOTICE_PERIODS, OPEN_TO_OPTIONS } from "./data";
+
+// The edit form limits what can be typed, but a server action is a public
+// endpoint: these are the limits that actually hold. The bio's matches the
+// form's counter; the others are generous for a real headline or city.
+const MAX_NAME = 200;
+const MAX_HEADLINE = 120;
+const MAX_LOCATION = 120;
+const MAX_BIO = 500;
+const line = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
 const isPlatform = (p: string): p is LinkPlatform => Object.hasOwn(PLATFORMS, p);
 
@@ -57,15 +67,23 @@ export async function saveIdentity(form: { name: string; role: string; location:
   const c = db();
   if (!c) return { error: "Database not connected" };
 
+  const name = line(form?.name, MAX_NAME);
+  const role = line(form?.role, MAX_HEADLINE);
+  if (!name || !role) return { error: "Name and role can't be empty." };
+  const bio = typeof form?.bio === "string" ? form.bio.trim().slice(0, MAX_BIO) : "";
+  // Only the choices the form offers; anything else is dropped.
+  const openTo = (Array.isArray(form?.openTo) ? form.openTo : []).filter((o) => OPEN_TO_OPTIONS.includes(o));
+  const noticePeriod = NOTICE_PERIODS.includes(form?.noticePeriod) ? form.noticePeriod : "";
+
   const { error } = await c
     .from("candidate_users")
     .update({
-      name: form.name,
-      role: form.role,
-      location: form.location,
-      open_to: form.openTo,
-      notice_period: form.noticePeriod,
-      bio: form.bio,
+      name,
+      role,
+      location: line(form?.location, MAX_LOCATION),
+      open_to: openTo,
+      notice_period: noticePeriod,
+      bio,
       profile_updated_at: new Date().toISOString(),
     })
     .eq("id", session.id);

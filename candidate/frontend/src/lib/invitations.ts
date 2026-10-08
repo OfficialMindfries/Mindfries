@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "./supabase";
 import { currentCandidate } from "./auth/users";
+import { mailerReady } from "./mailer";
 
 // A candidate's answer to an invitation (assessments.accepted_at /
 // declined_at, 0019_invitations_and_setup.sql).
@@ -45,6 +46,20 @@ async function answer(assessmentId: string, change: Record<string, unknown>, sta
 }
 
 export async function acceptInvitation(assessmentId: string): Promise<InvitationResult> {
+  // An invitation is addressed to an email, and an account is made by typing
+  // one in. Where this site can send mail — so confirming is possible — an
+  // invitation is only taken up from a confirmed address. candidate/backend
+  // holds the same line at the start of the session (REQUIRE_VERIFIED_EMAIL).
+  if (mailerReady()) {
+    const candidate = await currentCandidate();
+    const c = db();
+    if (candidate && c) {
+      const { data } = await c.from("candidate_users").select("email_verified_at").eq("id", candidate.id).maybeSingle();
+      if (data && !data.email_verified_at) {
+        return { ok: false, error: "Confirm your email address first — use the link we emailed you, or send a new one from the notice at the top of your dashboard." };
+      }
+    }
+  }
   return answer(assessmentId, { accepted_at: new Date().toISOString() });
 }
 

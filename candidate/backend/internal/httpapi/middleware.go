@@ -2,12 +2,16 @@ package httpapi
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
+
+	"github.com/mindfries/candidate-backend/internal/db"
 
 	"github.com/mindfries/candidate-backend/internal/session"
 )
@@ -91,8 +95,51 @@ func (s *Server) requireCandidate(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "sign in required")
 			return
 		}
+		if s.sessionWithdrawn(r.Context(), claims) {
+			writeError(w, http.StatusUnauthorized, "sign in required")
+			return
+		}
 		next.ServeHTTP(w, withCandidate(r, claims))
 	}
+}
+
+// A good signature says who a session was issued to and when, not what has
+// happened since. An account can be disabled, or withdraw its sessions — a
+// password reset, "sign out of all devices" on candidate/frontend, which
+// asks the same question of the same column (its lib/auth/revocation.ts).
+//
+// The answer is remembered briefly: this runs on every candidate request,
+// and a workspace makes many a minute. That is also the longest a withdrawn
+// session keeps working here.
+const accountStandingTTL = 20 * time.Second
+
+type accountStandingEntry struct {
+	standing db.AccountStanding
+	at       time.Time
+}
+
+var accountStandings sync.Map // candidate id → accountStandingEntry
+
+func (s *Server) sessionWithdrawn(ctx context.Context, claims *session.CandidateClaims) bool {
+	var standing db.AccountStanding
+	if cached, ok := accountStandings.Load(claims.ID); ok && time.Since(cached.(accountStandingEntry).at) < accountStandingTTL {
+		standing = cached.(accountStandingEntry).standing
+	} else {
+		var err error
+		standing, err = s.db.GetAccountStanding(ctx, claims.ID)
+		if err != nil {
+			// Not being able to ask is not an answer. Everything this
+			// request goes on to do needs the same database.
+			slog.Error("requireCandidate: checking whether a session was withdrawn", "error", err)
+			return false
+		}
+		accountStandings.Store(claims.ID, accountStandingEntry{standing: standing, at: time.Now()})
+	}
+	// An account that is gone or disabled has no sessions.
+	if !standing.Found || !standing.Active {
+		return true
+	}
+	return standing.SessionsValidFrom != nil && claims.Iat < standing.SessionsValidFrom.Unix()
 }
 
 // requireAdmin is the same rule for internal-admin's "mf_admin" cookie. Any

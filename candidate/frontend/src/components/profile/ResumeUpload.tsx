@@ -81,16 +81,29 @@ export function ResumeUpload({
   async function handleRemove() {
     setBusy(true);
     setNotice(null);
-    await removeResume();
-    setBusy(false);
+    setError(null);
+    try {
+      const res = await removeResume();
+      if (!res.ok) setError(res.error || "Couldn't remove the resume.");
+    } catch {
+      setError("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleFill() {
     setBusy(true);
-    const res = await fillProfileFromResume();
-    setBusy(false);
-    if (!res.ok) setError(res.error || "Couldn't fill your profile.");
-    else setNotice(res.filled.length > 0 ? `Filled in your ${res.filled.join(", ")}. Check it reads right.` : "Nothing left to fill in.");
+    setError(null);
+    try {
+      const res = await fillProfileFromResume();
+      if (!res.ok) setError(res.error || "Couldn't fill your profile.");
+      else setNotice(res.filled.length > 0 ? `Filled in your ${res.filled.join(", ")}. Check it reads right.` : "Nothing left to fill in.");
+    } catch {
+      setError("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

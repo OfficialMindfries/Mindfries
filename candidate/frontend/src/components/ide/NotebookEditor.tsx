@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Play, Loader2, Trash2, Plus, Type, Code2, AlertCircle } from "lucide-react";
 import { idePalette } from "@/lib/ide/palette";
+import { useSandbox } from "@/lib/ide/sandbox/context";
 import type { IdeTheme } from "@/lib/ide/theme";
 import {
   emptyNotebook,
@@ -32,6 +33,10 @@ interface NotebookEditorProps {
  */
 export function NotebookEditor({ theme, content, onChange, onSave }: NotebookEditorProps) {
   const palette = idePalette(theme);
+  // Cells run in the browser's own Python and JavaScript whichever kind of
+  // workspace this is. In a sandbox session that is a different machine from
+  // the terminal's, which a candidate has no way to guess.
+  const sandboxed = !!useSandbox();
   const [doc, setDoc] = useState<NotebookDoc>(() => (content.trim() ? parseNotebook(content) : emptyNotebook()));
 
   const commit = (next: NotebookDoc) => {
@@ -91,6 +96,13 @@ export function NotebookEditor({ theme, content, onChange, onSave }: NotebookEdi
 
   return (
     <div className={clsx("flex h-full flex-col overflow-auto", palette.appBg, palette.text)}>
+      {sandboxed && (
+        <p className={clsx("shrink-0 border-b px-3 py-1.5 text-[11px]", palette.border, palette.textMuted)}>
+          Notebook cells run in your browser, not in the sandbox: packages you install in the terminal aren&apos;t available to them, and files
+          they write stay here. To run this notebook on the sandbox, use the terminal (for example{" "}
+          <code className="font-mono">jupyter nbconvert --execute</code>).
+        </p>
+      )}
       <div className={clsx("flex shrink-0 items-center gap-1 border-b px-2 py-1.5", palette.border)}>
         <button
           type="button"

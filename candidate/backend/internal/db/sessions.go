@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ErrNotFound is returned by single-row lookups when nothing matches — every
@@ -86,7 +87,7 @@ func (d *DB) GetSessionByCandidateAndTemplate(ctx context.Context, candidateID, 
 		order by started_at desc
 	`, candidateID, templateID)
 	s, err := scanSession(row)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
 		return Session{}, ErrNotFound
 	}
 	return s, err
@@ -97,7 +98,7 @@ func (d *DB) GetSessionByCandidateAndTemplate(ctx context.Context, candidateID, 
 func (d *DB) GetSession(ctx context.Context, id string) (Session, error) {
 	row := d.pool.QueryRow(ctx, `select `+sessionColumns+` from sessions where id = $1`, id)
 	s, err := scanSession(row)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
 		return Session{}, ErrNotFound
 	}
 	return s, err
@@ -272,6 +273,51 @@ func (d *DB) SetSandboxID(ctx context.Context, id string, sandboxID *string) err
 	return err
 }
 
+// AccountStanding is what decides whether a candidate's signed session
+// still counts: whether the account is active, and the moment before which
+// it has withdrawn its sessions (migration 0020). Found is false when there
+// is no such account.
+type AccountStanding struct {
+	Found             bool
+	Active            bool
+	SessionsValidFrom *time.Time
+	// EmailVerified is whether the account's address has been confirmed —
+	// by the emailed link, or by signing in through a provider that vouches
+	// for it.
+	EmailVerified bool
+}
+
+func (d *DB) GetAccountStanding(ctx context.Context, candidateID string) (AccountStanding, error) {
+	var status string
+	var from *time.Time
+	var verified bool
+	err := d.pool.QueryRow(ctx, `select status, sessions_valid_from, email_verified_at is not null from candidate_users where id = $1`, candidateID).Scan(&status, &from, &verified)
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
+		return AccountStanding{}, nil
+	}
+	if err != nil {
+		return AccountStanding{}, err
+	}
+	return AccountStanding{Found: true, Active: status == "active", SessionsValidFrom: from, EmailVerified: verified}, nil
+}
+
+// RestartClock sets a live session's start to now and returns it — for the
+// moment its workspace is ready, so that the time spent preparing it isn't
+// taken out of the candidate's.
+func (d *DB) RestartClock(ctx context.Context, id string) (time.Time, error) {
+	var startedAt time.Time
+	err := d.pool.QueryRow(ctx, `update sessions set started_at = now() where id = $1 and status = 'live' returning started_at`, id).Scan(&startedAt)
+	return startedAt, err
+}
+
+// CountLiveSandboxes is how many sessions still being worked on hold a
+// sandbox — each one a running machine.
+func (d *DB) CountLiveSandboxes(ctx context.Context) (int, error) {
+	var n int
+	err := d.pool.QueryRow(ctx, `select count(*) from sessions where status = 'live' and sandbox_id is not null`).Scan(&n)
+	return n, err
+}
+
 // SessionStatePatch is the support-override surface (PRD §1.11): reset a
 // stuck sandbox, or hand-adjust progress. Only non-nil fields are written.
 type SessionStatePatch struct {
@@ -294,4 +340,12 @@ func (d *DB) UpdateSessionState(ctx context.Context, id string, patch SessionSta
 		where id = $1
 	`, id, patch.Status, patch.SandboxHealth, patch.ProgressPct, patch.ElapsedMin)
 	return err
+}
+
+// isInvalidID reports Postgres refusing a value as a uuid (22P02). An id
+// that isn't one can't name a row: a mistyped or made-up address is "not
+// found", where it used to surface as a server error.
+func isInvalidID(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
 }
