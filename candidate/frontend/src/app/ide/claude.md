@@ -191,10 +191,23 @@ caveats below.
 - **Real assets, not approximations.** File icons come from `devicon`
   (MIT-licensed), Monaco and Pyodide are the real upstream builds,
   self-hosted. Don't hand-draw a lookalike icon when a real one exists.
-- **The VFS is virtual and local-only, on purpose.** Don't wire this feature
-  to `candidate/backend` or any network call without a deliberate decision to
-  change the spec — right now "it's all in this tab's `localStorage`" is a
-  documented, intentional property, not a gap.
+- **There are two workspaces behind this one UI.** A session whose backend
+  made it a Daytona sandbox (`sandbox` prop on `IdeShell`) runs there; every
+  other workspace — scratch, practice, a session without a sandbox — runs in
+  this tab, where the VFS is virtual and local-only on purpose. The split:
+  - `IdeShell`'s `files`/`savedFiles` state is the editor's copy in both.
+    In sandbox mode `lib/ide/sandbox/use-sandbox-sync.ts` keeps it in step
+    with the sandbox's disk (the rules are in `sync.ts`, checked in Node by
+    `sync.check.ts`), and nothing is kept in `localStorage`.
+  - `TerminalPanel` attaches `lib/ide/sandbox/terminal.ts` (a WebSocket to
+    a real shell) instead of `vfs-shell.ts`. The shell engine under
+    `lib/ide/shell/` is not involved at all in sandbox mode.
+  - `TestsPanel` runs the test command on the sandbox.
+  - Run, live preview, the package shims and in-browser git are the browser
+    workspace's. They are not wired to the sandbox; don't assume a change to
+    one shows up in the other.
+  Don't add a network call to the in-browser path — "it's all in this tab"
+  is still its documented property.
 - **Auto Save is on by default and has no toggle** (see
   [issue #7](https://github.com/RishiGoswami-code/Mindfries/issues/7)). If you
   build a settings panel, that's the first setting to add.
