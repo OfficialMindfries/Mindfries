@@ -182,8 +182,13 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type sessionAssessmentResponse struct {
-	TaskBrief    *string           `json:"taskBrief,omitempty"`
-	StarterFiles map[string]string `json:"starterFiles,omitempty"`
+	// AssessmentName and DurationMin are the two fields the IDE header was
+	// hardcoding before this endpoint returned them. Both come from
+	// game_templates — the same row the task_brief and starter_files live in.
+	AssessmentName string            `json:"assessmentName"`
+	DurationMin    int               `json:"durationMin"`
+	TaskBrief      *string           `json:"taskBrief,omitempty"`
+	StarterFiles   map[string]string `json:"starterFiles,omitempty"`
 }
 
 // handleGetSessionAssessment is what makes the IDE's task brief and
@@ -214,7 +219,12 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "could not load assessment content")
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionAssessmentResponse{TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
+	writeJSON(w, http.StatusOK, sessionAssessmentResponse{
+		AssessmentName: content.Name,
+		DurationMin:    content.DurationMin,
+		TaskBrief:      content.TaskBrief,
+		StarterFiles:   content.StarterFiles,
+	})
 }
 
 type postEventsRequest struct {

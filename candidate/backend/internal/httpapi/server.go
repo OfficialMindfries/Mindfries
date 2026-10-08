@@ -8,6 +8,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/mindfries/candidate-backend/internal/config"
@@ -16,12 +17,33 @@ import (
 	"github.com/mindfries/candidate-backend/internal/ws"
 )
 
+// sessionStore is the subset of *db.DB that handlers in this package
+// actually call. Using an interface (rather than the concrete type) means
+// tests can supply a lightweight fake without standing up a real database.
+// *db.DB satisfies this automatically — no change to production call sites.
+type sessionStore interface {
+	Ping(ctx context.Context) error
+	GetSession(ctx context.Context, id string) (db.Session, error)
+	GetTemplateContent(ctx context.Context, templateID string) (db.TemplateContent, error)
+	ListPublishedTemplates(ctx context.Context) ([]db.Template, error)
+	ListInvitationsForCandidate(ctx context.Context, email string) ([]db.Invitation, error)
+	StartSession(ctx context.Context, candidateID, candidateName string, tmpl db.Template) (db.Session, error)
+	StartSessionFromInvitation(ctx context.Context, candidateID, candidateName string, inv db.Invitation) (db.Session, error)
+	GetSessionByCandidateAndTemplate(ctx context.Context, candidateID, templateID string) (db.Session, error)
+	MarkSubmitted(ctx context.Context, id string) error
+	GetReportBySession(ctx context.Context, sessionID string) (db.Report, error)
+	GetEvidenceItems(ctx context.Context, reportID string) ([]db.EvidenceItem, error)
+	ListAdminSessions(ctx context.Context) ([]db.AdminSessionRow, error)
+	UpdateSessionState(ctx context.Context, id string, patch db.SessionStatePatch) error
+	SetSandboxID(ctx context.Context, id string, sandboxID *string) error
+}
+
 // Server holds every dependency a handler might need. Constructed once in
 // cmd/server/main.go and shared across all requests — nothing here is
 // per-request state.
 type Server struct {
 	cfg config.Config
-	db  *db.DB
+	db  sessionStore
 	orc *orchestrator.Orchestrator
 	hub *ws.Hub
 }

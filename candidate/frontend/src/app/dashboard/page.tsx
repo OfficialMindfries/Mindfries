@@ -70,11 +70,11 @@ export default async function DashboardPage() {
             )}
           </div>
           <a
-            href="/ide"
+            href="/assessments"
             className="btn-wipe inline-flex items-center justify-center gap-2 px-5 py-2.5 text-[13px] font-semibold"
             style={{ "--btn-bg": "#4A7FA7", "--btn-fg": "#F6FAFD", "--btn-fill": "#1A3D63", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
           >
-            Open the workspace
+            View assessments
           </a>
         </div>
 

@@ -23,6 +23,8 @@ export default async function IdePage({
     <IdeShell
       sessionId={session}
       candidateName={candidate?.name}
+      assessmentName={assessment?.assessmentName}
+      durationSeconds={assessment?.durationMin != null ? assessment.durationMin * 60 : undefined}
       taskBrief={assessment?.taskBrief}
       starterFiles={assessment?.starterFiles}
     />

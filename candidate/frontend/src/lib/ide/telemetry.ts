@@ -44,8 +44,12 @@ export class TelemetryBuffer {
 
   async flush(): Promise<void> {
     if (this.queue.length === 0) return;
-    const batch = this.queue;
-    this.queue = [];
+    // Snapshot the batch first, then clear the live queue so new events
+    // recorded while the request is in flight go into the next batch.
+    // On failure, we prepend the batch back so it retries on the next
+    // interval \u2014 previously the queue was cleared before the await, which
+    // meant any non-2xx or network error permanently lost real evidence.
+    const batch = this.queue.splice(0);
     try {
       const res = await fetch("/api/telemetry", {
         method: "POST",
@@ -54,15 +58,15 @@ export class TelemetryBuffer {
         keepalive: true, // survives a navigation that starts right after this call
       });
       if (!res.ok) {
-        // Real evidence lost silently would be worse than noisy — but this
-        // is a workspace mid-assessment, not a place to surface a toast
-        // over a dropped telemetry batch. Logged for whoever's watching
-        // devtools; not retried, since a stale batch retried later would
-        // land out of order.
-        console.warn("telemetry: flush failed", res.status);
+        // Backend hiccup \u2014 put the batch back at the front of the queue
+        // so it retries on the next flush interval rather than being lost.
+        this.queue.unshift(...batch);
+        console.warn("telemetry: flush failed", res.status, "\u2014 will retry");
       }
     } catch (err) {
-      console.warn("telemetry: flush failed", err);
+      // Network error \u2014 same recovery: restore the batch for retry.
+      this.queue.unshift(...batch);
+      console.warn("telemetry: flush failed", err, "\u2014 will retry");
     }
   }
 

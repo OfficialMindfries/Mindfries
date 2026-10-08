@@ -181,6 +181,10 @@ export async function getSessionReport(sessionId: string): Promise<ReportView> {
 }
 
 export interface SessionAssessmentView {
+  /** The assessment title from game_templates.title — shown in the IDE header. */
+  assessmentName?: string;
+  /** Total duration in minutes from game_templates.duration_min — drives the IDE countdown. */
+  durationMin?: number;
   taskBrief?: string;
   starterFiles?: Record<string, string>;
 }

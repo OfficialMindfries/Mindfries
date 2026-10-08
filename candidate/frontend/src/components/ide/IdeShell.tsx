@@ -46,6 +46,18 @@ interface IdeShellProps {
   /** The signed-in candidate's real name from the active session. */
   candidateName?: string;
   /**
+   * The real assessment title from game_templates.title — shown in the
+   * IDE header bar. Falls back to a generic label when the backend isn't
+   * configured or the session has no attached template yet.
+   */
+  assessmentName?: string;
+  /**
+   * Total assessment duration in seconds from game_templates.duration_min.
+   * Drives the IDE countdown timer. Falls back to a default when absent so
+   * the header still renders rather than crashing on an unset value.
+   */
+  durationSeconds?: number;
+  /**
    * The real assessment content behind `sessionId` — its task brief and
    * starting files, from `game_templates.task_brief`/`starter_files` via
    * GET /sessions/{id}/assessment (see app/ide/page.tsx, which fetches this
@@ -59,7 +71,7 @@ interface IdeShellProps {
   starterFiles?: FileContents;
 }
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, assessmentName, durationSeconds, taskBrief, starterFiles }: IdeShellProps) {
   const { theme, toggleTheme } = useIdeTheme();
   const palette = idePalette(theme);
 
@@ -449,6 +461,12 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
       saveManifest({});
       vfs.remove("node_modules", true);
     }
+    // Flush and stop telemetry before the closing screen replaces the
+    // workspace. The component doesn't unmount on end-session, so the
+    // keyed effect's cleanup never reruns — destroy() must be called
+    // explicitly here, otherwise the 5-second interval keeps firing.
+    telemetryRef.current?.destroy();
+    telemetryRef.current = null;
     camera.stop();
     // Hand the screen back: staying fullscreen on a closing screen leaves
     // someone stuck in a chrome-less tab with nothing left to do in it.
@@ -503,8 +521,8 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles }: 
     <div className={clsx("flex h-dvh w-full flex-col gap-1 p-1", palette.canvas, palette.text)}>
       <HeaderPanel
         theme={theme}
-        assessmentName="Frontend Engineering — Auth Bug Fix"
-        durationSeconds={5400}
+        assessmentName={assessmentName ?? (sessionId ? "Assessment" : "Practice Workspace")}
+        durationSeconds={durationSeconds ?? 5400}
         onSubmit={() => setSubmitting(true)}
       />
       <div className="flex min-h-0 flex-1 gap-1">
