@@ -481,6 +481,24 @@ export async function getSessionOrUndefined(sessionId: string): Promise<SessionV
   }
 }
 
+/**
+ * Like getSessionOrUndefined, but tells apart the two reasons there is no
+ * session to show: the backend couldn't be asked (undefined — the workspace
+ * degrades honestly, as before), and the backend answered that there is no
+ * such session for this candidate ("missing" — someone else's id, a
+ * mistyped one, a made-up one).
+ */
+export async function getSessionOrMissing(sessionId: string): Promise<SessionView | undefined | "missing"> {
+  if (!backendReady()) return undefined;
+  try {
+    return await getSession(sessionId);
+  } catch (err) {
+    if (err instanceof BackendError && err.status === 404) return "missing";
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSession failed:", err);
+    return undefined;
+  }
+}
+
 /** Seconds left on a session, measured from when it actually started. Never negative. */
 export function secondsRemaining(session: SessionView): number {
   const elapsed = (Date.now() - Date.parse(session.startedAt)) / 1000;

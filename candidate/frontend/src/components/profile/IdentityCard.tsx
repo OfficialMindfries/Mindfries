@@ -43,7 +43,7 @@ export function IdentityCard({ sessionName, profile }: IdentityCardProps) {
             {identity.name.trim().charAt(0).toUpperCase() || "?"}
           </span>
           <div className="min-w-0">
-            <h2 className="text-[20px] font-semibold tracking-tight text-[#0A1931]">{identity.name}</h2>
+            <h2 className="text-[20px] font-semibold tracking-tight text-[#0A1931] [overflow-wrap:anywhere]">{identity.name}</h2>
             <p className="mt-1 text-sm text-[#4A7FA7]">
               {identity.role}
               {identity.location && ` · ${identity.location}`}

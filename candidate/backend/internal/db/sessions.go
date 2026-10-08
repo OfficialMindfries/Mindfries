@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ErrNotFound is returned by single-row lookups when nothing matches — every
@@ -86,7 +87,7 @@ func (d *DB) GetSessionByCandidateAndTemplate(ctx context.Context, candidateID, 
 		order by started_at desc
 	`, candidateID, templateID)
 	s, err := scanSession(row)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
 		return Session{}, ErrNotFound
 	}
 	return s, err
@@ -97,7 +98,7 @@ func (d *DB) GetSessionByCandidateAndTemplate(ctx context.Context, candidateID, 
 func (d *DB) GetSession(ctx context.Context, id string) (Session, error) {
 	row := d.pool.QueryRow(ctx, `select `+sessionColumns+` from sessions where id = $1`, id)
 	s, err := scanSession(row)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidID(err) {
 		return Session{}, ErrNotFound
 	}
 	return s, err
@@ -294,4 +295,12 @@ func (d *DB) UpdateSessionState(ctx context.Context, id string, patch SessionSta
 		where id = $1
 	`, id, patch.Status, patch.SandboxHealth, patch.ProgressPct, patch.ElapsedMin)
 	return err
+}
+
+// isInvalidID reports Postgres refusing a value as a uuid (22P02). An id
+// that isn't one can't name a row: a mistyped or made-up address is "not
+// found", where it used to surface as a server error.
+func isInvalidID(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
 }
