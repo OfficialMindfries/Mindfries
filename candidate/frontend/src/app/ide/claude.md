@@ -201,11 +201,22 @@ caveats below.
     `sync.check.ts`), and nothing is kept in `localStorage`.
   - `TerminalPanel` attaches `lib/ide/sandbox/terminal.ts` (a WebSocket to
     a real shell) instead of `vfs-shell.ts`. The shell engine under
-    `lib/ide/shell/` is not involved at all in sandbox mode.
-  - `TestsPanel` runs the test command on the sandbox.
-  - Run, live preview, the package shims and in-browser git are the browser
-    workspace's. They are not wired to the sandbox; don't assume a change to
+    `lib/ide/shell/` is not involved at all in sandbox mode. The shell
+    belongs to the session, not the socket: a dropped connection or a
+    reload reattaches to it (each terminal tab remembers its own in
+    `sessionStorage`), and only closing the tab ends it. The backend half
+    is `candidate/backend/internal/httpapi/terminals.go`.
+  - `TestsPanel` runs the test command on the sandbox. In sandbox mode the
+    page parses the output only to *show* it; the `test_run` evidence is
+    read and recorded by the backend, which refuses one posted by the page.
+  - `PortsPanel` shows `SandboxPorts` — what is really listening on the
+    machine, each with a signed link — instead of the in-editor preview.
+  - Notebook cells, live preview, the package shims and in-browser git are
+    the browser workspace's. They are not wired to the sandbox (the
+    notebook editor says so to the candidate); don't assume a change to
     one shows up in the other.
+  - Files the editor can't show (binary, over 512 KB) are listed in a
+    status line from `useSandboxSync().unshown`, never silently dropped.
   Don't add a network call to the in-browser path — "it's all in this tab"
   is still its documented property.
 - **Auto Save is on by default and has no toggle** (see

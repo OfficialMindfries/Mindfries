@@ -271,6 +271,12 @@ This is the data the passes above and below were run with.
 
 ## 5. Gaps that still need filling
 
+> **Update, later the same day.** Most of what this section and section 7
+> list as open or "not built" has since been built on the same branch.
+> [Section 9](#9-what-was-built-after-this-report) says what, how each was
+> checked, and what is still open. The tables below are left as they were
+> written so the findings stay on record.
+
 ### 5.1 Security and integrity
 
 | # | Gap | Why it matters | Suggested fix |
@@ -391,3 +397,43 @@ After the fixes the API pass reads **64 passed, 0 failed, 1 open finding** (5.1 
 - Commands, test runs, edits, pastes, time away from the tab and questions to the assistant are recorded.
 - The sandbox has internet access.
 - Recordings are set to be deleted after 90 days. That clean-up needs the admin portal's cron secret to be set; whether it is running on the live site was not checked.
+
+---
+
+## 9. What was built after this report
+
+Everything here is on the branch `fix/qa-findings`, after the fixes in section 6. "Live" means run against the local backend, the real database and real Daytona; "browser" means driven in the candidate site.
+
+### Built
+
+| Gap | What exists now | How it was checked |
+|---|---|---|
+| 5.1 #1 — a running command dies when the connection drops | A shell belongs to the session, not the connection. If the page goes away the shell and its command carry on, output is kept (the last 512 KB) and finished commands are still recorded. The page reconnects by itself and gets the same shell back with only the output it missed; a reload gets it from the start. An unattended shell is closed after 5 minutes. Each terminal tab has its own shell; closing the tab ends it | Live, 13 checks: dropped mid-command, the command finished and was recorded with nobody attached, the same shell came back with the missed output and none repeated. Browser: reload resumed the shell; two tabs held two shells; closing one ended it |
+| 5.1 #3 — test results reported by the page | In a sandbox session the server reads the result from the output it relayed (unittest, pytest, `node --test`, `go test -v`; anything else is recorded with its exit code as "not read", never as passes). A `test_run` posted by the page is refused | Unit tests on real runner output. Live: a run from the terminal and one from the Tests button were both recorded by the server; a forged one got a 400 |
+| 5.1 #4 — open internet from the sandbox | `SANDBOX_NETWORK` on the backend: `open` (default), `essentials`, `none`. The workspace tells the candidate which applies | The Daytona options were tried directly: `none` reached nothing; `essentials` reached package registries and GitHub and not ordinary sites. **It also reached the large AI providers' APIs** — Daytona decides that list, and naming our own domains is refused on this account's tier. Starting a session under `essentials` or `none` through our own code was not run |
+| 5.1 #5 — anyone who registers an invited email gets the invitation | Accepting an invitation needs a confirmed address wherever the site can send mail; starting one needs it when the backend has `REQUIRE_VERIFIED_EMAIL=true` | Compiles and unit tests pass. Not exercised end to end — mail is not configured here |
+| 5.1 #6 — lockout, and no per-network limit (issue #66) | Failed sign-ins, sign-ups and reset requests are counted per network in the database: 20 failed sign-ins in 15 minutes, 8 sign-ups or 8 reset requests in an hour | Browser: the 21st failed sign-in was refused with a wait time. The account lock is unchanged, so nine wrong guesses still lock one account for 15 minutes |
+| 5.1 #7 — a stolen cookie works for 14 days (issue #63) | A password reset, or "Sign out of all devices" in the account menu, withdraws every session the account has. Both the site and the backend check | Browser and live: after signing out everywhere, a cookie issued earlier was sent to sign-in by the site and got 401 from the backend; one issued afterwards worked. The backend remembers its answer for 20 seconds, so that is the longest a withdrawn session keeps working there |
+| 5.1 #9 — no cap on sandboxes | `SANDBOX_MAX_LIVE` (default 25). One more than that starts in the browser workspace instead | Compiles; the ceiling itself was not reached in a test |
+| 5.1 #10 — TLS not verified by database scripts (issue #65) | The five scripts verify the certificate when `DATABASE_CA_CERT` points at the project's CA file, and print a warning every run when it doesn't | Run three ways: with the CA (connected), with a wrong file (refused), without (warned, connected) |
+| 5.1 #10 — waitlist form unlimited (issue #69) | Field caps, a hidden field that catches form-filling scripts, one sign-up per address per day, 60 sign-ups an hour overall | Type-checked only; the form was not driven |
+| 5.2 #2 — default 404 page | A Mindfries not-found page with a way back; the site title is no longer "Create Next App" | Browser |
+| 5.2 #3 — no progress while a session starts | The lobby says the workspace is being prepared. The session clock now starts when the workspace is ready, so the preparation is not taken out of the candidate's time | Live: a start that took 9 s left the clock at about 2 s |
+| 5.2 #4 — large and binary files invisible | A status line names files the editor is leaving out and says to use the terminal | Browser, with a 945 KB text file and a binary file |
+| 5.2 #5 — Run and preview do nothing in a sandbox | The notebook editor says its cells run in the browser, not the sandbox. (There is no general Run button; the Tests button already ran on the sandbox) | Type-checked only |
+| 5.2 #6 — a web server in the sandbox can't be previewed | The Ports panel lists what is listening, with a link that works for an hour | Live and browser: a server started in the terminal appeared and its link served the page from outside |
+| 5.2 #7 — "see server logs" shown to candidates | Reworded for a candidate; the detail stays in the server log | Unit tests pass; not seen in a browser |
+
+### Still open
+
+- **5.1 #2 — the command record can be tampered with from inside the sandbox.** Unchanged. It needs recording below the candidate's shell, which Daytona's API as used here doesn't offer. Server-read test results narrow what a forged record can claim, since a faked command comes with no real output.
+- **5.1 #8 — terminal tickets, and now the shells themselves, live in one backend's memory.** Fine with one instance; a second instance, or a restart, ends the shells (the page says so and opens a new one).
+- **A sign-out everywhere is not instant on the backend** (up to 20 seconds), and the site's edge check still only verifies the signature — the page behind it is what refuses.
+- **Screen recording**, **the company report updating live** (it polls), **practice runs in a sandbox** (in the browser on purpose) and **deploying the company and admin backends** were not attempted: the first is a decision and the last is an operations job.
+- Everything in section 7's "needs a key" and "never tested for real" lists is unchanged — no real model, mail, camera or Composio sign-in was used.
+
+### For whoever deploys this
+
+- Migration `0020_session_revocation_and_login_throttle.sql` is new. It was applied to the shared database by hand during testing, as 0018 and 0019 were, so the migration script still lists all three as pending. They are safe to run again (every statement is "if not exists").
+- New backend settings, all optional: `SANDBOX_NETWORK`, `SANDBOX_MAX_LIVE`, `REQUIRE_VERIFIED_EMAIL` (turn on once mail works). New for the scripts: `DATABASE_CA_CERT`.
+- The per-network limit reads the address from `x-forwarded-for`, which Vercel sets. Behind a different proxy, check that header is trustworthy.
