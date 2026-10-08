@@ -117,6 +117,12 @@ export function KnowledgeBase({ items }: { items: StoredKnowledge[] }) {
                 ))}
               </ul>
             )}
+            {!!k.privateProjects && (
+              <p className="mt-2 text-[11.5px] text-[#4A7FA7]">
+                Plus {k.privateProjects} private {k.privateProjects === 1 ? "project" : "projects"}, counted in the languages above. Their
+                names are not stored or shown.
+              </p>
+            )}
             {k.projectCount > k.projects.length && (
               <p className="mt-2 text-[11.5px] text-[#4A7FA7]">
                 Showing the {k.projects.length} most recently worked on, of {k.projectCount}.

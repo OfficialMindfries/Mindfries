@@ -56,6 +56,18 @@ export interface Knowledge {
   projectCount: number;
   /** Null when the platform wouldn't say (GitLab hides events for some accounts). */
   activity: KnowledgeActivity | null;
+  /**
+   * How this was read: through the candidate's own connection, or from the
+   * platform's public API. Absent on rows stored before connections existed
+   * — those were public reads.
+   */
+  via?: "connection" | "public";
+  /**
+   * Private projects of their own, seen through the connection. Only the
+   * count: a private project is often an employer's, so its name is never
+   * kept. Their languages are included in `languages`.
+   */
+  privateProjects?: number;
 }
 
 export const MAX_PROJECTS = 12;
@@ -183,6 +195,22 @@ export function shapeGitlab(user: any, projects: any[], languagesByProject: Reco
           },
         )
       : null,
+  };
+}
+
+/**
+ * Adds private projects to a knowledge base built from public ones: their
+ * number, and their main languages into the language totals. `languages`
+ * has one entry per private project (null where it has no main language).
+ */
+export function addPrivateProjects(k: Knowledge, languages: Array<string | null>): Knowledge {
+  if (languages.length === 0) return k;
+  const counts = new Map(k.languages.map((l) => [l.name, l.projects]));
+  for (const name of languages) if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return {
+    ...k,
+    privateProjects: languages.length,
+    languages: [...counts.entries()].map(([name, projects]) => ({ name, projects })).sort((a, b) => b.projects - a.projects || a.name.localeCompare(b.name)),
   };
 }
 

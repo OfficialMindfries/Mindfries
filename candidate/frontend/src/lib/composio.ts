@@ -1,20 +1,19 @@
 import "server-only";
 
-// Composio, used for one thing: letting a candidate prove a GitHub, GitLab
-// or LinkedIn account is theirs by signing in to it.
+// Composio: how a candidate connects a GitHub, GitLab or LinkedIn account,
+// and how the app then reads that account on their behalf.
 //
-// A username typed into the profile shows only that an account exists.
-// Here the candidate goes through the platform's own sign-in (hosted by
-// Composio — this app never sees a password or a token), and afterwards
-// Composio is asked one question on their behalf: "who is signed in?". The
-// answer is the account that is theirs.
+// A username typed into the profile shows only that an account exists. Here
+// the candidate goes through the platform's own sign-in (hosted by Composio
+// — this app never sees a password or a token), which does two things: it
+// shows the account is theirs, and it leaves a connection the knowledge
+// base is built and refreshed through (lib/profile/knowledge-connection.ts).
 //
-// The connection is then deleted (see app/api/connect/[platform]/callback).
-// Composio's managed sign-in asks the platform for far more than identity —
-// for GitHub, access to repositories — and nothing here needs any of it
-// once the question is answered: the knowledge base is read from public
-// data. So the access is given back as soon as it has done its job, rather
-// than left standing in a third party's vault.
+// The connection is kept for as long as the account stays linked, and
+// deleted — tokens and all — when the candidate removes it from their
+// profile, or links a different account in its place. Only read tools are
+// ever run through it: nothing is posted, changed or deleted on the
+// candidate's account.
 //
 // REST API v3.1, called directly: https://docs.composio.dev/reference
 // COMPOSIO_API_URL exists so a check can point this at a stand-in.
@@ -170,13 +169,24 @@ export async function identityOf(platform: ConnectPlatform, candidateId: string,
   return { handle, name: pick(result.data, ["name"]) };
 }
 
-/** Gives the access back: deletes the connection and the tokens Composio holds for it. Never throws. */
+/**
+ * Runs one of a platform's tools through the candidate's connection and
+ * returns its `data`. Throws when the tool reports failure — a connection
+ * the candidate has since revoked on the platform's side fails here.
+ */
+export async function runTool(tool: string, candidateId: string, connectedAccountId: string, args: Record<string, unknown>): Promise<any> {
+  const result = await call("POST", `/tools/execute/${tool}`, { user_id: candidateId, connected_account_id: connectedAccountId, arguments: args });
+  if (!result?.successful) throw new ComposioError(`Composio: ${tool} — ${result?.error || "no result"}`);
+  return result.data;
+}
+
+/** Ends a connection: deletes it and the tokens Composio holds for it. Never throws. */
 export async function endConnection(connectedAccountId: string): Promise<boolean> {
   try {
     await call("DELETE", `/connected_accounts/${encodeURIComponent(connectedAccountId)}`);
     return true;
   } catch (err) {
-    console.error("composio: couldn't delete a connection after use:", err);
+    console.error("composio: couldn't delete a connection:", err);
     return false;
   }
 }

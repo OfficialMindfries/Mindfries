@@ -11,8 +11,9 @@ import { CONNECT_COOKIE, profileRedirect, recordVerifiedAccount } from "@/lib/pr
  * query string is believed: the connection is the one this browser started
  * (from the cookie), and Composio is asked directly whether it is active,
  * whose it is, and who signed in. Then the account is recorded as the
- * candidate's own, and the connection is deleted — see lib/composio.ts for
- * why it isn't kept.
+ * candidate's own and read through the connection, which is kept for
+ * refreshing it later. A sign-in that wasn't finished, or couldn't be
+ * confirmed, leaves no connection behind.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ platform: string }> }) {
   const { platform } = await params;
@@ -33,14 +34,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ plat
     if (!identity) {
       outcome = "cancelled";
     } else {
-      await recordVerifiedAccount(candidate.id, platform, identity);
+      await recordVerifiedAccount(candidate.id, platform, identity, connectedAccountId);
       outcome = "verified";
     }
   } catch (err) {
     console.error("connect: couldn't confirm a sign-in:", err);
   }
 
-  // Whatever happened, the access isn't kept.
-  await endConnection(connectedAccountId);
+  // A connection that didn't end up on the profile isn't left standing.
+  if (outcome !== "verified") await endConnection(connectedAccountId);
   return profileRedirect(request, platform, outcome);
 }

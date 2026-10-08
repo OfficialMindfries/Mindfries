@@ -63,6 +63,7 @@ export function CandidateProfileCard({ profile }: { profile: CandidateProfile | 
                   <span className="text-xs text-faint">
                     {" "}
                     — signed in to LinkedIn as {l.signedInAs}
+                    {l.headline ? ` (${l.headline})` : ""}
                     {l.url ? "; the address is as the candidate entered it" : ""}
                   </span>
                 )}
@@ -168,6 +169,9 @@ export function CandidateProfileCard({ profile }: { profile: CandidateProfile | 
             {a.projectCount === 0
               ? "No public projects of their own."
               : `${Math.min(6, a.projects.length)} of ${a.projectCount} own public projects, most recently worked on first; forks are left out.`}{" "}
+            {a.privateProjects > 0
+              ? `Plus ${a.privateProjects} private ${a.privateProjects === 1 ? "project" : "projects"} of their own, counted in the languages above; private projects are never named. `
+              : ""}
             Read {fmtDate(a.fetchedAt)}.
           </p>
         </div>
