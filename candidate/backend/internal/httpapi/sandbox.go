@@ -30,6 +30,8 @@ const (
 	sandboxRunMaxSec     = 300
 	sandboxOutputCap     = 256 * 1024
 	terminalTicketTTL    = time.Minute
+	// How long a preview link to a port in the sandbox works.
+	previewLinkSec = 60 * 60
 	// Terminals open at once for one session — a couple of split panes, not
 	// an unbounded number of shells.
 	maxTerminalsPerSession = 4
@@ -221,6 +223,48 @@ func (s *Server) handleSandboxRun(w http.ResponseWriter, r *http.Request) {
 		output, truncated = output[len(output)-sandboxOutputCap:], true
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"exitCode": res.ExitCode, "output": output, "truncated": truncated, "ms": took.Milliseconds()})
+}
+
+// handleSandboxPorts lists what is listening in the sandbox — the servers
+// the candidate has started.
+func (s *Server) handleSandboxPorts(w http.ResponseWriter, r *http.Request) {
+	sess, ws, ok := s.sandboxFor(w, r, false)
+	if !ok {
+		return
+	}
+	ports, err := ws.Ports(r.Context())
+	if err != nil {
+		sandboxError(w, "handleSandboxPorts", sess, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ports": ports})
+}
+
+// handleSandboxPreview returns a link to one of those ports. The link is
+// the candidate's way to open what they are building in a browser tab; it
+// expires, and reaches only that port.
+func (s *Server) handleSandboxPreview(w http.ResponseWriter, r *http.Request) {
+	sess, ws, ok := s.sandboxFor(w, r, false)
+	if !ok {
+		return
+	}
+	var body struct {
+		Port int `json:"port"`
+	}
+	if !decodeBody(w, r, 1024, &body) {
+		return
+	}
+	// Not the low ports, and not Daytona's own daemon.
+	if body.Port < 1024 || body.Port > 65535 || body.Port == 2280 || body.Port == 22220 || body.Port == 22222 || body.Port == 33333 {
+		writeError(w, http.StatusBadRequest, "that port can't be previewed")
+		return
+	}
+	link, err := s.orc.Sandbox.PreviewURL(r.Context(), ws.SandboxID, body.Port, previewLinkSec)
+	if err != nil {
+		sandboxError(w, "handleSandboxPreview", sess, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": link, "expiresInSec": previewLinkSec})
 }
 
 // ── Terminal tickets (the terminal itself is terminals.go) ─────────────────

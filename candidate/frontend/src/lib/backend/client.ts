@@ -119,6 +119,8 @@ export interface SessionView {
   sandboxHealth: string;
   /** True when the session's workspace is a real sandbox rather than the browser. Absent from an older backend. */
   sandbox?: boolean;
+  /** What that sandbox may reach on the network. Absent for a browser session. */
+  sandboxNetwork?: SandboxNetwork;
   progressPct: number;
   durationMin: number;
   elapsedMin: number;
@@ -302,6 +304,25 @@ export async function sandboxChange(sessionId: string, change: { op: "delete" | 
 
 export async function sandboxRun(sessionId: string, command: string, timeoutSec?: number): Promise<{ exitCode: number; output: string; truncated: boolean; ms: number }> {
   return request(sandboxPath(sessionId, "run"), json("POST", { command, timeoutSec }));
+}
+
+/** What a sandbox may reach: everything, package registries and git hosts, or nothing. */
+export type SandboxNetwork = "open" | "essentials" | "none";
+
+export interface SandboxPort {
+  port: number;
+  /** The program listening, when the sandbox could tell. */
+  process: string;
+}
+
+/** What is listening in the sandbox right now — servers the candidate started. */
+export async function sandboxPorts(sessionId: string): Promise<{ ports: SandboxPort[] }> {
+  return request(sandboxPath(sessionId, "ports"));
+}
+
+/** A link to one of those ports that works from the candidate's browser, for an hour. */
+export async function sandboxPreview(sessionId: string, port: number): Promise<{ url: string; expiresInSec: number }> {
+  return request(sandboxPath(sessionId, "preview"), json("POST", { port }));
 }
 
 /** A ticket and address for the sandbox terminal's WebSocket — the same two-step as the event stream. */

@@ -51,6 +51,7 @@ export default async function IdePage({
       // A real machine behind this session (candidate/backend made one when
       // it started), or the in-browser workspace when there isn't.
       sandbox={!!live?.sandbox}
+      sandboxNetwork={live?.sandboxNetwork}
       taskBrief={assessment?.taskBrief}
       starterFiles={assessment?.starterFiles}
       // The server's copy of this session's work, if it has one — what a

@@ -273,6 +273,14 @@ func (d *DB) SetSandboxID(ctx context.Context, id string, sandboxID *string) err
 	return err
 }
 
+// CountLiveSandboxes is how many sessions still being worked on hold a
+// sandbox — each one a running machine.
+func (d *DB) CountLiveSandboxes(ctx context.Context) (int, error) {
+	var n int
+	err := d.pool.QueryRow(ctx, `select count(*) from sessions where status = 'live' and sandbox_id is not null`).Scan(&n)
+	return n, err
+}
+
 // SessionStatePatch is the support-override surface (PRD §1.11): reset a
 // stuck sandbox, or hand-adjust progress. Only non-nil fields are written.
 type SessionStatePatch struct {

@@ -57,6 +57,15 @@ func (o *Orchestrator) setUpSandbox(ctx context.Context, sess db.Session, candid
 	if o.Sandbox == nil || !o.Sandbox.Configured() {
 		return sess, false
 	}
+	// Each sandbox is a running machine on one Daytona account. At the
+	// ceiling a new session starts in the browser — a working workspace —
+	// rather than failing or queueing behind an unknown wait.
+	if o.SandboxMaxLive > 0 {
+		if n, err := o.DB.CountLiveSandboxes(ctx); err == nil && n >= o.SandboxMaxLive {
+			slog.Warn("orchestrator: sandbox ceiling reached; the session will run in the browser", "session", sess.ID, "live", n, "ceiling", o.SandboxMaxLive)
+			return sess, false
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, sandboxSetupTimeout)
 	defer cancel()
 	started := time.Now()
@@ -76,11 +85,21 @@ func (o *Orchestrator) setUpSandbox(ctx context.Context, sess db.Session, candid
 		return sess, false
 	}
 
-	sb, err := o.Sandbox.CreateSandbox(ctx, sandbox.CreateOptions{
+	opts := sandbox.CreateOptions{
 		AutoStopInterval:   sandboxAutoStopMin,
 		AutoDeleteInterval: sandboxAutoDeleteMin,
 		Labels:             map[string]string{"mindfries-session": sess.ID},
-	})
+	}
+	switch o.SandboxNetwork {
+	case "none":
+		opts.NetworkBlockAll = true
+	case "essentials":
+		// Setting any list is what turns the restriction on; Daytona's
+		// essential services stay reachable alongside it. The one address
+		// listed is reserved for documentation and routes nowhere.
+		opts.NetworkAllowList = "192.0.2.1/32"
+	}
+	sb, err := o.Sandbox.CreateSandbox(ctx, opts)
 	if err != nil {
 		return fail("create", err, "")
 	}
@@ -100,12 +119,20 @@ func (o *Orchestrator) setUpSandbox(ctx context.Context, sess db.Session, candid
 		return fail("seed", err, sb.ID)
 	}
 
-	payload, _ := json.Marshal(map[string]any{"files": len(content.StarterFiles), "setupMs": time.Since(started).Milliseconds()})
+	payload, _ := json.Marshal(map[string]any{"files": len(content.StarterFiles), "setupMs": time.Since(started).Milliseconds(), "network": o.NetworkPolicy()})
 	if err := o.DB.InsertActivityEvents(ctx, sess.ID, []db.NewActivityEvent{{EventType: eventSandboxReady, Payload: payload}}); err != nil {
 		return fail("record ready", err, sb.ID)
 	}
 	slog.Info("orchestrator: sandbox ready", "session", sess.ID, "sandbox", sb.ID, "took", time.Since(started).Round(time.Millisecond))
 	return sess, true
+}
+
+// NetworkPolicy is what a sandbox may reach: "open", "essentials" or "none".
+func (o *Orchestrator) NetworkPolicy() string {
+	if o.SandboxNetwork == "none" || o.SandboxNetwork == "essentials" {
+		return o.SandboxNetwork
+	}
+	return "open"
 }
 
 // SandboxReady reports whether the session's workspace is in a sandbox.

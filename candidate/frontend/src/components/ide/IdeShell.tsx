@@ -90,12 +90,14 @@ interface IdeShellProps {
    * workspace runs in this browser, as it always has.
    */
   sandbox?: boolean;
+  /** What that machine may reach on the network; the Ports panel says so. */
+  sandboxNetwork?: "open" | "essentials" | "none";
 }
 
 /** How often the workspace is saved to the backend while the candidate works. */
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice, sandbox }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice, sandbox, sandboxNetwork = "open" }: IdeShellProps) {
   // Set once, from props resolved before this component existed.
   const sandboxed = !!sessionId && !!sandbox;
   // The sandbox sync's two actions, reachable from effects declared above
@@ -447,7 +449,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     sandboxRefreshRef.current = sandboxRefresh;
     sandboxFlushRef.current = sandboxFlush;
   }, [sandboxRefresh, sandboxFlush]);
-  const sandboxContext = useMemo(() => (sandboxed && sessionId ? { sessionId, refresh: sandboxRefresh } : null), [sandboxed, sessionId, sandboxRefresh]);
+  const sandboxContext = useMemo(() => (sandboxed && sessionId ? { sessionId, refresh: sandboxRefresh, network: sandboxNetwork } : null), [sandboxed, sessionId, sandboxRefresh, sandboxNetwork]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();

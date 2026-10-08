@@ -77,6 +77,27 @@ func (c *Client) EnsureStarted(ctx context.Context, sandboxID string) error {
 	}
 }
 
+// PreviewURL returns a link to whatever is listening on a port inside the
+// sandbox — a dev server the candidate started. The link carries its own
+// access and stops working after `expiresSec`; nothing else in the sandbox
+// is reachable through it.
+func (c *Client) PreviewURL(ctx context.Context, sandboxID string, port, expiresSec int) (string, error) {
+	if !c.Configured() {
+		return "", ErrNotConfigured
+	}
+	var out struct {
+		URL string `json:"url"`
+	}
+	u := fmt.Sprintf("%s/sandbox/%s/ports/%d/signed-preview-url?expiresInSeconds=%d", c.baseURL, url.PathEscape(sandboxID), port, expiresSec)
+	if err := c.do(ctx, http.MethodGet, u, nil, &out); err != nil {
+		return "", err
+	}
+	if out.URL == "" {
+		return "", fmt.Errorf("sandbox: no preview link returned for port %d", port)
+	}
+	return out.URL, nil
+}
+
 func (c *Client) toolbox(sandboxID, path string) string {
 	return fmt.Sprintf("%s/toolbox/%s%s", c.proxyURL, url.PathEscape(sandboxID), path)
 }

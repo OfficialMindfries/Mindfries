@@ -4,12 +4,15 @@ import {
   BackendAuthError,
   sandboxChange,
   sandboxFiles,
+  sandboxPorts,
+  sandboxPreview,
   sandboxRead,
   sandboxRun,
   sandboxTerminal,
   sandboxWrite,
   type SandboxEntry,
   type SandboxFile,
+  type SandboxPort,
 } from "@/lib/backend/client";
 
 // The IDE's calls to its session's sandbox (candidate/backend's
@@ -66,6 +69,23 @@ export async function runInSandbox(sessionId: string, command: string): Promise<
   try {
     const result = await sandboxRun(sessionId, command);
     return { ok: true, exitCode: result.exitCode, output: result.output, ms: result.ms };
+  } catch (err) {
+    return failed(err);
+  }
+}
+
+export async function listSandboxPorts(sessionId: string): Promise<{ ok: true; ports: SandboxPort[] } | Failed> {
+  try {
+    return { ok: true, ...(await sandboxPorts(sessionId)) };
+  } catch (err) {
+    return failed(err);
+  }
+}
+
+/** A link the candidate's browser can open to a port in the sandbox. */
+export async function previewSandboxPort(sessionId: string, port: number): Promise<{ ok: true; url: string } | Failed> {
+  try {
+    return { ok: true, url: (await sandboxPreview(sessionId, port)).url };
   } catch (err) {
     return failed(err);
   }

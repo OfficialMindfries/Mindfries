@@ -14,6 +14,8 @@ export interface SandboxWorkspace {
   sessionId: string;
   /** Reads back what changed on the sandbox's disk. */
   refresh: () => void;
+  /** What the sandbox may reach on the network. */
+  network: "open" | "essentials" | "none";
 }
 
 export const SandboxContext = createContext<SandboxWorkspace | null>(null);

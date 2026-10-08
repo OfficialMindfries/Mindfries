@@ -84,6 +84,16 @@ type CreateOptions struct {
 	// A backstop for a sandbox this backend lost track of.
 	AutoDeleteInterval int               `json:"autoDeleteInterval,omitempty"`
 	Labels             map[string]string `json:"labels,omitempty"`
+	// What the sandbox may reach on the network. Neither set: everything.
+	// NetworkBlockAll: nothing at all — no package installs either.
+	// NetworkAllowList (comma-separated CIDRs): those addresses plus
+	// Daytona's own "essential services", which stay reachable whatever is
+	// listed. Checked against Daytona on 2026-10-08: with a list set,
+	// package registries and git hosts answered, and so did the large AI
+	// providers' APIs; ordinary sites did not. Naming domains instead
+	// (domainAllowList) is refused on this account's tier.
+	NetworkBlockAll  bool   `json:"networkBlockAll,omitempty"`
+	NetworkAllowList string `json:"networkAllowList,omitempty"`
 }
 
 func (c *Client) do(ctx context.Context, method, url string, body any, out any) error {

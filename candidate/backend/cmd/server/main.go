@@ -52,6 +52,7 @@ func main() {
 	hub := ws.NewHub(cfg.AllowedOrigins)
 	orc := orchestrator.New(database, agents, sandboxClient, hub)
 	orc.Live = llm.NewLiveClient(cfg.GeminiAPIKey, cfg.GeminiLiveModel)
+	orc.SandboxNetwork, orc.SandboxMaxLive = cfg.SandboxNetwork, cfg.SandboxMaxLive
 	// For running against a stand-in for the Live API; unset in every real
 	// deployment.
 	if url := os.Getenv("GEMINI_LIVE_URL"); url != "" {

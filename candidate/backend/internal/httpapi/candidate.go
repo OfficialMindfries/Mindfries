@@ -189,11 +189,18 @@ type sessionResponse struct {
 	// terminal and files are the sandbox's — and false when it runs in the
 	// candidate's browser.
 	Sandbox bool `json:"sandbox"`
+	// SandboxNetwork is what that machine may reach — "open", "essentials"
+	// or "none" — so the workspace can tell the candidate. Empty for a
+	// browser session.
+	SandboxNetwork string `json:"sandboxNetwork,omitempty"`
 }
 
 func (s *Server) sessionView(ctx context.Context, sess db.Session) sessionResponse {
 	view := sessionView(sess)
 	view.Sandbox = s.orc != nil && s.orc.SandboxReady(ctx, sess)
+	if view.Sandbox {
+		view.SandboxNetwork = s.orc.NetworkPolicy()
+	}
 	return view
 }
 

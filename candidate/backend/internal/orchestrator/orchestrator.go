@@ -34,6 +34,10 @@ type Orchestrator struct {
 	// Live is the interviewer's live voice line. Nil or unconfigured means
 	// interviews are held turn by turn through Agents.
 	Live *llm.LiveClient
+	// SandboxNetwork and SandboxMaxLive are config.Config's settings of the
+	// same names: what a sandbox may reach, and how many may run at once.
+	SandboxNetwork string
+	SandboxMaxLive int
 }
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {
