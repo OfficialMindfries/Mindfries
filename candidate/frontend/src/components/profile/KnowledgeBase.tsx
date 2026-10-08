@@ -41,9 +41,14 @@ export function KnowledgeBase({ items }: { items: StoredKnowledge[] }) {
   async function refresh(source: StoredKnowledge["source"]) {
     setBusy(source);
     setNotice(null);
-    const res = await refreshKnowledge(source);
-    setBusy(null);
-    if (!res.ok) setNotice(res.error || "Couldn't refresh.");
+    try {
+      const res = await refreshKnowledge(source);
+      if (!res.ok) setNotice(res.error || "Couldn't refresh.");
+    } catch {
+      setNotice("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (

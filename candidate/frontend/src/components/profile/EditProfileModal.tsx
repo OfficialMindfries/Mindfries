@@ -58,21 +58,27 @@ export function EditProfileModal({ savedIdentity }: { savedIdentity: any }) {
     setSaveError(null);
     setSaving(true);
 
-    const res = await saveIdentity({
-      name: form.name.trim(),
-      role: form.role.trim(),
-      location: form.location.trim(),
-      openTo: form.openTo,
-      noticePeriod: form.noticePeriod,
-      bio: form.bio.trim(),
-    });
-
-    setSaving(false);
-
-    if (res.ok) {
-      setOpen(false);
-    } else {
-      setSaveError(res.error || "Couldn't save changes.");
+    // A request that never reaches the server rejects rather than returning
+    // an error — the network dropped, the tab was offline. Without the catch
+    // the button stayed on "Saving…" for good, with nothing said.
+    try {
+      const res = await saveIdentity({
+        name: form.name.trim(),
+        role: form.role.trim(),
+        location: form.location.trim(),
+        openTo: form.openTo,
+        noticePeriod: form.noticePeriod,
+        bio: form.bio.trim(),
+      });
+      if (res.ok) {
+        setOpen(false);
+      } else {
+        setSaveError(res.error || "Couldn't save changes.");
+      }
+    } catch {
+      setSaveError("Couldn't reach the server — check your connection and try again. Nothing you typed is lost.");
+    } finally {
+      setSaving(false);
     }
   }
 
