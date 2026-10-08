@@ -8,6 +8,8 @@ import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import type { PreviewController } from "@/lib/ide/shell/types";
 import { TerminalPanel } from "./TerminalPanel";
+import { useSandbox } from "@/lib/ide/sandbox/context";
+import { endSandboxTerminal } from "@/lib/ide/sandbox/terminal";
 import { PreviewPanel } from "./PreviewPanel";
 import { useResizable } from "@/lib/ide/use-resizable";
 
@@ -38,6 +40,7 @@ export function TerminalGroup({
 }) {
   const palette = idePalette(theme);
   const nextId = useRef(1);
+  const sandboxSessionId = useSandbox()?.sessionId;
   const [sessions, setSessions] = useState<Session[]>(() => [{ id: 1, name: "1: Terminal" }]);
   const [activeId, setActiveId] = useState<number | null>(1);
   // The preview sits beside the terminals, so it's sized by width.
@@ -51,6 +54,9 @@ export function TerminalGroup({
   };
 
   const closeTerminal = (id: number) => {
+    // In a sandbox session the tab has a real shell behind it; closing the
+    // tab ends that shell rather than leaving it running unattended.
+    if (sandboxSessionId) endSandboxTerminal(sandboxSessionId, id);
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
       if (activeId === id) {
@@ -137,7 +143,7 @@ export function TerminalGroup({
         ) : (
           sessions.map((s) => (
             <div key={s.id} className="h-full" style={{ display: s.id === activeId ? "block" : "none" }}>
-              <TerminalPanel theme={theme} vfs={vfs} preview={preview} />
+              <TerminalPanel theme={theme} vfs={vfs} preview={preview} slot={s.id} />
             </div>
           ))
         )}

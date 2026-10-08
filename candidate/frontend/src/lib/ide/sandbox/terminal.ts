@@ -36,23 +36,41 @@ const SHELL_NOISE = /\x1b[=>]/g;
 // terminal stops trying and waits for Enter.
 const RETRY_MS = [500, 1500, 3000, 6000, 10000, 15000];
 
-const storageKey = (sessionId: string) => `mf_sandbox_terminal:${sessionId}`;
+// Each terminal tab remembers its own shell. `slot` is the tab's number,
+// which starts again at 1 on a reload — so the first tab gets its shell
+// back, and shells that belonged to further tabs are left for the backend
+// to close when nobody returns to them.
+const storageKey = (sessionId: string, slot: number) => `mf_sandbox_terminal:${sessionId}:${slot}`;
 
-function remembered(sessionId: string): string {
+function remembered(key: string): string {
   try {
-    return window.sessionStorage.getItem(storageKey(sessionId)) ?? "";
+    return window.sessionStorage.getItem(key) ?? "";
   } catch {
     return "";
   }
 }
 
-function remember(sessionId: string, terminalId: string) {
+function remember(key: string, terminalId: string) {
   try {
-    if (terminalId) window.sessionStorage.setItem(storageKey(sessionId), terminalId);
-    else window.sessionStorage.removeItem(storageKey(sessionId));
+    if (terminalId) window.sessionStorage.setItem(key, terminalId);
+    else window.sessionStorage.removeItem(key);
   } catch {
     // Storage is a convenience here: without it a reload gets a new shell.
   }
+}
+
+// How a closed tab ends its shell. Leaving the workspace, a reload and a
+// lost connection all leave the shell running for the candidate to come
+// back to; only closing the tab itself says they are done with it, and the
+// tab strip (TerminalGroup) is what knows that happened.
+const enders = new Map<string, () => void>();
+
+/** Ends the shell behind a terminal tab that is being closed. */
+export function endSandboxTerminal(sessionId: string, slot: number): void {
+  const key = storageKey(sessionId, slot);
+  enders.get(key)?.();
+  enders.delete(key);
+  remember(key, "");
 }
 
 interface ServerMessage {
@@ -67,11 +85,16 @@ interface ServerMessage {
 }
 
 /**
+ * @param slot which terminal tab this is; each has its own shell.
  * @param onResume called when this terminal is reattached to a shell that
  *   kept running without it — commands may have finished and changed files
  *   in the meantime, unannounced.
+ * @returns what to call when the terminal leaves the page. That only
+ *   drops the connection: the shell is kept for the candidate to come back
+ *   to. Closing the tab ends it — see endSandboxTerminal.
  */
-export function attachSandboxTerminal(term: XTerm, sessionId: string, onResume?: () => void): () => void {
+export function attachSandboxTerminal(term: XTerm, sessionId: string, slot: number, onResume?: () => void): () => void {
+  const key = storageKey(sessionId, slot);
   const encoder = new TextEncoder();
   let socket: WebSocket | null = null;
   let disposed = false;
@@ -80,7 +103,7 @@ export function attachSandboxTerminal(term: XTerm, sessionId: string, onResume?:
   // The shell this terminal is showing, and how many bytes of its output
   // have been drawn here. A page that was reloaded knows the shell (from
   // sessionStorage) but has drawn nothing.
-  let terminalId = remembered(sessionId);
+  let terminalId = remembered(key);
   let seen = 0;
   let attempt = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -134,7 +157,7 @@ export function attachSandboxTerminal(term: XTerm, sessionId: string, onResume?:
         if (asked && message.resumed) onResume?.();
         everConnected = true;
         terminalId = message.terminal ?? "";
-        remember(sessionId, terminalId);
+        remember(key, terminalId);
         seen = typeof message.offset === "number" ? message.offset : 0;
       } else if (message.type === "command" && typeof message.command === "string") {
         const tracked = terminalLog.begin(message.command);
@@ -152,7 +175,7 @@ export function attachSandboxTerminal(term: XTerm, sessionId: string, onResume?:
         // The backend ended it and said why: that shell is over.
         terminalId = "";
         seen = 0;
-        remember(sessionId, "");
+        remember(key, "");
         note(`${closedReason || "The terminal was closed."} Press Enter for a new shell.`);
         return;
       }
@@ -188,6 +211,9 @@ export function attachSandboxTerminal(term: XTerm, sessionId: string, onResume?:
     if (!socket && !connecting) void connect();
   };
   window.addEventListener("online", online);
+  enders.set(key, () => {
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "end" }));
+  });
 
   void connect();
 
@@ -197,6 +223,7 @@ export function attachSandboxTerminal(term: XTerm, sessionId: string, onResume?:
     window.removeEventListener("online", online);
     input.dispose();
     resize.dispose();
+    enders.delete(key);
     socket?.close();
     socket = null;
   };
