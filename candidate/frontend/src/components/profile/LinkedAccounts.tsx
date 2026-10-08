@@ -35,16 +35,17 @@ const CONNECT_RESULT: Record<string, string> = {
   expired: "sign-in took too long or was started in another browser. Try again.",
   failed: "couldn't be confirmed just now. Try again in a moment.",
   not_configured: "sign-in isn't set up on this site yet.",
+  unavailable: "sign-in isn't available for this platform yet.",
 };
 
 export function LinkedAccounts({
   links,
-  canVerify = false,
+  verifiable = [],
   connectResult,
 }: {
   links: Partial<Record<LinkPlatform, StoredLink>>;
-  /** Signing in to prove an account is yours is available (lib/composio.ts). */
-  canVerify?: boolean;
+  /** The platforms that can be signed in to, to prove an account is yours (lib/composio.ts). */
+  verifiable?: string[];
   /** What a sign-in that just returned did: which platform, and how it ended. */
   connectResult?: { platform: string; result: string };
 }) {
@@ -61,8 +62,8 @@ export function LinkedAccounts({
         <p className="mt-1 text-[12px] leading-relaxed text-[#4A7FA7]">
           A GitHub or GitLab username is looked up when you add it, and the account&apos;s public projects are
           read. LinkedIn and a portfolio are stored as you enter them — there&apos;s no public way to check those two.
-          {canVerify &&
-            " Signing in to GitHub, GitLab or LinkedIn shows hiring teams the account is yours. We ask only who you are signed in as, then give the access straight back — nothing is kept and nothing is posted or changed."}
+          {verifiable.length > 0 &&
+            ` Signing in to ${verifiable.map((id) => PLATFORMS[id as LinkPlatform]?.label ?? id).join(", ")} shows hiring teams the account is yours. We ask only who you are signed in as, then give the access straight back — nothing is kept and nothing is posted or changed.`}
         </p>
       )}
       {connectResult && PLATFORMS[connectResult.platform as LinkPlatform] && CONNECT_RESULT[connectResult.result] && (
@@ -89,7 +90,7 @@ export function LinkedAccounts({
               link={links[id]}
               isOpen={open === id}
               preview={preview}
-              canVerify={canVerify && id !== "portfolio"}
+              canVerify={verifiable.includes(id)}
               onOpen={() => setOpen(id)}
               onClose={() => setOpen((cur) => (cur === id ? null : cur))}
               onSave={async (value) => {

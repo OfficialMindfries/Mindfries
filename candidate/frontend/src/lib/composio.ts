@@ -60,28 +60,56 @@ async function call(method: string, path: string, body?: unknown): Promise<any> 
   return json;
 }
 
-// An auth config is Composio's per-platform sign-in setup. One is needed
-// per platform, once per Composio project — so it is found (or, the first
-// time, created with Composio's own managed OAuth app) and remembered for
-// the life of this server process. COMPOSIO_<PLATFORM>_AUTH_CONFIG_ID names
-// one outright, for a project that has set up its own OAuth app there.
-const authConfigs = new Map<ConnectPlatform, string>();
+// An auth config is Composio's per-platform sign-in setup, made once in the
+// Composio dashboard (Auth Configs → Create, per toolkit). This app only
+// looks them up: it doesn't create one, both because a project's API key is
+// commonly read-only for auth configs and because which OAuth app and scopes
+// a platform's sign-in uses is the project owner's decision.
+// COMPOSIO_<PLATFORM>_AUTH_CONFIG_ID names one outright; otherwise the
+// project's enabled config for that platform is used. The lookup is kept
+// for a few minutes so a profile page doesn't ask Composio on every view.
+const PLATFORMS: ConnectPlatform[] = ["github", "gitlab", "linkedin"];
+const LOOKUP_TTL_MS = 5 * 60_000;
+let lookup: { at: number; ids: Partial<Record<ConnectPlatform, string>> } | null = null;
+
+async function authConfigs(): Promise<Partial<Record<ConnectPlatform, string>>> {
+  if (lookup && Date.now() - lookup.at < LOOKUP_TTL_MS) return lookup.ids;
+  const ids: Partial<Record<ConnectPlatform, string>> = {};
+  for (const platform of PLATFORMS) {
+    const fixed = process.env[`COMPOSIO_${platform.toUpperCase()}_AUTH_CONFIG_ID`];
+    if (fixed) ids[platform] = fixed;
+  }
+  const missing = PLATFORMS.filter((p) => !ids[p]);
+  if (missing.length > 0) {
+    const listed = await call("GET", `/auth_configs?toolkit_slug=${missing.join(",")}&limit=100`);
+    for (const config of (listed?.items ?? []) as any[]) {
+      const slug = String(config?.toolkit?.slug ?? "").toLowerCase();
+      if (isConnectPlatform(slug) && !ids[slug] && config.id && config.status !== "DISABLED") ids[slug] = config.id;
+    }
+  }
+  lookup = { at: Date.now(), ids };
+  return ids;
+}
+
+/**
+ * The platforms a candidate can sign in to right now: those with an auth
+ * config in the Composio project. Empty when Composio isn't configured or
+ * can't be reached — the profile then offers linking by username only.
+ */
+export async function connectablePlatforms(): Promise<ConnectPlatform[]> {
+  if (!composioReady()) return [];
+  try {
+    const ids = await authConfigs();
+    return PLATFORMS.filter((p) => !!ids[p]);
+  } catch (err) {
+    console.error("composio: couldn't list auth configs:", err);
+    return [];
+  }
+}
 
 async function authConfigId(platform: ConnectPlatform): Promise<string> {
-  const fixed = process.env[`COMPOSIO_${platform.toUpperCase()}_AUTH_CONFIG_ID`];
-  if (fixed) return fixed;
-  const known = authConfigs.get(platform);
-  if (known) return known;
-
-  const listed = await call("GET", `/auth_configs?toolkit_slug=${platform}&limit=20`);
-  const usable = (listed?.items ?? []).find((c: any) => c?.id && c.status !== "DISABLED" && String(c.toolkit?.slug ?? "").toLowerCase() === platform);
-  let id: string | undefined = usable?.id;
-  if (!id) {
-    const created = await call("POST", "/auth_configs", { toolkit: { slug: platform }, auth_config: { type: "use_composio_managed_auth" } });
-    id = created?.auth_config?.id;
-  }
-  if (!id) throw new ComposioError(`Composio: no sign-in is set up for ${platform}`);
-  authConfigs.set(platform, id);
+  const id = (await authConfigs())[platform];
+  if (!id) throw new ComposioError(`Composio: no auth config exists for ${platform} — create one in the Composio dashboard`);
   return id;
 }
 

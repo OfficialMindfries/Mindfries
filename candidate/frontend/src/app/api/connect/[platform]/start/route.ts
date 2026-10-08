@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { currentCandidate } from "@/lib/auth/users";
 import { siteUrl } from "@/lib/auth/email-links";
-import { composioReady, isConnectPlatform, startConnection } from "@/lib/composio";
+import { composioReady, connectablePlatforms, isConnectPlatform, startConnection } from "@/lib/composio";
 import { CONNECT_COOKIE, profileRedirect } from "@/lib/profile/connect";
 
 /**
@@ -20,6 +20,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ plat
   const candidate = await currentCandidate();
   if (!candidate) return NextResponse.redirect(new URL("/login?next=/profile", request.url));
   if (!composioReady()) return profileRedirect(request, platform, "not_configured");
+
+  if (!(await connectablePlatforms()).includes(platform)) return profileRedirect(request, platform, "unavailable");
 
   // Where Composio sends the browser back. Built from this site's known
   // address, not from the request's Host header (see siteUrl).

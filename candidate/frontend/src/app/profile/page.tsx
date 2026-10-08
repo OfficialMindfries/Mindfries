@@ -11,7 +11,7 @@ import { currentCandidate } from "@/lib/auth/users";
 import { getProfile, getResumeUrl } from "@/lib/profile/actions";
 import { listKnowledge } from "@/lib/profile/knowledge";
 import { KnowledgeBase } from "@/components/profile/KnowledgeBase";
-import { composioReady } from "@/lib/composio";
+import { connectablePlatforms } from "@/lib/composio";
 import { listAssessmentsOrUndefined } from "@/lib/backend/client";
 import type { ResumeFields } from "@/lib/profile/resume-fields";
 
@@ -47,9 +47,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     getProfile(),
     listAssessmentsOrUndefined(),
   ]);
-  const [resumeUrl, knowledge] = await Promise.all([
+  const [resumeUrl, knowledge, verifiable] = await Promise.all([
     getResumeUrl(profile?.resume_path || null),
     session ? listKnowledge(session.id) : [],
+    connectablePlatforms(),
   ]);
   const parsed = (profile?.resume_parsed ?? null) as ResumeFields | null;
   // What the resume could fill in that the candidate hasn't written themselves.
@@ -76,7 +77,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
               <IdentityCard sessionName={session?.name} profile={profile} />
               <LinkedAccounts
                 links={profile?.links || {}}
-                canVerify={composioReady()}
+                verifiable={verifiable}
                 connectResult={query.connect && query.result ? { platform: query.connect, result: query.result } : undefined}
               />
               <KnowledgeBase items={knowledge} />
