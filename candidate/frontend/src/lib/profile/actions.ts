@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { MAX_RESUME_TEXT, parseResumeText, type ResumeFields } from "./resume-fields";
 import { AccountNotFound, dropKnowledge, isKnowledgeSource, readAccount, storeKnowledge } from "./knowledge";
 import { statsOf } from "./knowledge-shape";
+import { readThroughConnection } from "./knowledge-connection";
+import { endConnection } from "../composio";
 import { PLATFORMS, type LinkPlatform } from "./links";
 
 const isPlatform = (p: string): p is LinkPlatform => Object.hasOwn(PLATFORMS, p);
@@ -25,8 +27,18 @@ export async function getProfile() {
     .select("name, role, location, bio, notice_period, open_to, resume_path, resume_parsed, resume_parsed_at, links, profile_updated_at, email_verified_at")
     .eq("id", session.id)
     .single();
+  if (!data) return data;
 
-  return data;
+  // What this returns is handed to client components, so it carries only
+  // *that* an account is connected. The connection's id never leaves the
+  // server; code that needs it reads the row itself.
+  const links = Object.fromEntries(
+    Object.entries((data.links ?? {}) as Record<string, Record<string, unknown> | null>).map(([platform, link]) => [
+      platform,
+      link?.connectionId ? { ...link, connectionId: "connected" } : link,
+    ]),
+  );
+  return { ...data, links };
 }
 
 export async function getResumeUrl(path: string | null) {
@@ -85,11 +97,25 @@ export async function saveLink(platform: string, rawValue: string) {
   const c = db();
   if (!c) return { error: "Database not connected" };
 
+  const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
+  const currentLinks = data?.links || {};
+  // A sign-in showed one particular account is theirs. Typing a username
+  // keeps that only if it is the same account; a LinkedIn sign-in confirms
+  // a name rather than an address, so it stands whatever address is typed.
+  const was = currentLinks[platform]?.verified as { at: string; as: string } | undefined;
+  const verified = was && (platform === "linkedin" || was.as.toLowerCase() === value.toLowerCase()) ? was : undefined;
+  // The connection is to the account that was signed in to. If the link now
+  // names a different account, the connection has nothing to do with it and
+  // is ended rather than left behind.
+  const connectionId = currentLinks[platform]?.connectionId as string | undefined;
+  if (connectionId && !verified) await endConnection(connectionId);
+  const kept = verified && connectionId ? { connectionId, ...(currentLinks[platform]?.profile ? { profile: currentLinks[platform].profile } : {}) } : {};
+
   let stats: ReturnType<typeof statsOf> | undefined;
   if (isKnowledgeSource(platform)) {
     try {
-      const knowledge = await readAccount(platform, value);
-      await storeKnowledge(session.id, knowledge);
+      const knowledge = verified && connectionId ? await readThroughConnection(platform, session.id, connectionId, value) : await readAccount(platform, value);
+      await storeKnowledge(session.id, knowledge, !!verified);
       stats = statsOf(knowledge);
     } catch (e) {
       if (e instanceof AccountNotFound) return { error: e.message };
@@ -99,13 +125,10 @@ export async function saveLink(platform: string, rawValue: string) {
     }
   }
 
-  const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
-  const currentLinks = data?.links || {};
-
   const { error } = await c
     .from("candidate_users")
     .update({
-      links: { ...currentLinks, [platform]: { value, savedAt: new Date().toISOString(), ...(stats ? { stats } : {}) } },
+      links: { ...currentLinks, [platform]: { value, savedAt: new Date().toISOString(), ...(stats ? { stats } : {}), ...(verified ? { verified } : {}), ...kept } },
     })
     .eq("id", session.id);
 
@@ -141,8 +164,13 @@ export async function refreshKnowledge(platform: string) {
   }
 
   try {
-    const knowledge = await readAccount(platform, value);
-    await storeKnowledge(session.id, knowledge);
+    // A refresh re-reads the same account, so it stays verified if it was —
+    // and a connected account is re-read through its connection.
+    const verifiedAs = links[platform]?.verified?.as;
+    const stillVerified = typeof verifiedAs === "string" && verifiedAs.toLowerCase() === value.toLowerCase();
+    const connectionId = links[platform]?.connectionId;
+    const knowledge = stillVerified && typeof connectionId === "string" ? await readThroughConnection(platform, session.id, connectionId, value) : await readAccount(platform, value);
+    await storeKnowledge(session.id, knowledge, stillVerified);
     await c
       .from("candidate_users")
       .update({ links: { ...links, [platform]: { ...links[platform], stats: statsOf(knowledge) } } })
@@ -164,6 +192,10 @@ export async function removeLink(platform: string) {
 
   const { data } = await c.from("candidate_users").select("links").eq("id", session.id).single();
   const currentLinks = data?.links || {};
+  // Removing a connected account ends the connection too: the access the
+  // candidate gave goes when the account does.
+  const connectionId = currentLinks[platform]?.connectionId;
+  if (typeof connectionId === "string" && connectionId) await endConnection(connectionId);
   delete currentLinks[platform];
 
   const { error } = await c

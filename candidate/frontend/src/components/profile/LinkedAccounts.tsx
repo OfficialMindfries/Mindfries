@@ -20,11 +20,35 @@ import { usePreviewMode } from "./PreviewMode";
  * LinkedIn and a portfolio have no such API to read, so those two are
  * stored exactly as entered and marked "Linked".
  *
+ * "Verified — yours" is a different claim, made only after the candidate
+ * signed in to the account (app/api/connect, lib/composio.ts). For LinkedIn
+ * that sign-in yields a name, not a profile address, so the tile says who
+ * signed in rather than calling the typed address verified.
+ *
  * A grid of tiles, not a list of rows: each platform is its own square, so
  * "Connect" reads as an action on that specific card rather than a row item
  * in a form.
  */
-export function LinkedAccounts({ links }: { links: Partial<Record<LinkPlatform, StoredLink>> }) {
+const CONNECT_RESULT: Record<string, string> = {
+  verified: "is confirmed as yours.",
+  cancelled: "sign-in wasn't completed, so nothing changed.",
+  expired: "sign-in took too long or was started in another browser. Try again.",
+  failed: "couldn't be confirmed just now. Try again in a moment.",
+  not_configured: "sign-in isn't set up on this site yet.",
+  unavailable: "sign-in isn't available for this platform yet.",
+};
+
+export function LinkedAccounts({
+  links,
+  verifiable = [],
+  connectResult,
+}: {
+  links: Partial<Record<LinkPlatform, StoredLink>>;
+  /** The platforms that can be signed in to, to prove an account is yours (lib/composio.ts). */
+  verifiable?: string[];
+  /** What a sign-in that just returned did: which platform, and how it ended. */
+  connectResult?: { platform: string; result: string };
+}) {
   const [open, setOpen] = useState<LinkPlatform | null>(null);
   const preview = usePreviewMode();
 
@@ -38,6 +62,20 @@ export function LinkedAccounts({ links }: { links: Partial<Record<LinkPlatform, 
         <p className="mt-1 text-[12px] leading-relaxed text-[#4A7FA7]">
           A GitHub or GitLab username is looked up when you add it, and the account&apos;s public projects are
           read. LinkedIn and a portfolio are stored as you enter them — there&apos;s no public way to check those two.
+          {verifiable.length > 0 &&
+            ` Signing in to ${verifiable.map((id) => PLATFORMS[id as LinkPlatform]?.label ?? id).join(", ")} shows hiring teams the account is yours and lets us read it for your profile: your projects, the languages they are in and your recent activity; from LinkedIn, your name, headline and picture. Private projects are only counted — their names are never stored or shown. We only read: nothing is posted or changed. The connection stays until you remove the account here, which ends it.`}
+        </p>
+      )}
+      {connectResult && PLATFORMS[connectResult.platform as LinkPlatform] && CONNECT_RESULT[connectResult.result] && (
+        <p
+          role="status"
+          className={
+            connectResult.result === "verified"
+              ? "mt-3 rounded-lg border border-[#c5ecd5] bg-[#effbf4] px-3 py-2 text-[12.5px] text-[#14693a]"
+              : "mt-3 rounded-lg border border-[#f3dca6] bg-[#fff8e8] px-3 py-2 text-[12.5px] text-[#7a5211]"
+          }
+        >
+          {PLATFORMS[connectResult.platform as LinkPlatform].label} {CONNECT_RESULT[connectResult.result]}
         </p>
       )}
 
@@ -52,6 +90,7 @@ export function LinkedAccounts({ links }: { links: Partial<Record<LinkPlatform, 
               link={links[id]}
               isOpen={open === id}
               preview={preview}
+              canVerify={verifiable.includes(id)}
               onOpen={() => setOpen(id)}
               onClose={() => setOpen((cur) => (cur === id ? null : cur))}
               onSave={async (value) => {
@@ -78,6 +117,7 @@ function PlatformTile({
   link,
   isOpen,
   preview,
+  canVerify,
   onOpen,
   onClose,
   onSave,
@@ -87,6 +127,8 @@ function PlatformTile({
   link: StoredLink | undefined;
   isOpen: boolean;
   preview: boolean;
+  /** This platform can be signed in to, to show the account is the candidate's. */
+  canVerify: boolean;
   onOpen: () => void;
   onClose: () => void;
   /** Returns null once saved, or the reason it wasn't. */
@@ -138,9 +180,14 @@ function PlatformTile({
             iconTile
           )}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13.5px] font-medium text-[#0A1931]">{link.stats?.name ?? link.value}</p>
+            <p className="truncate text-[13.5px] font-medium text-[#0A1931]">{link.stats?.name ?? link.profile?.name ?? (link.value || link.verified?.as)}</p>
+            {link.profile?.headline && <p className="truncate text-[11px] text-[#4A7FA7]">{link.profile.headline}</p>}
             <div className="mt-0.5 flex items-center gap-1.5">
-              {platform.live ? (
+              {link.verified ? (
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-[10.5px] font-semibold text-[#1A9E6B]" title={`Signed in as ${link.verified.as}`}>
+                  <BadgeCheck size={11} /> {id === "linkedin" ? `Signed in as ${link.verified.as}` : "Verified — yours"}
+                </span>
+              ) : platform.live ? (
                 link.stats ? (
                   <span className="inline-flex shrink-0 items-center gap-0.5 text-[10.5px] font-semibold text-[#1A9E6B]">
                     <BadgeCheck size={11} /> Account found
@@ -162,19 +209,28 @@ function PlatformTile({
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2 border-t border-[#B3CFE5]/60 pt-2.5">
-          <a
-            href={link.stats?.profileUrl ?? platform.profileUrl(link.value)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-[12px] font-medium text-[#1A3D63] hover:underline"
-          >
-            View <ExternalLink size={11} />
-          </a>
+          {(link.value || link.profile?.profileUrl) && (
+            <a
+              href={link.stats?.profileUrl ?? link.profile?.profileUrl ?? platform.profileUrl(link.value)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-[#1A3D63] hover:underline"
+            >
+              View <ExternalLink size={11} />
+            </a>
+          )}
+          {!preview && canVerify && !link.verified && (
+            // A plain link: it leaves this site for the platform's sign-in.
+            <a href={`/api/connect/${id}/start`} className="text-[12px] font-medium text-[#1A3D63] underline underline-offset-2 hover:text-[#0A1931]">
+              Confirm it&apos;s yours
+            </a>
+          )}
           {!preview && (
             <button
               type="button"
               onClick={onRemove}
-              aria-label={`Remove ${platform.label}`}
+              aria-label={link.connectionId ? `Remove ${platform.label} and end the connection` : `Remove ${platform.label}`}
+              title={link.connectionId ? "Removes the account and ends the connection" : undefined}
               className="ml-auto rounded-lg p-1.5 text-[#4A7FA7] transition-colors hover:bg-white hover:text-[#a6203c]"
             >
               <Trash2 size={13} />
@@ -243,8 +299,17 @@ function PlatformTile({
         className="btn-wipe mt-2.5 px-3 py-1.5 text-[12px] font-semibold"
         style={{ "--btn-bg": "#1A3D63", "--btn-fg": "#F6FAFD", "--btn-fill": "#4A7FA7", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
       >
-        Connect
+        {canVerify ? (id === "linkedin" ? "Enter the address" : "Enter a username") : "Connect"}
       </button>
+      {canVerify && (
+        <a
+          href={`/api/connect/${id}/start`}
+          className="btn-wipe mt-2 block px-3 py-1.5 text-center text-[12px] font-semibold"
+          style={{ "--btn-bg": "#0A1931", "--btn-fg": "#F6FAFD", "--btn-fill": "#1A3D63", "--btn-fg-hover": "#FFFFFF" } as React.CSSProperties}
+        >
+          Sign in with {platform.label}
+        </a>
+      )}
     </div>
   );
 }
