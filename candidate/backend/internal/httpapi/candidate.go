@@ -258,7 +258,12 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 	// The version of the task this session was dealt — see
 	// orchestrator/variants.go. Only ever the brief and starting files:
 	// a template's reference solution is not part of TemplateContent.
-	content := s.orc.TemplateContent(r.Context(), sess)
+	var content db.TemplateContent
+	if s.orc != nil {
+		content = s.orc.TemplateContent(r.Context(), sess)
+	} else {
+		content, _ = s.db.GetTemplateContent(r.Context(), *sess.TemplateID)
+	}
 	writeJSON(w, http.StatusOK, sessionAssessmentResponse{Name: content.Name, TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
 }
 

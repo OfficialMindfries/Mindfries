@@ -51,6 +51,8 @@ func (f *fakeDB) GetEvidenceItems(ctx context.Context, reportID string) ([]db.Ev
 func (f *fakeDB) ListAdminSessions(ctx context.Context) ([]db.AdminSessionRow, error) { panic("unimplemented") }
 func (f *fakeDB) UpdateSessionState(ctx context.Context, id string, patch db.SessionStatePatch) error { panic("unimplemented") }
 func (f *fakeDB) SetSandboxID(ctx context.Context, id string, sandboxID *string) error { panic("unimplemented") }
+func (f *fakeDB) ListSessionRefsForCandidate(ctx context.Context, candidateID string) ([]db.SessionRef, error) { panic("unimplemented") }
+func (f *fakeDB) GetInterviewConfig(ctx context.Context, assessmentID *string) db.InterviewConfig { panic("unimplemented") }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +98,6 @@ func TestSessionAssessmentReturnsNameAndDuration(t *testing.T) {
 		content: map[string]db.TemplateContent{
 			tmplID: {
 				Name:        "Frontend Engineering — Auth Bug Fix",
-				DurationMin: 90,
 				TaskBrief:   &brief,
 			},
 		},
@@ -124,11 +125,8 @@ func TestSessionAssessmentReturnsNameAndDuration(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if got["assessmentName"] != "Frontend Engineering — Auth Bug Fix" {
-		t.Errorf("assessmentName = %v, want the real template name", got["assessmentName"])
-	}
-	if got["durationMin"] != float64(90) {
-		t.Errorf("durationMin = %v, want 90", got["durationMin"])
+	if got["name"] != "Frontend Engineering — Auth Bug Fix" {
+		t.Errorf("name = %v, want the real template name", got["name"])
 	}
 	if got["taskBrief"] != brief {
 		t.Errorf("taskBrief = %v, want %q", got["taskBrief"], brief)
@@ -137,8 +135,7 @@ func TestSessionAssessmentReturnsNameAndDuration(t *testing.T) {
 
 // TestSessionAssessmentNoTemplateReturnsEmptyNotError verifies the early-exit
 // path: a session without an attached template returns 200 with an empty
-// body (assessmentName: "", durationMin: 0), not a 4xx or 5xx. The IDE
-// degrades to its honest "no real brief yet" state either way.
+// body (name: ""), not a 4xx or 5xx. The IDE degrades to its honest "no real brief yet" state either way.
 func TestSessionAssessmentNoTemplateReturnsEmptyNotError(t *testing.T) {
 	cid := "cand-2"
 	store := &fakeDB{
@@ -174,7 +171,7 @@ func TestSessionAssessmentNoTemplateReturnsEmptyNotError(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	// taskBrief and starterFiles are omitempty — absent is correct.
-	// assessmentName and durationMin always appear (zero values).
+	// name always appears (zero value).
 	if _, ok := got["taskBrief"]; ok {
 		t.Error("taskBrief should be absent when no template is attached")
 	}
@@ -235,7 +232,6 @@ func TestSessionAssessmentReturnsStarterFiles(t *testing.T) {
 		content: map[string]db.TemplateContent{
 			tmplID: {
 				Name:        "Refactor Challenge",
-				DurationMin: 60,
 				StarterFiles: map[string]string{
 					"src/main.go":    "package main\n",
 					"src/handler.go": "package main\nfunc handler() {}\n",
@@ -275,10 +271,7 @@ func TestSessionAssessmentReturnsStarterFiles(t *testing.T) {
 	if files["src/main.go"] != "package main\n" {
 		t.Errorf("src/main.go = %v", files["src/main.go"])
 	}
-	if got["assessmentName"] != "Refactor Challenge" {
-		t.Errorf("assessmentName = %v", got["assessmentName"])
-	}
-	if got["durationMin"] != float64(60) {
-		t.Errorf("durationMin = %v, want 60", got["durationMin"])
+	if got["name"] != "Refactor Challenge" {
+		t.Errorf("name = %v", got["name"])
 	}
 }

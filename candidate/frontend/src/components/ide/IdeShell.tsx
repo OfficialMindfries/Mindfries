@@ -83,8 +83,6 @@ interface IdeShellProps {
    * undefined when it has none. `savedAt` is ms since the epoch.
    */
   serverWorkspace?: { files: FileContents; savedAt: number; frozen: boolean };
-  /** The real assessment's name for the header. Undefined without a session. */
-  assessmentName?: string;
   /** Seconds left on the real session's clock. Undefined when there's no session to time. */
   remainingSeconds?: number;
   /**
