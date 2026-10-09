@@ -121,6 +121,23 @@ export async function listWaitlist(): Promise<WaitlistEntry[]> {
   }));
 }
 
+/**
+ * How busy the public waitlist form has been: sign-ups in the last hour, and
+ * whether this address has signed up in the last day. Both are answered from
+ * the table itself, so they hold across every server instance.
+ */
+export async function waitlistActivity(email: string): Promise<{ lastHour: number; sameEmailToday: boolean }> {
+  const c = db();
+  if (!c) throw new Error("Supabase not configured");
+  const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+  const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const [recent, same] = await Promise.all([
+    c.from("waitlist").select("id", { count: "exact", head: true }).gte("created_at", hourAgo),
+    c.from("waitlist").select("id", { count: "exact", head: true }).eq("email", email).gte("created_at", dayAgo),
+  ]);
+  return { lastHour: recent.count ?? 0, sameEmailToday: (same.count ?? 0) > 0 };
+}
+
 export async function addWaitlist(e: { name?: string; email: string; company?: string; message?: string }): Promise<void> {
   const c = db();
   if (!c) throw new Error("Supabase not configured");

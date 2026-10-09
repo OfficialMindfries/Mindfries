@@ -123,8 +123,19 @@ into a single commit at the end.
 
 ## The gap worth knowing about
 
-The workspace captures **no telemetry**, and evidence capture (PRD §1.7) is
-the product's whole differentiator. It's also specced to run against a
-**Daytona sandbox over a FastAPI WebSocket**, whereas today it runs entirely
-in the browser. That's a deliberate staging decision, not an oversight — but
-anyone treating the current IDE as feature-complete is reading it wrong.
+The workspace has **two ways of running**, and which one a session gets is
+decided when it starts:
+
+- **In a Daytona sandbox** (PRD §1.6, §2.3) when `DAYTONA_API_KEY` is set on
+  `candidate/backend` and the sandbox comes up: the terminal is a real shell
+  on a real machine, the candidate can install and run anything, and the
+  editor's files are kept in step with the sandbox's disk.
+- **In the browser** otherwise — Pyodide, the TypeScript compiler,
+  isomorphic-git — which is also what a practice run and the scratch
+  workspace always use.
+
+Both are real; neither is a mock of the other. Anything added to the
+workspace has to say which of the two it works in, or work in both — the
+in-browser shell engine and the sandbox terminal are different code, and a
+feature built against one does not appear in the other by itself. See the
+IDE's own contributor notes for where the split is.

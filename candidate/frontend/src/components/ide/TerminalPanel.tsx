@@ -7,6 +7,8 @@ import type { IdeTheme } from "@/lib/ide/theme";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
 import type { PreviewController } from "@/lib/ide/shell/types";
 import { attachVfsShell } from "./vfs-shell";
+import { useSandbox } from "@/lib/ide/sandbox/context";
+import { attachSandboxTerminal } from "@/lib/ide/sandbox/terminal";
 
 const xtermTheme = {
   dark: {
@@ -60,11 +62,22 @@ export function TerminalPanel({
   theme,
   vfs,
   preview,
+  slot = 1,
 }: {
   theme: IdeTheme;
   vfs: VfsBridge;
   preview: PreviewController;
+  /** Which terminal tab this is. In a sandbox session each tab has its own shell, found again by this after a reload. */
+  slot?: number;
 }) {
+  // Fixed for the life of the workspace: a session is a sandbox one or it
+  // isn't, from its first render.
+  const sandbox = useSandbox();
+  const sandboxSessionId = sandbox?.sessionId;
+  const sandboxRefreshRef = useRef(sandbox?.refresh);
+  useEffect(() => {
+    sandboxRefreshRef.current = sandbox?.refresh;
+  }, [sandbox]);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<XFitAddon | null>(null);
@@ -102,7 +115,10 @@ export function TerminalPanel({
         // that the cursor read as too heavy — cursorWidth only applies to "bar".
         cursorStyle: "bar",
         cursorWidth: 1,
-        convertEol: true,
+        // The in-browser shell prints bare newlines; a real shell sends its
+        // own carriage returns, and adding more would misplace the cursor in
+        // anything that draws the screen itself (an editor, a pager).
+        convertEol: !sandboxSessionId,
         theme: xtermTheme[theme],
       });
       const fit = new FitAddon();
@@ -124,11 +140,13 @@ export function TerminalPanel({
           // and stable setState setters, so capturing this render's `vfs`
           // instance here (the effect only runs once, on mount) behaves
           // identically to a "live" reference — no staleness concern.
-          detachShell = attachVfsShell(term, vfs, {
-            open: (build) => previewRef.current.open(build),
-            stop: () => previewRef.current.stop(),
-            onRebuild: (listener) => previewRef.current.onRebuild(listener),
-          });
+          detachShell = sandboxSessionId
+            ? attachSandboxTerminal(term, sandboxSessionId, slot, () => sandboxRefreshRef.current?.())
+            : attachVfsShell(term, vfs, {
+                open: (build) => previewRef.current.open(build),
+                stop: () => previewRef.current.stop(),
+                onRebuild: (listener) => previewRef.current.onRebuild(listener),
+              });
         });
       });
 

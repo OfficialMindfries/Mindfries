@@ -17,6 +17,13 @@ export interface Session {
   name: string;
   /** Seconds since the epoch. */
   exp: number;
+  /**
+   * When this session was issued, seconds since the epoch. An account can
+   * withdraw every session issued before a moment (lib/auth/revocation.ts);
+   * a cookie from before this field existed has none and counts as older
+   * than any withdrawal.
+   */
+  iat?: number;
 }
 
 export const SESSION_COOKIE = "mf_candidate";
@@ -54,8 +61,9 @@ export function sessionSecret(): string | null {
   return s && s.length >= 32 ? s : null;
 }
 
-export async function signSession(claims: Omit<Session, "exp">, secret: string, maxAge = SESSION_MAX_AGE): Promise<string> {
-  const payload: Session = { ...claims, exp: Math.floor(Date.now() / 1000) + maxAge };
+export async function signSession(claims: Omit<Session, "exp" | "iat">, secret: string, maxAge = SESSION_MAX_AGE): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const payload: Session = { ...claims, iat: now, exp: now + maxAge };
   const body = b64url(enc.encode(JSON.stringify(payload)));
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", await key(secret), enc.encode(body)));
   return `${body}.${b64url(sig)}`;

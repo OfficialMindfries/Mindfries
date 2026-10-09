@@ -26,6 +26,37 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 
+/**
+ * TLS for the database connection.
+ *
+ * Supabase signs its database certificate with its own authority, which
+ * Node doesn't ship, so the certificate can only be checked against that
+ * authority's file. Download it (Supabase dashboard → Project Settings →
+ * Database → SSL Configuration → "Download certificate") and point
+ * DATABASE_CA_CERT at it: the connection is then verified, and a server
+ * presenting any other certificate is refused.
+ *
+ * Without it the connection is encrypted but not verified — whoever is
+ * positioned between this machine and the database could impersonate it and
+ * read the password this script sends. That is said every run, not assumed.
+ */
+function databaseTls(): { ca: string; rejectUnauthorized: true } | { rejectUnauthorized: false } {
+  const caPath = process.env.DATABASE_CA_CERT;
+  if (caPath) {
+    if (!existsSync(caPath)) {
+      console.error(`DATABASE_CA_CERT points at ${caPath}, which doesn't exist.`);
+      process.exit(1);
+    }
+    return { ca: readFileSync(caPath, "utf8"), rejectUnauthorized: true };
+  }
+  console.warn(
+    "! The database's TLS certificate is not being verified (DATABASE_CA_CERT is unset).\n" +
+      "  Download the project's CA certificate from Supabase → Project Settings → Database →\n" +
+      "  SSL Configuration, and set DATABASE_CA_CERT to its path.\n",
+  );
+  return { rejectUnauthorized: false };
+}
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../../..");
 const MIGRATIONS = path.join(REPO, "supabase/migrations");
@@ -95,9 +126,7 @@ async function main() {
 
   const client = new Client({
     connectionString: url,
-    // Supabase terminates TLS with a cert this client doesn't have a root for.
-    // The connection is still encrypted; it just isn't verified.
-    ssl: { rejectUnauthorized: false },
+    ssl: databaseTls(),
   });
 
   console.log(`→ ${safeUrl(url)}`);

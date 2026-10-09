@@ -41,27 +41,33 @@ export function KnowledgeBase({ items }: { items: StoredKnowledge[] }) {
   async function refresh(source: StoredKnowledge["source"]) {
     setBusy(source);
     setNotice(null);
-    const res = await refreshKnowledge(source);
-    setBusy(null);
-    if (!res.ok) setNotice(res.error || "Couldn't refresh.");
+    try {
+      const res = await refreshKnowledge(source);
+      if (!res.ok) setNotice(res.error || "Couldn't refresh.");
+    } catch {
+      setNotice("Couldn't reach the server — check your connection and try again.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
     <section className="rounded-2xl border border-[#B3CFE5] bg-white p-6">
       <h2 className="text-sm font-semibold text-[#0A1931]">Projects, languages and activity</h2>
       <p className="mt-1 text-[12px] leading-relaxed text-[#4A7FA7]">
-        Public information from the accounts linked above. Linking by username shows the account exists — it
-        doesn&apos;t yet show it is yours, and hiring teams are told that.
+        Public information from the accounts linked above. An account you signed in to is marked as yours; one
+        linked only by username shows the account exists, not that it is yours, and hiring teams are told which.
       </p>
       {notice && <p className="mt-2 text-[12px] text-[#a6203c]">{notice}</p>}
 
       <div className="mt-4 space-y-6">
-        {items.map(({ source, handle, fetchedAt, knowledge: k }) => (
+        {items.map(({ source, handle, verified, fetchedAt, knowledge: k }) => (
           <div key={source}>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-[13.5px] font-semibold text-[#0A1931]">
                 {PLATFORMS[source].label} · {handle}
               </h3>
+              <span className={verified ? "text-[11px] font-semibold text-[#1A9E6B]" : "text-[11px] text-[#4A7FA7]"}>{verified ? "yours" : "ownership not confirmed"}</span>
               <span className="text-[11px] text-[#4A7FA7]">read {day(fetchedAt)}</span>
               {!preview && (
                 <button
@@ -115,6 +121,12 @@ export function KnowledgeBase({ items }: { items: StoredKnowledge[] }) {
                   </li>
                 ))}
               </ul>
+            )}
+            {!!k.privateProjects && (
+              <p className="mt-2 text-[11.5px] text-[#4A7FA7]">
+                Plus {k.privateProjects} private {k.privateProjects === 1 ? "project" : "projects"}, counted in the languages above. Their
+                names are not stored or shown.
+              </p>
             )}
             {k.projectCount > k.projects.length && (
               <p className="mt-2 text-[11.5px] text-[#4A7FA7]">

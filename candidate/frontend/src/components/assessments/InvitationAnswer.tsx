@@ -19,8 +19,13 @@ export function InvitationAnswer({ assessmentId }: { assessmentId: string }) {
 
   const run = (action: () => Promise<{ ok: true } | { ok: false; error: string }>) =>
     start(async () => {
-      const result = await action();
-      setError(result.ok ? null : result.error);
+      try {
+        const result = await action();
+        setError(result.ok ? null : result.error);
+      } catch {
+        // The request never arrived, so the invitation is as it was.
+        setError("Couldn't reach the server — check your connection and try again.");
+      }
     });
 
   if (declining) {

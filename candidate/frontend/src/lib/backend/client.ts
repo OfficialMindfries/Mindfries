@@ -117,6 +117,10 @@ export interface SessionView {
   id: string;
   status: string;
   sandboxHealth: string;
+  /** True when the session's workspace is a real sandbox rather than the browser. Absent from an older backend. */
+  sandbox?: boolean;
+  /** What that sandbox may reach on the network. Absent for a browser session. */
+  sandboxNetwork?: SandboxNetwork;
   progressPct: number;
   durationMin: number;
   elapsedMin: number;
@@ -260,6 +264,71 @@ export async function sessionEventsOrUndefined(sessionId: string): Promise<{ url
   } catch {
     return undefined;
   }
+}
+
+// ── The sandbox workspace — candidate/backend's internal/httpapi/sandbox.go.
+// A session whose `sandbox` is true has its files and terminal on a real
+// machine; these are the calls the IDE makes to it. ────────────────────────
+
+export interface SandboxEntry {
+  path: string;
+  size: number;
+  modTime: number;
+}
+
+export interface SandboxFile {
+  path: string;
+  content: string;
+  /** Why there is no content: "binary", "too_large" or "missing". */
+  skipped?: string;
+}
+
+const sandboxPath = (sessionId: string, rest: string) => `/api/v1/sessions/${encodeURIComponent(sessionId)}/sandbox/${rest}`;
+const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+export async function sandboxFiles(sessionId: string): Promise<{ entries: SandboxEntry[]; truncated: boolean }> {
+  return request(sandboxPath(sessionId, "files"));
+}
+
+export async function sandboxRead(sessionId: string, paths: string[]): Promise<{ files: SandboxFile[] }> {
+  return request(sandboxPath(sessionId, "read"), json("POST", { paths }));
+}
+
+export async function sandboxWrite(sessionId: string, path: string, content: string): Promise<void> {
+  return request(sandboxPath(sessionId, "file"), json("PUT", { path, content }));
+}
+
+export async function sandboxChange(sessionId: string, change: { op: "delete" | "move" | "mkdir"; path: string; to?: string }): Promise<void> {
+  return request(sandboxPath(sessionId, "change"), json("POST", change));
+}
+
+export async function sandboxRun(sessionId: string, command: string, timeoutSec?: number): Promise<{ exitCode: number; output: string; truncated: boolean; ms: number }> {
+  return request(sandboxPath(sessionId, "run"), json("POST", { command, timeoutSec }));
+}
+
+/** What a sandbox may reach: everything, package registries and git hosts, or nothing. */
+export type SandboxNetwork = "open" | "essentials" | "none";
+
+export interface SandboxPort {
+  port: number;
+  /** The program listening, when the sandbox could tell. */
+  process: string;
+}
+
+/** What is listening in the sandbox right now — servers the candidate started. */
+export async function sandboxPorts(sessionId: string): Promise<{ ports: SandboxPort[] }> {
+  return request(sandboxPath(sessionId, "ports"));
+}
+
+/** A link to one of those ports that works from the candidate's browser, for an hour. */
+export async function sandboxPreview(sessionId: string, port: number): Promise<{ url: string; expiresInSec: number }> {
+  return request(sandboxPath(sessionId, "preview"), json("POST", { port }));
+}
+
+/** A ticket and address for the sandbox terminal's WebSocket — the same two-step as the event stream. */
+export async function sandboxTerminal(sessionId: string): Promise<{ url: string; ticket: string }> {
+  const { ticket } = await request<{ ticket: string }>(sandboxPath(sessionId, "terminal-ticket"), { method: "POST" });
+  return { url: baseUrl().replace(/^http/, "ws") + "/api/v1/sandbox-terminal", ticket };
 }
 
 /** Where the browser opens the live interview call: the backend's own address, as a WebSocket. */
@@ -428,6 +497,24 @@ export async function getSessionOrUndefined(sessionId: string): Promise<SessionV
   try {
     return await getSession(sessionId);
   } catch (err) {
+    if (!(err instanceof BackendAuthError)) console.error("backend: getSession failed:", err);
+    return undefined;
+  }
+}
+
+/**
+ * Like getSessionOrUndefined, but tells apart the two reasons there is no
+ * session to show: the backend couldn't be asked (undefined — the workspace
+ * degrades honestly, as before), and the backend answered that there is no
+ * such session for this candidate ("missing" — someone else's id, a
+ * mistyped one, a made-up one).
+ */
+export async function getSessionOrMissing(sessionId: string): Promise<SessionView | undefined | "missing"> {
+  if (!backendReady()) return undefined;
+  try {
+    return await getSession(sessionId);
+  } catch (err) {
+    if (err instanceof BackendError && err.status === 404) return "missing";
     if (!(err instanceof BackendAuthError)) console.error("backend: getSession failed:", err);
     return undefined;
   }

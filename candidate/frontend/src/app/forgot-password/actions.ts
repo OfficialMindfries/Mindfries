@@ -1,6 +1,7 @@
 "use server";
 
 import { requestPasswordReset } from "@/lib/auth/email-links";
+import { attemptsExceeded, noteAttempt, waitMessage } from "@/lib/auth/throttle";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
@@ -16,6 +17,12 @@ export type ForgotState = { done: boolean; error: string | null };
 export async function forgotPassword(_prev: ForgotState, form: FormData): Promise<ForgotState> {
   const email = text(form.get("email"), 254).trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { done: false, error: "That doesn't look like an email address." };
+
+  // Counted whether or not the address has an account, so the count says
+  // nothing about which do.
+  const wait = await attemptsExceeded("reset");
+  if (wait > 0) return { done: false, error: waitMessage(wait) };
+  await noteAttempt("reset");
 
   const result = await requestPasswordReset(email);
   if (result === "not_configured") {

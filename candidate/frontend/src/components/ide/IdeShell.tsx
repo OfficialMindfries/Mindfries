@@ -20,6 +20,8 @@ import { useIdeTheme, type IdeTheme } from "@/lib/ide/theme";
 import { idePalette } from "@/lib/ide/palette";
 import { initialTree, initialFiles, DEFAULT_OPEN_PATH } from "@/lib/ide/mock-project";
 import { buildInitialWorkspace } from "@/lib/ide/seed-workspace";
+import { SandboxContext } from "@/lib/ide/sandbox/context";
+import { useSandboxSync } from "@/lib/ide/sandbox/use-sandbox-sync";
 import { addNode, collectFilePaths, findNode, moveNode, removeNode } from "@/lib/ide/tree";
 import type { FileContents, TreeNode } from "@/lib/ide/types";
 import type { VfsBridge } from "@/lib/ide/vfs-bridge";
@@ -55,18 +57,6 @@ interface IdeShellProps {
   /** The signed-in candidate's real name from the active session. */
   candidateName?: string;
   /**
-   * The real assessment title from game_templates.title — shown in the
-   * IDE header bar. Falls back to a generic label when the backend isn't
-   * configured or the session has no attached template yet.
-   */
-  assessmentName?: string;
-  /**
-   * Total assessment duration in seconds from game_templates.duration_min.
-   * Drives the IDE countdown timer. Falls back to a default when absent so
-   * the header still renders rather than crashing on an unset value.
-   */
-  durationSeconds?: number;
-  /**
    * The real assessment content behind `sessionId` — its task brief and
    * starting files, from `game_templates.task_brief`/`starter_files` via
    * GET /sessions/{id}/assessment (see app/ide/page.tsx, which fetches this
@@ -91,12 +81,28 @@ interface IdeShellProps {
    * browser, kept apart from the scratch workspace and from any session.
    */
   practice?: boolean;
+  /**
+   * This session's workspace is a real machine (a Daytona sandbox made when
+   * the session started): the terminal is a shell on it and the files here
+   * are kept in step with the files on its disk. False or absent, the
+   * workspace runs in this browser, as it always has.
+   */
+  sandbox?: boolean;
+  /** What that machine may reach on the network; the Ports panel says so. */
+  sandboxNetwork?: "open" | "essentials" | "none";
 }
 
 /** How often the workspace is saved to the backend while the candidate works. */
 const CHECKPOINT_INTERVAL_MS = 60 * 1000;
 
-export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice }: IdeShellProps) {
+export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, assessmentName, remainingSeconds, serverWorkspace, practice, sandbox, sandboxNetwork = "open" }: IdeShellProps) {
+  // Set once, from props resolved before this component existed.
+  const sandboxed = !!sessionId && !!sandbox;
+  // The sandbox sync's two actions, reachable from effects declared above
+  // the hook that provides them (it needs state that comes later). Both do
+  // nothing until that hook has run, and for an in-browser workspace always.
+  const sandboxRefreshRef = useRef<() => void>(() => undefined);
+  const sandboxFlushRef = useRef<() => Promise<void>>(() => Promise.resolve());
   // Which saved copy (files and git) this workspace reads and writes in this
   // browser. It is only a storage key — everything that records or submits
   // asks for `sessionId` itself, which a practice run doesn't have.
@@ -175,10 +181,20 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   useEffect(
     () =>
       terminalLog.onCommand((done) => {
-        telemetryRef.current?.record("terminal_command", { command: done.command.slice(0, 300), exitCode: done.exitCode, ms: done.ms });
+        if (sandboxed) {
+          // The sandbox's own shell reported this command and the backend
+          // has already recorded it — sending it again from here would
+          // count it twice. What it may have done is change files.
+          sandboxRefreshRef.current();
+        } else {
+          telemetryRef.current?.record("terminal_command", { command: done.command.slice(0, 300), exitCode: done.exitCode, ms: done.ms });
+        }
         if (!isTestCommand(done.command)) return;
         const run = parseTestRun(done.command, done.output, done.exitCode);
         testResults.record(run);
+        // In a sandbox the backend read this run's result itself, from the
+        // output it relayed; it doesn't take one from the page.
+        if (sandboxed) return;
         telemetryRef.current?.record("test_run", {
           command: run.command.slice(0, 300),
           exitCode: run.exitCode,
@@ -189,7 +205,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
           failing: run.tests.filter((t) => t.status === "fail" || t.status === "error").map((t) => t.name).slice(0, 20),
         });
       }),
-    [],
+    [sandboxed],
   );
 
   // Which file the candidate is looking at, as it changes — the order they
@@ -230,6 +246,10 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     // localStorage is only reachable client-side, so this restore can only
     // happen post-mount — same unavoidable pattern as theme.tsx's read.
     /* eslint-disable react-hooks/set-state-in-effect */
+    // A sandbox workspace's files are the ones on the sandbox's disk; they
+    // are read from there (useSandboxSync below), and `restored` is set
+    // when they arrive.
+    if (sandboxed) return;
     // This session's own copy — never another session's — or, when the
     // server's is newer (the candidate last worked somewhere else) or this
     // browser has none, the server's.
@@ -269,12 +289,14 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // run, so a fresh mount doesn't briefly overwrite saved data with the
   // empty initial state.
   useEffect(() => {
-    if (!restored) return;
+    // Nothing to keep in this browser for a sandbox workspace: the sandbox
+    // is the copy, and a stale local one must never be mistaken for it.
+    if (!restored || sandboxed) return;
     const timeout = setTimeout(() => {
       savePersistedWorkspace({ tree, files, savedFiles, openPaths, activePath }, storageId);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [restored, storageId, tree, files, savedFiles, openPaths, activePath]);
+  }, [restored, sandboxed, storageId, tree, files, savedFiles, openPaths, activePath]);
 
   // Auto Save, on by default (no setting to flip it off yet — ask if you
   // want that toggle). A short delay after you stop typing, whatever's
@@ -372,6 +394,12 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     if (!working || !sessionId) return;
     let lastSent = "";
     const save = () => {
+      if (sandboxed) {
+        // The backend takes this checkpoint from the sandbox's own disk; the
+        // call is only the prompt to do it, once what's saved here is there.
+        void sandboxFlushRef.current().then(() => checkpointWorkspace(sessionId, {}));
+        return;
+      }
       const snapshot = currentSnapshot();
       const serialized = JSON.stringify(snapshot);
       if (serialized === lastSent) return;
@@ -390,7 +418,36 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onHidden);
     };
-  }, [working, sessionId, currentSnapshot]);
+  }, [working, sessionId, currentSnapshot, sandboxed]);
+
+  // ── The sandbox workspace ────────────────────────────────────────────────
+  // Files read from, and saved to, the session's sandbox. Off (and inert)
+  // for an in-browser workspace.
+  const sandboxSync = useSandboxSync({
+    sessionId: sandboxed ? sessionId : undefined,
+    files,
+    savedFiles,
+    paused: interviewing || interviewed || timeUp,
+    onFiles: ({ files: nextFiles, saved, initial }) => {
+      // The tree is rebuilt from the files themselves: what the explorer
+      // shows is what is on the sandbox's disk.
+      const rebuilt = buildInitialWorkspace(nextFiles);
+      syncSnapshot({ tree: rebuilt.tree, files: nextFiles });
+      setTree(rebuilt.tree);
+      setFiles(nextFiles);
+      setSavedFiles(saved);
+      // A tab on a file that is gone from the disk closes.
+      setOpenPaths((paths) => paths.filter((p) => fileOfTab(p) !== null && (fileOfTab(p) as string) in nextFiles));
+      setActivePath((path) => (path && (fileOfTab(path) ?? path) in nextFiles ? path : null));
+      if (initial) setRestored(true);
+    },
+  });
+  const { refresh: sandboxRefresh, flush: sandboxFlush } = sandboxSync;
+  useEffect(() => {
+    sandboxRefreshRef.current = sandboxRefresh;
+    sandboxFlushRef.current = sandboxFlush;
+  }, [sandboxRefresh, sandboxFlush]);
+  const sandboxContext = useMemo(() => (sandboxed && sessionId ? { sessionId, refresh: sandboxRefresh, network: sandboxNetwork } : null), [sandboxed, sessionId, sandboxRefresh, sandboxNetwork]);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmittingReal, startSubmitTransition] = useTransition();
@@ -399,6 +456,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
   // "Back to my work" button. A scratch workspace has no clock to run out.
   const expire = () => {
     if (!sessionId || interviewed) return;
+    void sandboxFlushRef.current();
     setTimeUp(true);
     setSubmitting(false);
     setInterviewing(true);
@@ -407,6 +465,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
     if (!sessionId) return;
     setSubmitError(undefined);
     startSubmitTransition(async () => {
+      await sandboxFlushRef.current();
       const result = await submitAssessment(sessionId, currentSnapshot());
       // A successful call redirects and never returns here.
       if (result?.error) setSubmitError(result.error);
@@ -808,6 +867,9 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
             style={{ height: terminal.size }}
             className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}
           >
+            {/* The terminal and the Tests panel in here are the two that act
+                differently on a sandbox; the context is how they know. */}
+            <SandboxContext.Provider value={sandboxContext}>
             <BottomPanel
               theme={theme}
               vfs={vfs}
@@ -827,6 +889,7 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               // screen. Closing the panel is a separate, more destructive act.
               onStopPreview={() => previewController.stop()}
             />
+            </SandboxContext.Provider>
           </div>
         </div>
 
@@ -858,6 +921,43 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
           </>
         )}
       </div>
+
+      {/* Where the workspace runs, and whether it is reachable — said once,
+          plainly, rather than left for the candidate to infer from a
+          terminal that won't connect. */}
+      {sandboxed && (sandboxSync.status !== "ready" || sandboxSync.problem) && (
+        <div
+          role="status"
+          className={clsx(
+            "shrink-0 rounded-xl border px-3 py-1.5 text-xs",
+            palette.border,
+            sandboxSync.status === "error" || sandboxSync.problem ? "text-amber-500" : palette.textMuted,
+          )}
+        >
+          {sandboxSync.status === "loading" && "Loading your files from the sandbox…"}
+          {sandboxSync.status === "error" &&
+            `Your sandbox couldn't be reached${sandboxSync.problem ? ` (${sandboxSync.problem})` : ""}. Reload the page to try again — your work on it is safe.`}
+          {sandboxSync.status === "ready" && sandboxSync.problem && `The sandbox isn't answering (${sandboxSync.problem}). Your edits are kept here and sent as soon as it does.`}
+        </div>
+      )}
+
+      {/* Files the editor leaves out are still in the project. Without this
+          line a candidate who generated a large data file from the terminal
+          would see nothing appear and reasonably think it failed. */}
+      {sandboxed && sandboxSync.unshown.length > 0 && (
+        <div role="status" className={clsx("shrink-0 rounded-xl border px-3 py-1.5 text-xs", palette.border, palette.textMuted)}>
+          {sandboxSync.unshown.length === 1 ? "1 file in your project isn't" : `${sandboxSync.unshown.length} files in your project aren't`} shown in the
+          editor (too large or not text):{" "}
+          <span className="font-mono">
+            {sandboxSync.unshown
+              .slice(0, 4)
+              .map((f) => f.path)
+              .join(", ")}
+          </span>
+          {sandboxSync.unshown.length > 4 && ` and ${sandboxSync.unshown.length - 4} more`}. They are on your sandbox — use the terminal to open or
+          change them. The report and the interviewer read text files only.
+        </div>
+      )}
 
       <div className={clsx("shrink-0 overflow-hidden rounded-xl border", palette.border)}>
         <StatusBar
@@ -926,9 +1026,13 @@ export function IdeShell({ sessionId, candidateName, taskBrief, starterFiles, as
               return;
             }
             // Confirmed: the interview comes next, and there's no way back
-            // from it to the editor.
-            setSubmitting(false);
-            setInterviewing(true);
+            // from it to the editor. In a sandbox workspace the work the
+            // interviewer reads is the sandbox's, so anything still on its
+            // way there is sent first.
+            void sandboxFlushRef.current().then(() => {
+              setSubmitting(false);
+              setInterviewing(true);
+            });
           }}
           timeUp={timeUp || interviewed}
           beforeInterview={!interviewed}

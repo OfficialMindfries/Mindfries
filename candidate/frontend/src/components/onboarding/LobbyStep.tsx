@@ -97,6 +97,17 @@ export function LobbyStep({ assessment, onBack, onEnter, pending, error }: Lobby
         ))}
       </div>
 
+      {/* Starting a session makes its machine and puts the task on it, which
+          takes around ten seconds. Said while it happens, so a candidate
+          isn't left wondering whether the button worked — or whether the
+          clock is already running against them. */}
+      {pending && (
+        <p role="status" className="rounded-lg border border-[#B3CFE5] bg-white px-4 py-3 text-center text-sm text-[#1A3D63]">
+          Preparing your workspace — setting up your machine and putting the task on it. This usually takes 10–15 seconds, and your
+          time starts only once the workspace opens.
+        </p>
+      )}
+
       {error && (
         <p className="rounded-lg border border-[#E4A0A0] bg-[#FBEAEA] px-4 py-3 text-center text-sm font-medium text-[#8A2C2C]">
           {error}
@@ -125,7 +136,7 @@ export function LobbyStep({ assessment, onBack, onEnter, pending, error }: Lobby
           disabled={pending}
           style={pending ? { "--btn-bg": "#4A7FA7" } as React.CSSProperties : undefined}
         >
-          {pending ? "Starting…" : "Enter Workspace"}
+          {pending ? "Preparing…" : "Enter Workspace"}
           {!pending && <ArrowRight size={15} />}
         </Button>
       </div>

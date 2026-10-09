@@ -22,7 +22,16 @@ import { db } from "./supabase";
 export interface ProfileLink {
   platform: "github" | "gitlab" | "linkedin" | "portfolio";
   label: string;
-  url: string;
+  /** Null when the candidate signed in to the platform but gave no address (LinkedIn). */
+  url: string | null;
+  /**
+   * Set when the candidate signed in to this platform: the username or, for
+   * LinkedIn, the member's name they signed in under. For LinkedIn it shows
+   * they hold an account in that name — not that `url` is that account.
+   */
+  signedInAs: string | null;
+  /** The headline LinkedIn gave for the signed-in member, if any. */
+  headline: string | null;
 }
 
 export interface ProfileProject {
@@ -46,6 +55,8 @@ export interface ProfileCodeAccount {
   projects: ProfileProject[];
   projectCount: number;
   activity: { lastActiveAt: string | null; since: string | null; pushes: number; pullRequests: number; reviews: number; issues: number } | null;
+  /** Private projects of their own, seen through their connection. A count only — names are never stored. */
+  privateProjects: number;
 }
 
 export interface CandidateProfile {
@@ -93,9 +104,15 @@ function toLinks(raw: any): ProfileLink[] {
   const out: ProfileLink[] = [];
   for (const platform of ["github", "gitlab", "linkedin", "portfolio"] as const) {
     const value = raw?.[platform]?.value;
-    if (typeof value !== "string" || !value) continue;
-    const url = safeUrl(LINK_URL[platform](value));
-    if (url) out.push({ platform, label: LINK_LABEL[platform], url });
+    const as = raw?.[platform]?.verified?.as;
+    const signedInAs = typeof as === "string" && as ? as.slice(0, 200) : null;
+    const fromPlatform = raw?.[platform]?.profile;
+    // An address LinkedIn itself gave for the signed-in member beats one that was typed.
+    const url =
+      (typeof fromPlatform?.profileUrl === "string" && safeUrl(fromPlatform.profileUrl)) ||
+      (typeof value === "string" && value ? safeUrl(LINK_URL[platform](value)) : null);
+    const headline = typeof fromPlatform?.headline === "string" && fromPlatform.headline ? fromPlatform.headline.slice(0, 300) : null;
+    if (url || signedInAs) out.push({ platform, label: LINK_LABEL[platform], url, signedInAs, headline });
   }
   return out;
 }
@@ -118,6 +135,7 @@ function toCodeAccount(r: any): ProfileCodeAccount | null {
       .filter((p: any) => p.url),
     projectCount: Number(k.projectCount) || 0,
     activity: k.activity ?? null,
+    privateProjects: Number(k.privateProjects) || 0,
   };
 }
 

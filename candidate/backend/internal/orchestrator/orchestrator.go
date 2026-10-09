@@ -34,7 +34,20 @@ type Orchestrator struct {
 	// Live is the interviewer's live voice line. Nil or unconfigured means
 	// interviews are held turn by turn through Agents.
 	Live *llm.LiveClient
+	// SandboxNetwork and SandboxMaxLive are config.Config's settings of the
+	// same names: what a sandbox may reach, and how many may run at once.
+	SandboxNetwork string
+	SandboxMaxLive int
+	// RequireVerifiedEmail is config.Config's setting of the same name: an
+	// invitation can only be started from an account whose address is
+	// confirmed.
+	RequireVerifiedEmail bool
 }
+
+// ErrEmailUnconfirmed is an invitation the candidate can't start until
+// they have confirmed the address it was sent to. Its text is written for
+// the candidate.
+var ErrEmailUnconfirmed = errors.New("Confirm your email address before starting this assessment. The link is in the email we sent when you signed up — you can send a new one from your dashboard.")
 
 func New(database *db.DB, agents *llm.Agents, sb *sandbox.Client, hub *ws.Hub) *Orchestrator {
 	o := &Orchestrator{DB: database, Agents: agents, Sandbox: sb, Hub: hub}
@@ -100,7 +113,7 @@ func (o *Orchestrator) StartAssessment(ctx context.Context, candidateID, candida
 	if err != nil {
 		return db.Session{}, fmt.Errorf("orchestrator: %s is not an available assessment: %w", id, err)
 	}
-	return o.startFromTemplate(ctx, candidateID, candidateName, *tmpl)
+	return o.startFromTemplate(ctx, candidateID, candidateEmail, candidateName, *tmpl)
 }
 
 func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, candidateEmail, candidateName string, inv db.Invitation) (db.Session, error) {
@@ -112,6 +125,19 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 	}
 	if inv.Status != "invited" {
 		return db.Session{}, fmt.Errorf("orchestrator: this assessment is already %s", strings.ReplaceAll(inv.Status, "_", " "))
+	}
+	// An invitation is addressed to an email, and an account is created by
+	// typing one in. Until the address is confirmed, the person holding the
+	// account hasn't shown that the invitation reached them rather than
+	// someone who knew, or guessed, who was invited.
+	if o.RequireVerifiedEmail {
+		standing, err := o.DB.GetAccountStanding(ctx, candidateID)
+		if err != nil {
+			return db.Session{}, fmt.Errorf("orchestrator: checking the account: %w", err)
+		}
+		if !standing.EmailVerified {
+			return db.Session{}, ErrEmailUnconfirmed
+		}
 	}
 
 	sess, err := o.DB.StartSessionFromInvitation(ctx, candidateID, candidateName, inv)
@@ -129,11 +155,11 @@ func (o *Orchestrator) startFromInvitation(ctx context.Context, candidateID, can
 	}
 
 	o.assignVariant(ctx, sess)
-	sess = o.provisionAndAnnounce(ctx, sess)
+	sess = o.provisionAndAnnounce(ctx, sess, candidateName, candidateEmail)
 	return sess, nil
 }
 
-func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candidateName string, tmpl db.Template) (db.Session, error) {
+func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candidateEmail, candidateName string, tmpl db.Template) (db.Session, error) {
 	existing, err := o.DB.GetSessionByCandidateAndTemplate(ctx, candidateID, tmpl.ID)
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return db.Session{}, fmt.Errorf("orchestrator: checking existing session: %w", err)
@@ -161,7 +187,7 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 		return db.Session{}, fmt.Errorf("orchestrator: creating session: %w", err)
 	}
 	o.assignVariant(ctx, sess)
-	sess = o.provisionAndAnnounce(ctx, sess)
+	sess = o.provisionAndAnnounce(ctx, sess, candidateName, candidateEmail)
 	return sess, nil
 }
 
@@ -169,26 +195,21 @@ func (o *Orchestrator) startFromTemplate(ctx context.Context, candidateID, candi
 // sandbox (never fails the session over it — "real, or an honest failure,"
 // never "fail the whole flow over an optional piece that isn't wired up")
 // and the real-time broadcast every session start makes.
-func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session) db.Session {
-	if o.Sandbox != nil && o.Sandbox.Configured() {
-		sb, err := o.Sandbox.CreateSandbox(ctx, sandbox.CreateOptions{})
-		if err != nil {
-			slog.Error("orchestrator: sandbox provisioning failed", "session", sess.ID, "error", err)
-			degraded := "degraded"
-			_ = o.DB.UpdateSessionState(ctx, sess.ID, db.SessionStatePatch{SandboxHealth: &degraded})
-			sess.SandboxHealth = degraded
+func (o *Orchestrator) provisionAndAnnounce(ctx context.Context, sess db.Session, candidateName, candidateEmail string) db.Session {
+	// The sandbox is where the candidate's workspace lives when there is one
+	// (sandbox_workspace.go). A session without one — Daytona not
+	// configured, or not answering — runs in the browser, as before.
+	began := time.Now()
+	sess, _ = o.setUpSandbox(ctx, sess, candidateName, candidateEmail)
+	// Making the machine and putting the task on it takes around ten
+	// seconds (longer when it fails and the session falls back to the
+	// browser). That is our time, not the candidate's: the session's clock
+	// starts now, when there is a workspace to open.
+	if time.Since(began) > time.Second {
+		if startedAt, err := o.DB.RestartClock(context.WithoutCancel(ctx), sess.ID); err != nil {
+			slog.Error("orchestrator: restarting the session clock after setup failed", "session", sess.ID, "error", err)
 		} else {
-			// The ID CreateSandbox just returned used to be thrown away here —
-			// with no column to hold it and nothing left to find it by, a real
-			// DAYTONA_API_KEY would have started leaking real, billable
-			// sandboxes with no way to ever tear them down. Stored now so
-			// teardownSandbox (called from Submit and the admin reset path)
-			// has something to delete.
-			if err := o.DB.SetSandboxID(ctx, sess.ID, &sb.ID); err != nil {
-				slog.Error("orchestrator: recording sandbox id failed", "session", sess.ID, "sandbox", sb.ID, "error", err)
-			} else {
-				sess.SandboxID = &sb.ID
-			}
+			sess.StartedAt = startedAt
 		}
 	}
 	o.broadcast(sess.ID, "session_started", sess)

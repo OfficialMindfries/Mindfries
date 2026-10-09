@@ -32,6 +32,16 @@ export interface StoredLink {
   savedAt: string;
   /** Only for the two platforms whose public API answered when this was saved. */
   stats?: PlatformStats;
+  /**
+   * Set when the candidate signed in to the account to show it is theirs:
+   * when, and as whom — the username on GitHub/GitLab, the member's name on
+   * LinkedIn (which gives no profile address to compare `value` against).
+   */
+  verified?: { at: string; as: string };
+  /** The Composio connection behind a signed-in account, while it is linked. Server-side use only. */
+  connectionId?: string;
+  /** What LinkedIn said about the signed-in member (lib/profile/knowledge-connection.ts). LinkedIn only. */
+  profile?: { name: string; headline?: string; pictureUrl?: string; profileUrl?: string };
 }
 
 /** What the "Edit profile" form writes. Absent (`null`) means nothing has been edited yet — the page falls back to the sample identity in lib/dashboard/data.ts and lib/profile/data.ts. */

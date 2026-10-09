@@ -78,7 +78,7 @@ func (s *Server) handleLiveInterviewStart(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if err := s.orc.RecordSnapshot(r.Context(), sess.ID, files); err != nil {
+	if err := s.orc.CaptureWorkspace(r.Context(), sess, files, false); err != nil {
 		slog.Error("handleLiveInterviewStart: recording workspace", "session", sess.ID, "error", err)
 	}
 

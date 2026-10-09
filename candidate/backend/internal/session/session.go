@@ -41,6 +41,10 @@ type CandidateClaims struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Exp   int64  `json:"exp"`
+	// Iat is when the session was issued. An account can withdraw every
+	// session issued before a moment; a cookie from before this field
+	// existed has 0 here and counts as older than any withdrawal.
+	Iat int64 `json:"iat"`
 }
 
 // AdminClaims mirrors internal-admin/frontend/lib/auth/session.ts's Session.
@@ -159,6 +163,11 @@ type LiveTicket struct {
 	SessionID   string `json:"sid"`
 	CandidateID string `json:"cid"`
 	Exp         int64  `json:"exp"`
+	// Nonce makes two tickets issued in the same second different strings.
+	// Set where a ticket is single-use (the sandbox terminal): without it,
+	// two terminals opened together would be handed the same ticket and the
+	// second would be refused as already spent.
+	Nonce string `json:"n,omitempty"`
 }
 
 // liveTicketSecret keeps tickets and cookies from being interchangeable: a
@@ -238,6 +247,35 @@ func VerifyEventsTicket(token, secret string) (*LiveTicket, error) {
 		return nil, ErrInvalid
 	}
 	raw, err := verify(token, eventsTicketSecret(secret))
+	if err != nil {
+		return nil, err
+	}
+	var t LiveTicket
+	if err := json.Unmarshal(raw, &t); err != nil || t.SessionID == "" || t.CandidateID == "" {
+		return nil, ErrInvalid
+	}
+	return &t, nil
+}
+
+// A terminal ticket lets a candidate's browser open the WebSocket that is
+// their sandbox's terminal — again the LiveTicket shape under its own key,
+// so a ticket for the event stream or the voice call can't open a shell.
+func terminalTicketSecret(secret string) string { return secret + "|sandbox-terminal-ticket" }
+
+// SignTerminalTicket issues a ticket for a session's sandbox terminal.
+func SignTerminalTicket(t LiveTicket, secret string) (string, error) {
+	if secret == "" {
+		return "", ErrInvalid
+	}
+	return sign(t, terminalTicketSecret(secret))
+}
+
+// VerifyTerminalTicket checks a terminal ticket's signature and expiry.
+func VerifyTerminalTicket(token, secret string) (*LiveTicket, error) {
+	if secret == "" {
+		return nil, ErrInvalid
+	}
+	raw, err := verify(token, terminalTicketSecret(secret))
 	if err != nil {
 		return nil, err
 	}

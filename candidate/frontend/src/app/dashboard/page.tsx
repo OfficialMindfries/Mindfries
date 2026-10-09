@@ -54,7 +54,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         )}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-[#0A1931]">
+            <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-[#0A1931] [overflow-wrap:anywhere]">
               Welcome back, {displayName}
             </h1>
             {/* Only show role/location once the candidate has actually saved a

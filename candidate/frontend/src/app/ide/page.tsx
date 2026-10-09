@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { IdeShell } from "@/components/ide/IdeShell";
 import { currentCandidate } from "@/lib/auth/users";
-import { getSavedWorkspaceOrUndefined, getSessionAssessmentOrUndefined, getSessionOrUndefined, secondsRemaining } from "@/lib/backend/client";
+import { getSavedWorkspaceOrUndefined, getSessionAssessmentOrUndefined, getSessionOrMissing, secondsRemaining } from "@/lib/backend/client";
 import { PRACTICE_BRIEF, PRACTICE_FILES, PRACTICE_NAME } from "@/lib/ide/practice-task";
 
 export const metadata: Metadata = {
@@ -25,9 +25,15 @@ export default async function IdePage({
   // inside IdeShell — so the workspace's very first paint already has the
   // real starting files/brief (or the honest fallback) rather than
   // flashing empty/mock content while a client-side fetch resolves.
-  const [assessment, live, saved] = session
-    ? await Promise.all([getSessionAssessmentOrUndefined(session), getSessionOrUndefined(session), getSavedWorkspaceOrUndefined(session)])
+  const [assessment, found, saved] = session
+    ? await Promise.all([getSessionAssessmentOrUndefined(session), getSessionOrMissing(session), getSavedWorkspaceOrUndefined(session)])
     : [undefined, undefined, undefined];
+  // A session id the backend says isn't this candidate's — someone else's,
+  // mistyped, invented — has no workspace. It used to open one anyway,
+  // titled "Assessment" and blaming a missing task brief on "a setup gap on
+  // our end", which invited work that could never be submitted.
+  if (found === "missing") notFound();
+  const live = found;
   // What's really left on this session's clock, measured from when it
   // started — a reload doesn't hand the candidate their time back.
   // A session that's been submitted has no workspace to return to — its
@@ -42,6 +48,10 @@ export default async function IdePage({
       candidateName={candidate?.name}
       assessmentName={assessment?.name}
       remainingSeconds={remainingSeconds}
+      // A real machine behind this session (candidate/backend made one when
+      // it started), or the in-browser workspace when there isn't.
+      sandbox={!!live?.sandbox}
+      sandboxNetwork={live?.sandboxNetwork}
       taskBrief={assessment?.taskBrief}
       starterFiles={assessment?.starterFiles}
       // The server's copy of this session's work, if it has one — what a

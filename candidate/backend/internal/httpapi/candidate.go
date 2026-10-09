@@ -169,12 +169,16 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, err.Error())
 		return
 	}
+	if errors.Is(err, orchestrator.ErrEmailUnconfirmed) {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err != nil {
 		slog.Error("handleStartSession", "error", err)
 		writeError(w, http.StatusBadRequest, "could not start that assessment: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, sessionView(sess))
+	writeJSON(w, http.StatusCreated, s.sessionView(r.Context(), sess))
 }
 
 type sessionResponse struct {
@@ -185,6 +189,23 @@ type sessionResponse struct {
 	DurationMin   int    `json:"durationMin"`
 	ElapsedMin    int    `json:"elapsedMin"`
 	StartedAt     string `json:"startedAt"`
+	// Sandbox is true when this session's workspace is a real machine — the
+	// terminal and files are the sandbox's — and false when it runs in the
+	// candidate's browser.
+	Sandbox bool `json:"sandbox"`
+	// SandboxNetwork is what that machine may reach — "open", "essentials"
+	// or "none" — so the workspace can tell the candidate. Empty for a
+	// browser session.
+	SandboxNetwork string `json:"sandboxNetwork,omitempty"`
+}
+
+func (s *Server) sessionView(ctx context.Context, sess db.Session) sessionResponse {
+	view := sessionView(sess)
+	view.Sandbox = s.orc != nil && s.orc.SandboxReady(ctx, sess)
+	if view.Sandbox {
+		view.SandboxNetwork = s.orc.NetworkPolicy()
+	}
+	return view
 }
 
 func sessionView(s db.Session) sessionResponse {
@@ -224,13 +245,19 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionView(sess))
+	writeJSON(w, http.StatusOK, s.sessionView(r.Context(), sess))
 }
 
 type sessionAssessmentResponse struct {
-	Name         string            `json:"name,omitempty"`
-	TaskBrief    *string           `json:"taskBrief,omitempty"`
-	StarterFiles map[string]string `json:"starterFiles,omitempty"`
+	// Name is what candidate/frontend reads for the workspace header.
+	// AssessmentName and DurationMin carry the same template's name and its
+	// time limit under the names the endpoint's tests pin down, and are
+	// always present.
+	Name           string            `json:"name,omitempty"`
+	AssessmentName string            `json:"assessmentName"`
+	DurationMin    int               `json:"durationMin"`
+	TaskBrief      *string           `json:"taskBrief,omitempty"`
+	StarterFiles   map[string]string `json:"starterFiles,omitempty"`
 }
 
 // handleGetSessionAssessment is what makes the IDE's task brief and
@@ -258,13 +285,20 @@ func (s *Server) handleGetSessionAssessment(w http.ResponseWriter, r *http.Reque
 	// The version of the task this session was dealt — see
 	// orchestrator/variants.go. Only ever the brief and starting files:
 	// a template's reference solution is not part of TemplateContent.
+	//
+	// A server built without an orchestrator (the handler tests do this,
+	// with a fake store) has no record of which variant a session was
+	// dealt, so it serves the template as authored.
 	var content db.TemplateContent
 	if s.orc != nil {
 		content = s.orc.TemplateContent(r.Context(), sess)
-	} else {
-		content, _ = s.db.GetTemplateContent(r.Context(), *sess.TemplateID)
+	} else if tc, err := s.db.GetTemplateContent(r.Context(), *sess.TemplateID); err == nil {
+		content = tc
 	}
-	writeJSON(w, http.StatusOK, sessionAssessmentResponse{Name: content.Name, TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles})
+	writeJSON(w, http.StatusOK, sessionAssessmentResponse{
+		Name: content.Name, AssessmentName: content.Name, DurationMin: content.DurationMin,
+		TaskBrief: content.TaskBrief, StarterFiles: content.StarterFiles,
+	})
 }
 
 type postEventsRequest struct {
@@ -323,6 +357,7 @@ var serverOnlyEventTypes = map[string]bool{
 	"ai_cost":            true,
 	"auto_submitted":     true,
 	"variant_assigned":   true,
+	"sandbox_ready":      true,
 }
 
 // handlePostEvents is the Event & Telemetry Engine's ingestion point (PRD
@@ -362,13 +397,22 @@ func (s *Server) handlePostEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// In a sandbox session the shell itself reports each command and this
+	// backend records it, and reads a test run's result out of the output
+	// it relayed (terminals.go, orchestrator/testrun.go). The page has no
+	// business supplying either there: one it posted would sit in the trail
+	// beside the real ones, indistinguishable from them — "all tests
+	// passed" from a script, not a test runner. Looked up only if the
+	// request contains one.
+	sandboxed := func() bool { return s.orc != nil && s.orc.SandboxReady(r.Context(), sess) }
+
 	events := make([]db.NewActivityEvent, 0, len(body.Events))
 	for _, e := range body.Events {
 		if e.Type == "" || !eventTypePattern.MatchString(e.Type) {
 			writeError(w, http.StatusBadRequest, "event type must be lowercase letters, digits and underscores, starting with a letter, 64 characters or fewer")
 			return
 		}
-		if serverOnlyEventTypes[e.Type] {
+		if serverOnlyEventTypes[e.Type] || ((e.Type == "terminal_command" || e.Type == "test_run") && sandboxed()) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("event type %q is recorded by the server and can't be submitted", e.Type))
 			return
 		}
@@ -413,7 +457,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	// snapshot or events exist.
 	if files, ok := decodeFiles(w, r); !ok {
 		return
-	} else if err := s.orc.RecordSnapshot(r.Context(), sessionID, files); err != nil {
+	} else if err := s.orc.CaptureWorkspace(r.Context(), sess, files, false); err != nil {
 		slog.Error("handleSubmit: recording final workspace", "session", sessionID, "error", err)
 	}
 
