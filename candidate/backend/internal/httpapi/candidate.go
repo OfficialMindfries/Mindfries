@@ -97,7 +97,7 @@ func toInvitationView(inv db.Invitation) assessmentView {
 func (s *Server) handleListAssessments(w http.ResponseWriter, r *http.Request) {
 	c := candidateFrom(r)
 
-	invitations, err := s.db.ListInvitationsForCandidate(r.Context(), c.Email)
+	invitations, err := s.db.ListInvitationsForCandidate(r.Context(), c.ID, c.Email)
 	if err != nil {
 		slog.Error("handleListAssessments: invitations", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not load assessments")
