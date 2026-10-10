@@ -57,15 +57,15 @@ func scanInvitation(row pgx.Row) (Invitation, error) {
 // candidate to, matched by email the same way the rest of the schema
 // already does (candidate_users, assessments — both lower-cased email
 // lookups).
-func (d *DB) ListInvitationsForCandidate(ctx context.Context, candidateEmail string) ([]Invitation, error) {
+func (d *DB) ListInvitationsForCandidate(ctx context.Context, candidateID, candidateEmail string) ([]Invitation, error) {
 	rows, err := d.pool.Query(ctx, `
 		select `+invitationColumns+`
 		from assessments a
 		left join companies c on c.id = a.company_id
 		left join game_templates t on t.id = a.template_id
-		where lower(a.candidate_email) = lower($1)
+		where a.candidate_id = $1 or lower(a.candidate_email) = lower($2)
 		order by a.created_at desc
-	`, candidateEmail)
+	`, candidateID, candidateEmail)
 	if err != nil {
 		return nil, err
 	}
