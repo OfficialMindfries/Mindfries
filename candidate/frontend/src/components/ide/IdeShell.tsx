@@ -56,6 +56,8 @@ interface IdeShellProps {
   sessionId?: string;
   /** The signed-in candidate's real name from the active session. */
   candidateName?: string;
+  /** The human-readable title of the active assessment. */
+  assessmentName?: string;
   /**
    * The real assessment content behind `sessionId` — its task brief and
    * starting files, from `game_templates.task_brief`/`starter_files` via
